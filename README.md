@@ -11,7 +11,7 @@ Sistema backend con arquitectura de microservicios para Medilaser.
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────┐
-│                   API GATEWAY (3000)                     │
+│                   API GATEWAY (3001)                     │
 │  - JWT Authentication                                    │
 │  - Rate Limiting                                         │
 │  - Routing & Orchestration                               │
@@ -266,3 +266,4 @@ medilaser-backend/
 ## 📄 License
 
 Private - Medilaser
+
