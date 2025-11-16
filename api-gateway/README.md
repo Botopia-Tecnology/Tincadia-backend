@@ -1,8 +1,8 @@
-# API Gateway - Medilaser
+# API Gateway - Tincadia
 
 ## Descripción
 
-Punto de entrada único para todas las peticiones del sistema Medilaser. Implementa:
+Punto de entrada único para todas las peticiones del sistema Tincadia. Implementa:
 
 - **Autenticación JWT**: Validación de tokens en todas las rutas protegidas
 - **Rate Limiting**: Control de tasa de peticiones por IP/usuario
@@ -12,7 +12,7 @@ Punto de entrada único para todas las peticiones del sistema Medilaser. Impleme
 
 ## Puertos
 
-- API Gateway: `3000` (configurable vía PORT)
+- API Gateway: `3001` ⚠️ IMPORTANTE (configurable vía PORT)
 - Auth MS: `3002`
 - Payments MS: `3003`
 - Forms MS: `3004`
@@ -68,7 +68,7 @@ npm run test:cov
 Crea un archivo `.env` en la raíz del proyecto:
 
 ```env
-PORT="3000"
+PORT="3001"
 authHost="localhost"
 authPort="3002"
 paymentsHost="localhost"
@@ -78,7 +78,7 @@ formsPort="3004"
 communicationHost="localhost"
 communicationPort="3005"
 DB_HOST="localhost"
-DB_NAME="medilaser"
+DB_NAME="tincadia"
 DB_PASSWORD=""
 DB_PORT="5432"
 DB_USER="postgres"

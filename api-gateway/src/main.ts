@@ -8,9 +8,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     cors: {
       origin: [
-        'http://localhost:3000',
+        'http://localhost:3001',
         'http://localhost:5173',
-        'https://medilaser.vercel.app',
+        'https://tincadia.vercel.app',
         /\.devtunnels\.ms$/,
       ],
       credentials: true,
@@ -36,7 +36,7 @@ async function bootstrap() {
     }),
   );
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`🚀 API Gateway running on http://localhost:${port}`);
 }

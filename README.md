@@ -1,6 +1,6 @@
-# Medilaser Backend - Microservices Architecture
+# Tincadia Backend - Microservices Architecture
 
-Sistema backend con arquitectura de microservicios para Medilaser.
+Sistema backend con arquitectura de microservicios para Tincadia.
 
 ## 🏗️ Arquitectura
 
@@ -11,7 +11,7 @@ Sistema backend con arquitectura de microservicios para Medilaser.
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────┐
-│                   API GATEWAY (3000)                     │
+│                   API GATEWAY (3001)                     │
 │  - JWT Authentication                                    │
 │  - Rate Limiting                                         │
 │  - Routing & Orchestration                               │
@@ -29,7 +29,7 @@ Sistema backend con arquitectura de microservicios para Medilaser.
 
 ## 📦 Microservicios
 
-### 1. API Gateway (Port: 3000)
+### 1. API Gateway (Port: 3001) ⚠️ IMPORTANTE
 - **Propósito**: Punto de entrada único
 - **Funciones**:
   - Autenticación JWT
@@ -98,7 +98,7 @@ cd ../communication-ms && npm install
 #### API Gateway (.env)
 
 ```env
-PORT="3000"
+PORT="3001"
 authHost="localhost"
 authPort="3002"
 paymentsHost="localhost"
@@ -108,7 +108,7 @@ formsPort="3004"
 communicationHost="localhost"
 communicationPort="3005"
 DB_HOST="localhost"
-DB_NAME="medilaser"
+DB_NAME="tincadia"
 DB_PASSWORD=""
 DB_PORT="5432"
 DB_USER="postgres"
@@ -123,7 +123,7 @@ Cada microservicio debe tener su archivo `.env` con:
 # auth-ms/.env
 authPort="3002"
 DB_HOST="localhost"
-DB_NAME="medilaser"
+DB_NAME="tincadia"
 DB_PASSWORD=""
 DB_PORT="5432"
 DB_USER="postgres"
@@ -131,7 +131,7 @@ DB_USER="postgres"
 # payments-ms/.env
 paymentsPort="3003"
 DB_HOST="localhost"
-DB_NAME="medilaser"
+DB_NAME="tincadia"
 DB_PASSWORD=""
 DB_PORT="5432"
 DB_USER="postgres"
@@ -139,7 +139,7 @@ DB_USER="postgres"
 # forms-ms/.env
 formsPort="3004"
 DB_HOST="localhost"
-DB_NAME="medilaser"
+DB_NAME="tincadia"
 DB_PASSWORD=""
 DB_PORT="5432"
 DB_USER="postgres"
@@ -147,7 +147,7 @@ DB_USER="postgres"
 # communication-ms/.env
 communicationPort="3005"
 DB_HOST="localhost"
-DB_NAME="medilaser"
+DB_NAME="tincadia"
 DB_PASSWORD=""
 DB_PORT="5432"
 DB_USER="postgres"
@@ -169,7 +169,7 @@ pm2 start ecosystem.config.js
 
 ## 📋 API Endpoints
 
-### API Gateway (http://localhost:3000)
+### API Gateway (http://localhost:3001)
 
 #### Auth
 ```
@@ -241,8 +241,8 @@ Cada servicio puede ser desplegado independientemente en plataformas como Railwa
 ## 🏛️ Estructura del Proyecto
 
 ```
-medilaser-backend/
-├── api-gateway/          # API Gateway (Puerto 3000)
+tincadia-backend/
+├── api-gateway/          # API Gateway (Puerto 3001) ⚠️ IMPORTANTE
 │   ├── src/
 │   │   ├── auth/        # Módulo Auth (TCP)
 │   │   ├── payments/    # Módulo Payments (TCP)
@@ -265,4 +265,4 @@ medilaser-backend/
 
 ## 📄 License
 
-Private - Medilaser
+Private - Tincadia
