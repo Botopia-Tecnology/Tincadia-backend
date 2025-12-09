@@ -5,6 +5,9 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { GetProfileDto } from './dto/get-profile.dto';
+import { OAuthLoginDto } from './dto/oauth-login.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Controller()
 export class AuthController {
@@ -20,6 +23,11 @@ export class AuthController {
     return this.authService.register(data);
   }
 
+  @MessagePattern('oauth_login')
+  loginWithOAuth(@Payload() data: OAuthLoginDto) {
+    return this.authService.loginWithOAuth(data);
+  }
+
   @MessagePattern('logout')
   logout(@Payload() data: LogoutDto) {
     return this.authService.logout(data);
@@ -28,6 +36,21 @@ export class AuthController {
   @MessagePattern('get_profile')
   getProfile(@Payload() data: GetProfileDto) {
     return this.authService.getProfile(data);
+  }
+
+  @MessagePattern('verify_token')
+  verifyToken(@Payload() data: { token: string }) {
+    return this.authService.verifyToken(data.token);
+  }
+
+  @MessagePattern('update_profile')
+  updateProfile(@Payload() data: { userId: string; updateData: UpdateProfileDto }) {
+    return this.authService.updateProfile(data.userId, data.updateData);
+  }
+
+  @MessagePattern('reset_password')
+  resetPassword(@Payload() data: ResetPasswordDto) {
+    return this.authService.resetPassword(data);
   }
 }
 

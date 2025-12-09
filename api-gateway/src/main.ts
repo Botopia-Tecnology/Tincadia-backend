@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
   // API Gateway HTTP
@@ -36,9 +36,29 @@ async function bootstrap() {
     }),
   );
 
+  // Configuración de Swagger
+  const config = new DocumentBuilder()
+    .setTitle('Tincadia API')
+    .setDescription('API Gateway para el sistema de microservicios de Tincadia')
+    .setVersion('2.0.0')
+    .addTag('Authentication', 'Endpoints de autenticación y gestión de usuarios')
+    .addTag('Forms', 'Gestión de formularios dinámicos')
+    .addTag('Payments', 'Procesamiento de pagos y suscripciones')
+    .addTag('Communication', 'Notificaciones y mensajería')
+    .addBearerAuth()
+    .build();
+  
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document, {
+    customSiteTitle: 'Tincadia API Docs',
+    customfavIcon: 'https://tincadia.vercel.app/favicon.ico',
+    customCss: '.swagger-ui .topbar { display: none }',
+  });
+
   const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`🚀 API Gateway running on http://localhost:${port}`);
+  console.log(`📚 Swagger docs available at http://localhost:${port}/api/docs`);
 }
 
 bootstrap();
