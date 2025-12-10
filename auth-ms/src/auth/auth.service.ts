@@ -41,7 +41,7 @@ export class AuthService {
 
       if (authError) {
         if (authError.message.includes('already registered')) {
-          throw new ConflictException('El usuario ya existe');
+          throw new ConflictException('El usuario ya existe!');
         }
         throw new BadRequestException(authError.message);
       }
