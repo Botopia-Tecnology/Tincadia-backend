@@ -29,7 +29,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/microservices": "^11.1.5",
-    "@supabase/supabase-js": "^2.84.0",
+    "@supabase/supabase-js": "^2.87.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "reflect-metadata": "^0.2.2",

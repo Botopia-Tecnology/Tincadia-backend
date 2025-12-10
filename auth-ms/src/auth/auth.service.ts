@@ -6,7 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { SupabaseService } from '../../../libs/supabase/src';
+import { SupabaseService } from '../supabase/supabase.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -22,7 +22,7 @@ export class AuthService {
     private supabaseService: SupabaseService,
   ) { }
 
-  async register(data: RegisterDto) {
+  async register(data: RegisterDto): Promise<any> {
     const { email, password, firstName, lastName, phoneNumber } = data;
 
     try {
@@ -72,7 +72,7 @@ export class AuthService {
     }
   }
 
-  async login(data: LoginDto) {
+  async login(data: LoginDto): Promise<any> {
     const { email, password } = data;
 
     try {

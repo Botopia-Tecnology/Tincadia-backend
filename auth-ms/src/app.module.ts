@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { SupabaseModule } from '../../libs/supabase/src';
+import { SupabaseModule } from './supabase/supabase.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({

@@ -59,15 +59,6 @@ export class SupabaseService implements OnModuleInit {
         return channel;
     }
 
-    subscribeToTable(table: string, callback: (payload: any) => void, filter?: string): RealtimeChannel {
-        const channel = this.getClient()
-            .channel(`table:${table}`)
-            .on('postgres_changes', { event: '*', schema: 'public', table, filter }, callback)
-            .subscribe();
-        this.channels.set(`table:${table}`, channel);
-        return channel;
-    }
-
     async broadcastMessage(conversationId: string, message: any): Promise<void> {
         const channel = this.getRealtimeChannel(`conversation:${conversationId}`);
         await channel.send({ type: 'broadcast', event: 'message', payload: message });

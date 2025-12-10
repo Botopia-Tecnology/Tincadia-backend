@@ -4,7 +4,7 @@ import {
     NotFoundException,
     BadRequestException,
 } from '@nestjs/common';
-import { SupabaseService } from '../../../libs/supabase/src';
+import { SupabaseService } from '../supabase/supabase.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto } from './dto/get-messages.dto';
 import { GetConversationsDto } from './dto/get-conversations.dto';
