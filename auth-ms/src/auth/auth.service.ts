@@ -6,8 +6,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ConfigService } from '@nestjs/config';
+import { SupabaseService } from '../../../libs/supabase/src';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -18,35 +17,27 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class AuthService {
-  private supabase: SupabaseClient;
-
   constructor(
     private jwtService: JwtService,
-    private configService: ConfigService,
-  ) {
-    // Inicializar cliente de Supabase
-    const supabaseUrl = this.configService.get<string>('SUPABASE_URL') || '';
-    const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_KEY') || '';
-    this.supabase = createClient(supabaseUrl, supabaseKey);
-  }
+    private supabaseService: SupabaseService,
+  ) { }
 
   async register(data: RegisterDto) {
     const { email, password, firstName, lastName, phoneNumber } = data;
 
     try {
-      // Registrar usuario en Supabase Auth
-      const { data: authData, error: authError } =
-        await this.supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              first_name: firstName,
-              last_name: lastName,
-              phone_number: phoneNumber,
-            },
+      const supabase = this.supabaseService.getAdminClient();
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            first_name: firstName,
+            last_name: lastName,
+            phone_number: phoneNumber,
           },
-        });
+        },
+      });
 
       if (authError) {
         if (authError.message.includes('already registered')) {
@@ -59,7 +50,6 @@ export class AuthService {
         throw new BadRequestException('Error al crear usuario');
       }
 
-      // Generar JWT
       const token = this.generateJwtToken(authData.user);
 
       return {
@@ -86,18 +76,16 @@ export class AuthService {
     const { email, password } = data;
 
     try {
-      // Autenticar con Supabase
-      const { data: authData, error: authError } =
-        await this.supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+      const supabase = this.supabaseService.getAdminClient();
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
       if (authError || !authData.user) {
         throw new UnauthorizedException('Credenciales inválidas');
       }
 
-      // Generar JWT
       const token = this.generateJwtToken(authData.user);
 
       return {
@@ -123,17 +111,14 @@ export class AuthService {
     const { provider, accessToken } = data;
 
     try {
-      // Obtener información del usuario desde Supabase usando el token OAuth
-      const { data: userData, error: userError } =
-        await this.supabase.auth.getUser(accessToken);
+      const supabase = this.supabaseService.getAdminClient();
+      const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
 
       if (userError || !userData.user) {
         throw new UnauthorizedException('Token de OAuth inválido');
       }
 
       const supabaseUser = userData.user;
-
-      // Generar JWT
       const token = this.generateJwtToken(supabaseUser);
 
       return {
@@ -160,15 +145,14 @@ export class AuthService {
     const { userId, token } = data;
 
     try {
-      // Verificar que el token sea válido y corresponda al usuario
       const payload = this.jwtService.verify(token);
       if (payload.sub !== userId) {
         throw new UnauthorizedException('Token no corresponde al usuario');
       }
 
-      // Cerrar sesión del usuario específico en Supabase
-      const { error } = await this.supabase.auth.admin.signOut(userId, 'global');
-      
+      const supabase = this.supabaseService.getAdminClient();
+      const { error } = await supabase.auth.admin.signOut(userId, 'global');
+
       if (error) {
         throw new BadRequestException(error.message);
       }
@@ -186,7 +170,8 @@ export class AuthService {
     const { id } = data;
 
     try {
-      const { data: userData, error } = await this.supabase.auth.admin.getUserById(id);
+      const supabase = this.supabaseService.getAdminClient();
+      const { data: userData, error } = await supabase.auth.admin.getUserById(id);
 
       if (error || !userData.user) {
         throw new NotFoundException('Usuario no encontrado');
@@ -212,12 +197,10 @@ export class AuthService {
 
   async updateProfile(userId: string, updateData: UpdateProfileDto) {
     try {
-      const { data, error } = await this.supabase.auth.admin.updateUserById(
-        userId,
-        {
-          user_metadata: updateData,
-        },
-      );
+      const supabase = this.supabaseService.getAdminClient();
+      const { data, error } = await supabase.auth.admin.updateUserById(userId, {
+        user_metadata: updateData,
+      });
 
       if (error) {
         throw new NotFoundException('Usuario no encontrado');
@@ -241,8 +224,8 @@ export class AuthService {
   async verifyToken(token: string) {
     try {
       const payload = this.jwtService.verify(token);
-
-      const { data: userData, error } = await this.supabase.auth.admin.getUserById(payload.sub);
+      const supabase = this.supabaseService.getAdminClient();
+      const { data: userData, error } = await supabase.auth.admin.getUserById(payload.sub);
 
       if (error || !userData.user) {
         throw new UnauthorizedException('Usuario no válido');
@@ -265,8 +248,8 @@ export class AuthService {
     const { email } = data;
 
     try {
-      // Enviar email de recuperación de contraseña
-      const { error } = await this.supabase.auth.resetPasswordForEmail(email, {
+      const supabase = this.supabaseService.getAdminClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: 'https://tincadia.vercel.app/reset-password',
       });
 
@@ -288,7 +271,6 @@ export class AuthService {
       sub: user.id,
       email: user.email,
     };
-
     return this.jwtService.sign(payload);
   }
 }
