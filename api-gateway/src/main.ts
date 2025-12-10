@@ -4,12 +4,16 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 async function bootstrap() {
+  // Parse CORS origins from environment
+  const corsOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'];
+
   // API Gateway HTTP
   const app = await NestFactory.create(AppModule, {
     cors: {
       origin: [
-        'http://localhost:3001',
-        'http://localhost:5173',
+        ...corsOrigins,
         'https://tincadia.vercel.app',
         /\.devtunnels\.ms$/,
       ],
@@ -47,7 +51,7 @@ async function bootstrap() {
     .addTag('Communication', 'Notificaciones y mensajería')
     .addBearerAuth()
     .build();
-  
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document, {
     customSiteTitle: 'Tincadia API Docs',

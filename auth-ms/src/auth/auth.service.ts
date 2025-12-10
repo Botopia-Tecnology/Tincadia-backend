@@ -2,11 +2,11 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
-  NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { SupabaseService } from '../supabase/supabase.service';
+import { TokenService } from './services/token.service';
+import { ProfileService } from './services/profile.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -18,39 +18,46 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 @Injectable()
 export class AuthService {
   constructor(
-    private jwtService: JwtService,
-    private supabaseService: SupabaseService,
+    private readonly supabaseService: SupabaseService,
+    private readonly tokenService: TokenService,
+    private readonly profileService: ProfileService,
   ) { }
 
   async register(data: RegisterDto): Promise<any> {
-    const { email, password, firstName, lastName, phoneNumber } = data;
+    const { email, password, firstName, lastName, documentTypeId, documentNumber, phone } = data;
 
     try {
       const supabase = this.supabaseService.getAdminClient();
+
+      // 1. Create user in Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
-        options: {
-          data: {
-            first_name: firstName,
-            last_name: lastName,
-            phone_number: phoneNumber,
-          },
-        },
       });
 
       if (authError) {
         if (authError.message.includes('already registered')) {
-          throw new ConflictException('El usuario ya existe!');
+          throw new ConflictException('User already exists');
         }
         throw new BadRequestException(authError.message);
       }
 
       if (!authData.user) {
-        throw new BadRequestException('Error al crear usuario');
+        throw new BadRequestException('Error creating user');
       }
 
-      const token = this.generateJwtToken(authData.user);
+      // 2. Create profile
+      await this.profileService.create({
+        id: authData.user.id,
+        firstName,
+        lastName,
+        documentTypeId,
+        documentNumber,
+        phone,
+      });
+
+      // 3. Generate JWT
+      const token = this.tokenService.generateToken(authData.user);
 
       return {
         user: {
@@ -58,7 +65,8 @@ export class AuthService {
           email: authData.user.email,
           firstName,
           lastName,
-          phoneNumber,
+          documentNumber,
+          phone,
           emailVerified: false,
         },
         token,
@@ -68,7 +76,7 @@ export class AuthService {
       if (error instanceof ConflictException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error al registrar usuario');
+      throw new BadRequestException('Error registering user');
     }
   }
 
@@ -83,19 +91,14 @@ export class AuthService {
       });
 
       if (authError || !authData.user) {
-        throw new UnauthorizedException('Credenciales inválidas');
+        throw new UnauthorizedException('Invalid credentials');
       }
 
-      const token = this.generateJwtToken(authData.user);
+      const profile = await this.profileService.findById(authData.user.id);
+      const token = this.tokenService.generateToken(authData.user);
 
       return {
-        user: {
-          id: authData.user.id,
-          email: authData.user.email,
-          firstName: authData.user.user_metadata?.first_name || '',
-          lastName: authData.user.user_metadata?.last_name || '',
-          emailVerified: !!authData.user.email_confirmed_at,
-        },
+        user: this.profileService.toUserResponse(profile, authData.user),
         token,
         session: authData.session,
       };
@@ -103,11 +106,11 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new BadRequestException('Error al iniciar sesión');
+      throw new BadRequestException('Error logging in');
     }
   }
 
-  async loginWithOAuth(data: OAuthLoginDto) {
+  async loginWithOAuth(data: OAuthLoginDto): Promise<any> {
     const { provider, accessToken } = data;
 
     try {
@@ -115,18 +118,33 @@ export class AuthService {
       const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
 
       if (userError || !userData.user) {
-        throw new UnauthorizedException('Token de OAuth inválido');
+        throw new UnauthorizedException('Invalid OAuth token');
       }
 
       const supabaseUser = userData.user;
-      const token = this.generateJwtToken(supabaseUser);
+      const token = this.tokenService.generateToken(supabaseUser);
+
+      // Get or create profile
+      let profile = await this.profileService.findById(supabaseUser.id);
+
+      if (!profile) {
+        const fullName = supabaseUser.user_metadata?.full_name || '';
+        const nameParts = fullName.split(' ');
+        profile = await this.profileService.create({
+          id: supabaseUser.id,
+          firstName: nameParts[0] || '',
+          lastName: nameParts.slice(1).join(' ') || '',
+          documentNumber: '',
+          phone: '',
+        });
+      }
 
       return {
         user: {
           id: supabaseUser.id,
           email: supabaseUser.email,
-          firstName: supabaseUser.user_metadata?.full_name?.split(' ')[0] || '',
-          lastName: supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
+          firstName: profile.firstName,
+          lastName: profile.lastName,
           avatarUrl: supabaseUser.user_metadata?.avatar_url || null,
           authProvider: provider,
           emailVerified: true,
@@ -137,17 +155,17 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new BadRequestException('Error al autenticar con OAuth');
+      throw new BadRequestException('Error authenticating with OAuth');
     }
   }
 
-  async logout(data: LogoutDto) {
+  async logout(data: LogoutDto): Promise<any> {
     const { userId, token } = data;
 
     try {
-      const payload = this.jwtService.verify(token);
+      const payload = this.tokenService.verifyToken(token);
       if (payload.sub !== userId) {
-        throw new UnauthorizedException('Token no corresponde al usuario');
+        throw new UnauthorizedException('Token does not match user');
       }
 
       const supabase = this.supabaseService.getAdminClient();
@@ -157,16 +175,16 @@ export class AuthService {
         throw new BadRequestException(error.message);
       }
 
-      return { message: 'Sesión cerrada exitosamente' };
+      return { message: 'Logged out successfully' };
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new BadRequestException('Error al cerrar sesión');
+      throw new BadRequestException('Error logging out');
     }
   }
 
-  async getProfile(data: GetProfileDto) {
+  async getProfile(data: GetProfileDto): Promise<any> {
     const { id } = data;
 
     try {
@@ -174,77 +192,45 @@ export class AuthService {
       const { data: userData, error } = await supabase.auth.admin.getUserById(id);
 
       if (error || !userData.user) {
-        throw new NotFoundException('Usuario no encontrado');
+        throw new BadRequestException('User not found');
       }
 
+      const profile = await this.profileService.findById(id);
+
       return {
-        user: {
-          id: userData.user.id,
-          email: userData.user.email,
-          firstName: userData.user.user_metadata?.first_name || '',
-          lastName: userData.user.user_metadata?.last_name || '',
-          phoneNumber: userData.user.user_metadata?.phone_number || '',
-          emailVerified: !!userData.user.email_confirmed_at,
-        },
+        user: this.profileService.toUserResponse(profile, userData.user),
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException('Error al obtener perfil');
+      throw new BadRequestException('Error getting profile');
     }
   }
 
-  async updateProfile(userId: string, updateData: UpdateProfileDto) {
+  async updateProfile(userId: string, updateData: UpdateProfileDto): Promise<any> {
+    const profile = await this.profileService.update(userId, updateData);
+    return { user: { ...profile } };
+  }
+
+  async verifyToken(token: string): Promise<any> {
     try {
-      const supabase = this.supabaseService.getAdminClient();
-      const { data, error } = await supabase.auth.admin.updateUserById(userId, {
-        user_metadata: updateData,
-      });
-
-      if (error) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
+      const payload = this.tokenService.verifyToken(token);
+      const profile = await this.profileService.findByIdOrFail(payload.sub);
 
       return {
         user: {
-          id: data.user.id,
-          email: data.user.email,
-          ...data.user.user_metadata,
+          id: profile.id,
+          email: payload.email,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          documentNumber: profile.documentNumber,
+          phone: profile.phone,
         },
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException('Error al actualizar perfil');
+      throw new UnauthorizedException('Invalid or expired token');
     }
   }
 
-  async verifyToken(token: string) {
-    try {
-      const payload = this.jwtService.verify(token);
-      const supabase = this.supabaseService.getAdminClient();
-      const { data: userData, error } = await supabase.auth.admin.getUserById(payload.sub);
-
-      if (error || !userData.user) {
-        throw new UnauthorizedException('Usuario no válido');
-      }
-
-      return {
-        user: {
-          id: userData.user.id,
-          email: userData.user.email,
-          firstName: userData.user.user_metadata?.first_name || '',
-          lastName: userData.user.user_metadata?.last_name || '',
-        },
-      };
-    } catch (error) {
-      throw new UnauthorizedException('Token inválido o expirado');
-    }
-  }
-
-  async resetPassword(data: ResetPasswordDto) {
+  async resetPassword(data: ResetPasswordDto): Promise<any> {
     const { email } = data;
 
     try {
@@ -257,20 +243,12 @@ export class AuthService {
         throw new BadRequestException(error.message);
       }
 
-      return { message: 'Email de recuperación enviado exitosamente' };
+      return { message: 'Recovery email sent successfully' };
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error al enviar email de recuperación');
+      throw new BadRequestException('Error sending recovery email');
     }
-  }
-
-  private generateJwtToken(user: any): string {
-    const payload = {
-      sub: user.id,
-      email: user.email,
-    };
-    return this.jwtService.sign(payload);
   }
 }

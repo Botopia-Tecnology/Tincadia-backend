@@ -9,7 +9,7 @@ import { AuthController } from './auth.controller';
         name: 'AUTH_SERVICE',
         transport: Transport.TCP,
         options: {
-          host: process.env.authHost || 'localhost',
+          host: process.env.authHost || '127.0.0.1',
           port: parseInt(process.env.authPort || '3002'),
         },
       },
@@ -17,5 +17,5 @@ import { AuthController } from './auth.controller';
   ],
   controllers: [AuthController],
 })
-export class AuthModule {}
+export class AuthModule { }
 
