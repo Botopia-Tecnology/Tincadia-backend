@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { TokenService } from './services/token.service';
+import { ProfileService } from './services/profile.service';
 import { Profile, DocumentType } from '../entities';
 
 @Module({
@@ -21,7 +23,7 @@ import { Profile, DocumentType } from '../entities';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
-  exports: [AuthService, JwtModule],
+  providers: [AuthService, TokenService, ProfileService],
+  exports: [AuthService, TokenService, ProfileService, JwtModule],
 })
 export class AuthModule { }

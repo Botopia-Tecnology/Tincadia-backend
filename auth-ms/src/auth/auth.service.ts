@@ -2,14 +2,11 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
-  NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { SupabaseService } from '../supabase/supabase.service';
-import { Profile } from '../entities/profile.entity';
+import { TokenService } from './services/token.service';
+import { ProfileService } from './services/profile.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -21,10 +18,9 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 @Injectable()
 export class AuthService {
   constructor(
-    private jwtService: JwtService,
-    private supabaseService: SupabaseService,
-    @InjectRepository(Profile)
-    private profileRepository: Repository<Profile>,
+    private readonly supabaseService: SupabaseService,
+    private readonly tokenService: TokenService,
+    private readonly profileService: ProfileService,
   ) { }
 
   async register(data: RegisterDto): Promise<any> {
@@ -50,8 +46,8 @@ export class AuthService {
         throw new BadRequestException('Error creating user');
       }
 
-      // 2. Create profile in profiles table with TypeORM
-      const profile = this.profileRepository.create({
+      // 2. Create profile
+      await this.profileService.create({
         id: authData.user.id,
         firstName,
         lastName,
@@ -60,10 +56,8 @@ export class AuthService {
         phone,
       });
 
-      await this.profileRepository.save(profile);
-
       // 3. Generate JWT
-      const token = this.generateJwtToken(authData.user);
+      const token = this.tokenService.generateToken(authData.user);
 
       return {
         user: {
@@ -100,25 +94,11 @@ export class AuthService {
         throw new UnauthorizedException('Invalid credentials');
       }
 
-      // Get profile from TypeORM
-      const profile = await this.profileRepository.findOne({
-        where: { id: authData.user.id },
-        relations: ['documentType'],
-      });
-
-      const token = this.generateJwtToken(authData.user);
+      const profile = await this.profileService.findById(authData.user.id);
+      const token = this.tokenService.generateToken(authData.user);
 
       return {
-        user: {
-          id: authData.user.id,
-          email: authData.user.email,
-          firstName: profile?.firstName || '',
-          lastName: profile?.lastName || '',
-          documentNumber: profile?.documentNumber || '',
-          phone: profile?.phone || '',
-          documentType: profile?.documentType?.name || null,
-          emailVerified: !!authData.user.email_confirmed_at,
-        },
+        user: this.profileService.toUserResponse(profile, authData.user),
         token,
         session: authData.session,
       };
@@ -142,24 +122,21 @@ export class AuthService {
       }
 
       const supabaseUser = userData.user;
-      const token = this.generateJwtToken(supabaseUser);
+      const token = this.tokenService.generateToken(supabaseUser);
 
       // Get or create profile
-      let profile = await this.profileRepository.findOne({
-        where: { id: supabaseUser.id },
-      });
+      let profile = await this.profileService.findById(supabaseUser.id);
 
       if (!profile) {
         const fullName = supabaseUser.user_metadata?.full_name || '';
         const nameParts = fullName.split(' ');
-        profile = this.profileRepository.create({
+        profile = await this.profileService.create({
           id: supabaseUser.id,
           firstName: nameParts[0] || '',
           lastName: nameParts.slice(1).join(' ') || '',
           documentNumber: '',
           phone: '',
         });
-        await this.profileRepository.save(profile);
       }
 
       return {
@@ -186,7 +163,7 @@ export class AuthService {
     const { userId, token } = data;
 
     try {
-      const payload = this.jwtService.verify(token);
+      const payload = this.tokenService.verifyToken(token);
       if (payload.sub !== userId) {
         throw new UnauthorizedException('Token does not match user');
       }
@@ -215,73 +192,28 @@ export class AuthService {
       const { data: userData, error } = await supabase.auth.admin.getUserById(id);
 
       if (error || !userData.user) {
-        throw new NotFoundException('User not found');
+        throw new BadRequestException('User not found');
       }
 
-      // Get profile from TypeORM
-      const profile = await this.profileRepository.findOne({
-        where: { id },
-        relations: ['documentType'],
-      });
+      const profile = await this.profileService.findById(id);
 
       return {
-        user: {
-          id: userData.user.id,
-          email: userData.user.email,
-          firstName: profile?.firstName || '',
-          lastName: profile?.lastName || '',
-          documentNumber: profile?.documentNumber || '',
-          phone: profile?.phone || '',
-          documentType: profile?.documentType?.name || null,
-          emailVerified: !!userData.user.email_confirmed_at,
-        },
+        user: this.profileService.toUserResponse(profile, userData.user),
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
       throw new BadRequestException('Error getting profile');
     }
   }
 
   async updateProfile(userId: string, updateData: UpdateProfileDto): Promise<any> {
-    try {
-      const profile = await this.profileRepository.findOne({
-        where: { id: userId },
-      });
-
-      if (!profile) {
-        throw new NotFoundException('User not found');
-      }
-
-      // Update profile fields
-      Object.assign(profile, updateData);
-      await this.profileRepository.save(profile);
-
-      return {
-        user: {
-          ...profile,
-        },
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException('Error updating profile');
-    }
+    const profile = await this.profileService.update(userId, updateData);
+    return { user: { ...profile } };
   }
 
   async verifyToken(token: string): Promise<any> {
     try {
-      const payload = this.jwtService.verify(token);
-      const profile = await this.profileRepository.findOne({
-        where: { id: payload.sub },
-        relations: ['documentType'],
-      });
-
-      if (!profile) {
-        throw new UnauthorizedException('Invalid user');
-      }
+      const payload = this.tokenService.verifyToken(token);
+      const profile = await this.profileService.findByIdOrFail(payload.sub);
 
       return {
         user: {
@@ -318,13 +250,5 @@ export class AuthService {
       }
       throw new BadRequestException('Error sending recovery email');
     }
-  }
-
-  private generateJwtToken(user: any): string {
-    const payload = {
-      sub: user.id,
-      email: user.email,
-    };
-    return this.jwtService.sign(payload);
   }
 }
