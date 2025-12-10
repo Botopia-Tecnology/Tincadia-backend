@@ -11,46 +11,45 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Controller()
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @MessagePattern('login')
-  login(@Payload() data: LoginDto) {
+  login(@Payload() data: LoginDto): Promise<any> {
     return this.authService.login(data);
   }
 
   @MessagePattern('register')
-  register(@Payload() data: RegisterDto) {
+  register(@Payload() data: RegisterDto): Promise<any> {
     return this.authService.register(data);
   }
 
   @MessagePattern('oauth_login')
-  loginWithOAuth(@Payload() data: OAuthLoginDto) {
+  loginWithOAuth(@Payload() data: OAuthLoginDto): Promise<any> {
     return this.authService.loginWithOAuth(data);
   }
 
   @MessagePattern('logout')
-  logout(@Payload() data: LogoutDto) {
+  logout(@Payload() data: LogoutDto): Promise<any> {
     return this.authService.logout(data);
   }
 
   @MessagePattern('get_profile')
-  getProfile(@Payload() data: GetProfileDto) {
+  getProfile(@Payload() data: GetProfileDto): Promise<any> {
     return this.authService.getProfile(data);
   }
 
   @MessagePattern('verify_token')
-  verifyToken(@Payload() data: { token: string }) {
+  verifyToken(@Payload() data: { token: string }): Promise<any> {
     return this.authService.verifyToken(data.token);
   }
 
   @MessagePattern('update_profile')
-  updateProfile(@Payload() data: { userId: string; updateData: UpdateProfileDto }) {
+  updateProfile(@Payload() data: { userId: string; updateData: UpdateProfileDto }): Promise<any> {
     return this.authService.updateProfile(data.userId, data.updateData);
   }
 
   @MessagePattern('reset_password')
-  resetPassword(@Payload() data: ResetPasswordDto) {
+  resetPassword(@Payload() data: ResetPasswordDto): Promise<any> {
     return this.authService.resetPassword(data);
   }
 }
-
