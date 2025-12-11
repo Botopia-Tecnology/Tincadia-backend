@@ -13,8 +13,22 @@ export class RpcExceptionFilter implements ExceptionFilter {
         let message = 'Internal server error';
 
         if (typeof error === 'object' && error !== null) {
-            status = error.statusCode || error.status || HttpStatus.INTERNAL_SERVER_ERROR;
-            message = error.message || message;
+            // Check potential paths for status code
+            status = error.statusCode
+                || error.status
+                || (error.error && error.error.statusCode)
+                || (error.error && error.error.status)
+                || HttpStatus.INTERNAL_SERVER_ERROR;
+
+            // Check potential paths for message
+            message = error.message
+                || (error.error && error.error.message)
+                || message;
+
+            // If the message is an array (class-validator), take the first one
+            if (Array.isArray(message)) {
+                message = message[0];
+            }
         } else {
             message = error;
         }
