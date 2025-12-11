@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { RpcExceptionFilter } from './common/filters/rpc-exception.filter';
 
 async function bootstrap() {
   // Parse CORS origins from environment
@@ -39,6 +40,9 @@ async function bootstrap() {
       },
     }),
   );
+
+  // Register Global RPC Exception Filter
+  app.useGlobalFilters(new RpcExceptionFilter());
 
   // Configuración de Swagger
   const config = new DocumentBuilder()
