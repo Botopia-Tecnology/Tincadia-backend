@@ -52,4 +52,9 @@ export class AuthController {
   resetPassword(@Payload() data: ResetPasswordDto): Promise<any> {
     return this.authService.resetPassword(data);
   }
+
+  @MessagePattern('get_users')
+  getUsers(@Payload() data: { excludeUserId: string }): Promise<any> {
+    return this.authService.getUsers(data.excludeUserId);
+  }
 }

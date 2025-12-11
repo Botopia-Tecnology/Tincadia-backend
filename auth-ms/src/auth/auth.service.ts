@@ -240,8 +240,10 @@ export class AuthService {
           firstName: profile.firstName,
           lastName: profile.lastName,
           documentNumber: profile.documentNumber,
+          documentTypeId: profile.documentTypeId,
           phone: profile.phone,
         },
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
       throw new UnauthorizedException('Invalid or expired token');
@@ -267,6 +269,23 @@ export class AuthService {
         throw error;
       }
       throw new BadRequestException('Error sending recovery email');
+    }
+  }
+
+  async getUsers(excludeUserId: string): Promise<any> {
+    try {
+      const profiles = await this.profileService.findAllExcept(excludeUserId);
+
+      return {
+        users: profiles.map(p => ({
+          id: p.id,
+          firstName: p.firstName,
+          lastName: p.lastName,
+          phone: p.phone,
+        })),
+      };
+    } catch (error) {
+      throw new BadRequestException('Error getting users');
     }
   }
 }

@@ -269,5 +269,26 @@ export class AuthController {
 
     return this.client.send('verify_token', { token });
   }
+
+  @Get('users/:userId')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Obtener todos los usuarios disponibles',
+    description: 'Retorna lista de usuarios excluyendo al usuario actual'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de usuarios',
+    schema: {
+      example: {
+        users: [
+          { id: 'uuid-123', firstName: 'Juan', lastName: 'Pérez', phone: '+123456789' }
+        ]
+      }
+    }
+  })
+  getUsers(@Param('userId') userId: string) {
+    return this.client.send('get_users', { excludeUserId: userId });
+  }
 }
 
