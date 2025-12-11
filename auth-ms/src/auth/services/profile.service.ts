@@ -71,4 +71,13 @@ export class ProfileService {
             emailVerified: !!authUser.email_confirmed_at,
         };
     }
+
+    isProfileComplete(profile: Profile | null): boolean {
+        if (!profile) return false;
+        return !!(
+            profile.documentNumber &&
+            profile.phone &&
+            profile.documentTypeId
+        );
+    }
 }

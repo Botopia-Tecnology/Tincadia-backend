@@ -4,12 +4,13 @@ import { ApiProperty } from '@nestjs/swagger';
 export enum OAuthProvider {
   GOOGLE = 'google',
   APPLE = 'apple',
+  MICROSOFT = 'microsoft',
 }
 
 export class OAuthLoginDto {
   @ApiProperty({
     enum: OAuthProvider,
-    description: 'Proveedor de OAuth (Google o Apple)',
+    description: 'Proveedor de OAuth (Google, Apple o Microsoft)',
     example: 'google',
   })
   @IsEnum(OAuthProvider)
@@ -17,12 +18,13 @@ export class OAuthLoginDto {
   provider: OAuthProvider;
 
   @ApiProperty({
-    description: 'Token de acceso del proveedor OAuth',
+    description: 'Token de acceso del proveedor OAuth (opcional)',
     example: 'ya29.a0AfH6SMBx...',
+    required: false,
   })
   @IsString()
-  @IsNotEmpty()
-  accessToken: string;
+  @IsOptional()
+  accessToken?: string;
 
   @ApiProperty({
     description: 'Token ID (opcional, usado por algunos proveedores)',

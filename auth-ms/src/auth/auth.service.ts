@@ -101,6 +101,7 @@ export class AuthService {
         user: this.profileService.toUserResponse(profile, authData.user),
         token,
         session: authData.session,
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) {
@@ -111,17 +112,30 @@ export class AuthService {
   }
 
   async loginWithOAuth(data: OAuthLoginDto): Promise<any> {
-    const { provider, accessToken } = data;
+    const { provider, accessToken, idToken } = data;
 
     try {
       const supabase = this.supabaseService.getAdminClient();
-      const { data: userData, error: userError } = await supabase.auth.getUser(accessToken);
 
-      if (userError || !userData.user) {
-        throw new UnauthorizedException('Invalid OAuth token');
+      // Use signInWithIdToken to exchange the provider's ID token for a Supabase session
+      // This allows the frontend to use Google/Apple SDK directly without Supabase SDK
+      const tokenToUse = idToken || accessToken;
+
+      if (!tokenToUse) {
+        throw new BadRequestException('Either idToken or accessToken is required');
       }
 
-      const supabaseUser = userData.user;
+      const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
+        provider: provider as 'google' | 'apple',
+        token: tokenToUse,
+        access_token: accessToken,
+      });
+
+      if (authError || !authData.user) {
+        throw new UnauthorizedException('Invalid OAuth token: ' + (authError?.message || 'Unknown error'));
+      }
+
+      const supabaseUser = authData.user;
       const token = this.tokenService.generateToken(supabaseUser);
 
       // Get or create profile
@@ -139,6 +153,7 @@ export class AuthService {
         });
       }
 
+
       return {
         user: {
           id: supabaseUser.id,
@@ -147,15 +162,17 @@ export class AuthService {
           lastName: profile.lastName,
           avatarUrl: supabaseUser.user_metadata?.avatar_url || null,
           authProvider: provider,
-          emailVerified: true,
+          emailVerified: supabaseUser.email_confirmed_at ? true : false,
         },
         token,
+        session: authData.session,
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new BadRequestException('Error authenticating with OAuth');
+      throw new BadRequestException('Error authenticating with OAuth: ' + (error as Error).message);
     }
   }
 

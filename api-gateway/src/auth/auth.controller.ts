@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Put, Inject, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Put, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -12,16 +12,16 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nes
 export class AuthController {
   constructor(
     @Inject('AUTH_SERVICE') private readonly client: ClientProxy,
-  ) {}
+  ) { }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Iniciar sesión con email y contraseña',
     description: 'Autentica al usuario y devuelve un token JWT y la información del usuario'
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Login exitoso',
     schema: {
       example: {
@@ -45,12 +45,12 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Registrar nuevo usuario',
     description: 'Crea una cuenta nueva con email y contraseña. El usuario recibirá un email de verificación.'
   })
-  @ApiResponse({ 
-    status: 201, 
+  @ApiResponse({
+    status: 201,
     description: 'Usuario registrado exitosamente',
     schema: {
       example: {
@@ -75,12 +75,12 @@ export class AuthController {
 
   @Post('oauth/login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Iniciar sesión con OAuth (Google o Apple)',
     description: 'Autentica al usuario usando token de OAuth de Google o Apple. Si el usuario no existe, se crea automáticamente.'
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Login con OAuth exitoso',
     schema: {
       example: {
@@ -105,7 +105,7 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Cerrar sesión',
     description: 'Invalida el token del usuario y cierra todas sus sesiones activas en Supabase'
   })
@@ -119,8 +119,8 @@ export class AuthController {
       required: ['userId', 'token']
     }
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Sesión cerrada exitosamente',
     schema: { example: { message: 'Sesión cerrada exitosamente' } }
   })
@@ -131,12 +131,12 @@ export class AuthController {
   }
 
   @Get('profile/:id')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Obtener perfil de usuario por ID',
     description: 'Recupera la información del perfil de un usuario específico'
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Perfil obtenido exitosamente',
     schema: {
       example: {
@@ -158,12 +158,12 @@ export class AuthController {
   }
 
   @Put('profile/:userId')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Actualizar perfil de usuario',
     description: 'Actualiza la información del perfil (nombre, apellido, teléfono, avatar). Solo se actualizan los campos enviados.'
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Perfil actualizado exitosamente',
     schema: {
       example: {
@@ -186,7 +186,7 @@ export class AuthController {
 
   @Post('verify-token')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Verificar validez del token JWT',
     description: 'Valida que el token JWT sea válido y no haya expirado, devuelve información del usuario'
   })
@@ -199,8 +199,8 @@ export class AuthController {
       required: ['token']
     }
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Token válido',
     schema: {
       example: {
@@ -220,18 +220,54 @@ export class AuthController {
 
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Solicitar recuperación de contraseña',
     description: 'Envía un email al usuario con un enlace para restablecer su contraseña. El enlace redirige a la aplicación frontend.'
   })
-  @ApiResponse({ 
-    status: 200, 
+  @ApiResponse({
+    status: 200,
     description: 'Email de recuperación enviado exitosamente',
     schema: { example: { message: 'Email de recuperación enviado exitosamente' } }
   })
   @ApiResponse({ status: 400, description: 'Email inválido o error al enviar email' })
   resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
     return this.client.send('reset_password', resetPasswordDto);
+  }
+
+  @Get('me')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Obtener usuario actual',
+    description: 'Obtiene la información del usuario autenticado a partir del token JWT en el header Authorization'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Usuario obtenido exitosamente',
+    schema: {
+      example: {
+        user: {
+          id: 'uuid-123',
+          email: 'usuario@ejemplo.com',
+          firstName: 'Juan',
+          lastName: 'Pérez',
+          documentNumber: '12345678',
+          phone: '+1234567890'
+        }
+      }
+    }
+  })
+  @ApiResponse({ status: 401, description: 'Token inválido, expirado o no proporcionado' })
+  getMe(@Headers('authorization') authHeader: string) {
+    if (!authHeader) {
+      throw new UnauthorizedException('Authorization header is required');
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    if (!token) {
+      throw new UnauthorizedException('Token is required');
+    }
+
+    return this.client.send('verify_token', { token });
   }
 }
 
