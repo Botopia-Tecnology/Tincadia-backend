@@ -37,13 +37,16 @@ export class AuthService {
 
       if (authError) {
         if (authError.message.includes('already registered')) {
-          throw new ConflictException('User already exists');
+          throw new ConflictException('El usuario ya está registrado');
+        }
+        if (authError.message.includes('Password should be at least')) {
+          throw new BadRequestException('La contraseña debe tener al menos 6 caracteres');
         }
         throw new BadRequestException(authError.message);
       }
 
       if (!authData.user) {
-        throw new BadRequestException('Error creating user');
+        throw new BadRequestException('Error al crear el usuario');
       }
 
       // 2. Create profile
@@ -77,7 +80,7 @@ export class AuthService {
       if (error instanceof ConflictException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error registering user');
+      throw new BadRequestException(error.message || 'Error al registrar usuario');
     }
   }
 
@@ -91,8 +94,18 @@ export class AuthService {
         password,
       });
 
-      if (authError || !authData.user) {
-        throw new UnauthorizedException('Invalid credentials');
+      if (authError) {
+        if (authError.message.includes('Invalid login credentials')) {
+          throw new UnauthorizedException('Correo o contraseña incorrectos');
+        }
+        if (authError.message.includes('Email not confirmed')) {
+          throw new UnauthorizedException('Debes verificar tu correo electrónico antes de iniciar sesión');
+        }
+        throw new BadRequestException(authError.message);
+      }
+
+      if (!authData.user) {
+        throw new UnauthorizedException('Correo o contraseña incorrectos');
       }
 
       const profile = await this.profileService.findById(authData.user.id);
@@ -105,10 +118,10 @@ export class AuthService {
         isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error logging in');
+      throw new BadRequestException(error.message || 'Error al iniciar sesión');
     }
   }
 
