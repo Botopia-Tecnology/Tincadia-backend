@@ -47,7 +47,7 @@ export class AuthService {
       }
 
       // 2. Create profile
-      await this.profileService.create({
+      const profile = await this.profileService.create({
         id: authData.user.id,
         firstName,
         lastName,
@@ -71,6 +71,7 @@ export class AuthService {
         },
         token,
         session: authData.session,
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
       if (error instanceof ConflictException || error instanceof BadRequestException) {
