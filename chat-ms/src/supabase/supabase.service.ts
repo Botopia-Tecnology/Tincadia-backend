@@ -60,8 +60,41 @@ export class SupabaseService implements OnModuleInit {
     }
 
     async broadcastMessage(conversationId: string, message: any): Promise<void> {
-        const channel = this.getRealtimeChannel(`conversation:${conversationId}`);
-        await channel.send({ type: 'broadcast', event: 'message', payload: message });
+        const channelName = `conversation:${conversationId}`;
+        this.logger.log(`Attempting to broadcast to channel: ${channelName}`);
+
+        // Crear un canal nuevo y efímero para este mensaje
+        const channel = this.getClient().channel(channelName);
+
+        return new Promise((resolve, reject) => {
+            channel
+                .subscribe(async (status) => {
+                    if (status === 'SUBSCRIBED') {
+                        this.logger.log(`Subscribed to ${channelName}, sending message...`);
+                        try {
+                            await channel.send({
+                                type: 'broadcast',
+                                event: 'message',
+                                payload: message
+                            });
+                            this.logger.log(`Message broadcasted successfully to ${channelName}`);
+
+                            // Limpiar suscripción
+                            await this.supabaseClient.removeChannel(channel);
+                            resolve();
+                        } catch (error) {
+                            this.logger.error(`Error sending broadcast: ${error.message}`);
+                            // Intentar limpiar incluso si falla
+                            await this.supabaseClient.removeChannel(channel);
+                            reject(error);
+                        }
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                        this.logger.error(`Failed to subscribe to ${channelName}: ${status}`);
+                        await this.supabaseClient.removeChannel(channel);
+                        reject(new Error(`Failed to subscribe: ${status}`));
+                    }
+                });
+        });
     }
 
     async unsubscribe(channelName: string): Promise<void> {
