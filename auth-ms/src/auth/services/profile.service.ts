@@ -56,6 +56,14 @@ export class ProfileService {
         return this.profileRepository.save(profile);
     }
 
+    async findAllExcept(excludeUserId: string): Promise<Profile[]> {
+        return this.profileRepository
+            .createQueryBuilder('profile')
+            .where('profile.id != :excludeUserId', { excludeUserId })
+            .orderBy('profile.firstName', 'ASC')
+            .getMany();
+    }
+
     toUserResponse(
         profile: Profile | null,
         authUser: { id: string; email?: string; email_confirmed_at?: string | null },

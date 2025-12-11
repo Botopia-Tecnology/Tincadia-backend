@@ -148,11 +148,16 @@ export class ChatService {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
+            this.logger.log(`🔍 Getting conversations for userId: ${data.userId}`);
+
             const { data: conversations, error } = await supabase
                 .from('conversations')
                 .select('*')
                 .or(`user1_id.eq.${data.userId},user2_id.eq.${data.userId}`)
                 .order('updated_at', { ascending: false });
+
+            this.logger.log(`📋 Found ${conversations?.length || 0} conversations`);
+            this.logger.log(`📋 Conversations: ${JSON.stringify(conversations)}`);
 
             if (error) {
                 throw new BadRequestException('Error al obtener conversaciones');

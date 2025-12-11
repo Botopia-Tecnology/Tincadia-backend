@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { PaymentsModule } from './payments/payments.module';
 import { FormsModule } from './forms/forms.module';
 import { CommunicationModule } from './communication/communication.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { CommunicationModule } from './communication/communication.module';
     PaymentsModule,
     FormsModule,
     CommunicationModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [
@@ -32,5 +34,5 @@ import { CommunicationModule } from './communication/communication.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule { }
 
