@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Put, Delete, Body, Param, Query, Inject, HttpCode, HttpStatus } from '@nestjs/common';
+import { map } from 'rxjs/operators';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { StartConversationDto } from './dto/start-conversation.dto';
@@ -67,5 +68,14 @@ export class ChatController {
     @ApiResponse({ status: 200, description: 'Mensaje eliminado' })
     deleteMessage(@Param('messageId') messageId: string, @Body() dto: { userId: string }) {
         return this.client.send('delete_message', { messageId, userId: dto.userId });
+    }
+    @Post('correct-text')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Corregir texto usando IA' })
+    @ApiResponse({ status: 200, description: 'Texto corregido' })
+    correctText(@Body('text') text: string) {
+        return this.client.send('correct_text', { text }).pipe(
+            map((correctedText) => ({ correctedText })),
+        );
     }
 }
