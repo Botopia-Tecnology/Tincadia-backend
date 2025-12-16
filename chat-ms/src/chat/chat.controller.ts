@@ -1,6 +1,7 @@
 import { Controller } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { ChatService } from './chat.service';
+import { CorrectionService } from './correction.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto } from './dto/get-messages.dto';
 import { GetConversationsDto } from './dto/get-conversations.dto';
@@ -10,7 +11,15 @@ import { DeleteMessageDto } from './dto/delete-message.dto';
 
 @Controller()
 export class ChatController {
-    constructor(private readonly chatService: ChatService) { }
+    constructor(
+        private readonly chatService: ChatService,
+        private readonly correctionService: CorrectionService,
+    ) { }
+
+    @MessagePattern('correct_text')
+    correctText(@Payload() data: { text: string }) {
+        return this.correctionService.correctText(data.text);
+    }
 
     @MessagePattern('start_conversation')
     startConversation(@Payload() data: StartConversationDto) {
@@ -45,5 +54,12 @@ export class ChatController {
     @MessagePattern('delete_message')
     deleteMessage(@Payload() data: DeleteMessageDto) {
         return this.chatService.deleteMessage(data);
+    }
+
+    @MessagePattern('correct_text_stream')
+    async *correctTextStream(@Payload() data: { text: string }) {
+        for await (const chunk of this.correctionService.correctTextStream(data.text)) {
+            yield chunk;
+        }
     }
 }

@@ -26,6 +26,6 @@ async function bootstrap() {
     );
 
     await app.listen();
-    console.log(`💬 Chat MS running on port ${port}`);
+    console.log(`💬 Chat MS running on 0.0.0.0:${port}`);
 }
 bootstrap();
