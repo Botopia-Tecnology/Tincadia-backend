@@ -55,4 +55,11 @@ export class ChatController {
     deleteMessage(@Payload() data: DeleteMessageDto) {
         return this.chatService.deleteMessage(data);
     }
+
+    @MessagePattern('correct_text_stream')
+    async *correctTextStream(@Payload() data: { text: string }) {
+        for await (const chunk of this.correctionService.correctTextStream(data.text)) {
+            yield chunk;
+        }
+    }
 }

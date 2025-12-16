@@ -1,7 +1,10 @@
-import { Controller, Post, Get, Put, Delete, Body, Param, Query, Inject, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Put, Delete, Body, Param, Query, Inject, HttpCode, HttpStatus, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { map } from 'rxjs/operators';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { StartConversationDto } from './dto/start-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, DeleteMessageDto } from './dto/chat.dto';
@@ -10,9 +13,19 @@ import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, Del
 @ApiBearerAuth()
 @Controller('chat')
 export class ChatController {
+    private genAI: GoogleGenerativeAI | null = null;
+    private model: any = null;
+
     constructor(
         @Inject('CHAT_SERVICE') private readonly client: ClientProxy,
-    ) { }
+        private readonly configService: ConfigService,
+    ) {
+        const apiKey = this.configService.get<string>('GEMINI_API_KEY');
+        if (apiKey) {
+            this.genAI = new GoogleGenerativeAI(apiKey);
+            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+        }
+    }
 
     @Post('conversations')
     @HttpCode(HttpStatus.CREATED)
@@ -69,6 +82,7 @@ export class ChatController {
     deleteMessage(@Param('messageId') messageId: string, @Body() dto: { userId: string }) {
         return this.client.send('delete_message', { messageId, userId: dto.userId });
     }
+
     @Post('correct-text')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Corregir texto usando IA' })
@@ -77,5 +91,50 @@ export class ChatController {
         return this.client.send('correct_text', { text }).pipe(
             map((correctedText) => ({ correctedText })),
         );
+    }
+
+    @Post('correct-text/stream')
+    @ApiOperation({ summary: 'Corregir texto usando IA con streaming (SSE)' })
+    @ApiResponse({ status: 200, description: 'Stream de texto corregido' })
+    async correctTextStream(@Body('text') text: string, @Res() res: Response) {
+        // Set SSE headers
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+
+        if (!this.model) {
+            res.write(`data: ${JSON.stringify({ error: 'Gemini API not configured' })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            res.end();
+            return;
+        }
+
+        try {
+            const prompt = `Eres un asistente experto en corrección de textos en español. Tu tarea es corregir la gramática, ortografía y puntuación del siguiente texto, convirtiéndolo en un español claro y legible. El texto original puede provenir de una persona sorda con estructuras gramaticales no convencionales.
+      
+Instrucciones:
+1. Mantén el sentido original del mensaje.
+2. No agregues explicaciones, saludos ni despedidas. Solo devuelve el texto corregido.
+3. Si el texto ya es correcto, devuélvelo tal cual.
+      
+Texto original: "${text}"`;
+
+            const result = await this.model.generateContentStream(prompt);
+
+            for await (const chunk of result.stream) {
+                const chunkText = chunk.text();
+                if (chunkText) {
+                    res.write(`data: ${JSON.stringify({ chunk: chunkText })}\n\n`);
+                }
+            }
+
+            res.write('data: [DONE]\n\n');
+            res.end();
+        } catch (error) {
+            res.write(`data: ${JSON.stringify({ error: 'Error generating correction' })}\n\n`);
+            res.write('data: [DONE]\n\n');
+            res.end();
+        }
     }
 }

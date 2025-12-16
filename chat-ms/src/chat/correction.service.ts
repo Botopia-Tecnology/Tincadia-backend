@@ -14,35 +14,62 @@ export class CorrectionService {
             this.logger.warn('GEMINI_API_KEY is not set in environment variables');
         } else {
             this.genAI = new GoogleGenerativeAI(apiKey);
-            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
         }
+    }
+
+    private getPrompt(text: string): string {
+        return `Eres un asistente experto en corrección de textos en español. Tu tarea es corregir la gramática, ortografía y puntuación del siguiente texto, convirtiéndolo en un español claro y legible. El texto original puede provenir de una persona sorda con estructuras gramaticales no convencionales.
+      
+Instrucciones:
+1. Mantén el sentido original del mensaje.
+2. No agregues explicaciones, saludos ni despedidas. Solo devuelve el texto corregido.
+3. Si el texto ya es correcto, devuélvelo tal cual.
+      
+Texto original: "${text}"`;
     }
 
     async correctText(text: string): Promise<string> {
         if (!this.model) {
             this.logger.error('Gemini model not initialized due to missing API Key');
-            return text; // Fallback to original text
+            return text;
         }
 
         try {
-            const prompt = `Eres un asistente experto en corrección de textos en español. Tu tarea es corregir la gramática, ortografía y puntuación del siguiente texto, convirtiéndolo en un español claro y legible. El texto original puede provenir de una persona sorda con estructuras gramaticales no convencionales.
-      
-      Instrucciones:
-      1. Mantén el sentido original del mensaje.
-      2. No agregues explicaciones, saludos ni despedidas. Solo devuelve el texto corregido.
-      3. Si el texto ya es correcto, devuélvelo tal cual.
-      
-      Texto original: "${text}"`;
-
+            const prompt = this.getPrompt(text);
             const result = await this.model.generateContent(prompt);
             const response = await result.response;
-            let correctedText = response.text();
-
-            // Clean up potential whitespace or newlines added by the model
-            return correctedText.trim();
+            return response.text().trim();
         } catch (error) {
             this.logger.error('Error generating content with Gemini:', error);
-            return text; // Fallback to original text in case of error
+            return text;
+        }
+    }
+
+    /**
+     * Stream text correction using Gemini's generateContentStream
+     * Yields chunks of text as they are generated
+     */
+    async *correctTextStream(text: string): AsyncGenerator<string, void, unknown> {
+        if (!this.model) {
+            this.logger.error('Gemini model not initialized due to missing API Key');
+            yield text;
+            return;
+        }
+
+        try {
+            const prompt = this.getPrompt(text);
+            const result = await this.model.generateContentStream(prompt);
+
+            for await (const chunk of result.stream) {
+                const chunkText = chunk.text();
+                if (chunkText) {
+                    yield chunkText;
+                }
+            }
+        } catch (error) {
+            this.logger.error('Error streaming content with Gemini:', error);
+            yield text;
         }
     }
 }
