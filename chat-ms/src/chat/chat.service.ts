@@ -5,6 +5,7 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
+import { EncryptionService } from './encryption.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto } from './dto/get-messages.dto';
 import { GetConversationsDto } from './dto/get-conversations.dto';
@@ -16,7 +17,10 @@ import { DeleteMessageDto } from './dto/delete-message.dto';
 export class ChatService {
     private readonly logger = new Logger(ChatService.name);
 
-    constructor(private readonly supabaseService: SupabaseService) { }
+    constructor(
+        private readonly supabaseService: SupabaseService,
+        private readonly encryptionService: EncryptionService,
+    ) { }
 
     /**
      * Iniciar o obtener conversación 1:1 entre dos usuarios
@@ -72,13 +76,16 @@ export class ChatService {
                 throw new BadRequestException('No eres parte de esta conversación');
             }
 
+            // Encrypt the message content before storing
+            const encryptedContent = this.encryptionService.encrypt(data.content);
+
             // Insertar mensaje
             const { data: message, error } = await supabase
                 .from('messages')
                 .insert({
                     conversation_id: data.conversationId,
                     sender_id: data.senderId,
-                    content: data.content,
+                    content: encryptedContent,
                     type: data.type || 'text',
                     metadata: data.metadata || {},
                 })
@@ -96,10 +103,16 @@ export class ChatService {
                 .update({ updated_at: new Date().toISOString() })
                 .eq('id', data.conversationId);
 
-            // Broadcast via Realtime
-            await this.supabaseService.broadcastMessage(data.conversationId, message);
+            // Decrypt content before broadcasting so clients receive plaintext
+            const decryptedMessage = {
+                ...message,
+                content: this.encryptionService.decrypt(message.content),
+            };
 
-            return { message };
+            // Broadcast via Realtime
+            await this.supabaseService.broadcastMessage(data.conversationId, decryptedMessage);
+
+            return { message: decryptedMessage };
         } catch (error) {
             if (
                 error instanceof BadRequestException ||
@@ -131,8 +144,23 @@ export class ChatService {
                 throw new BadRequestException('Error al obtener mensajes');
             }
 
+            // Decrypt message contents
+            const decryptedMessages = messages?.map((msg) => {
+                try {
+                    return {
+                        ...msg,
+                        content: this.encryptionService.isEncrypted(msg.content)
+                            ? this.encryptionService.decrypt(msg.content)
+                            : msg.content, // Handle legacy unencrypted messages
+                    };
+                } catch (e) {
+                    this.logger.warn(`Failed to decrypt message ${msg.id}`);
+                    return msg; // Return as-is if decryption fails
+                }
+            });
+
             return {
-                messages: messages?.reverse() || [],
+                messages: decryptedMessages?.reverse() || [],
                 hasMore: (messages?.length || 0) === limit,
             };
         } catch (error) {
@@ -208,10 +236,13 @@ export class ChatService {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
+            // Encrypt the new content
+            const encryptedContent = this.encryptionService.encrypt(data.content);
+
             const { data: message, error } = await supabase
                 .from('messages')
                 .update({
-                    content: data.content,
+                    content: encryptedContent,
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', data.messageId)
@@ -223,7 +254,13 @@ export class ChatService {
                 throw new NotFoundException('Mensaje no encontrado');
             }
 
-            return { message };
+            // Return decrypted content
+            return {
+                message: {
+                    ...message,
+                    content: this.encryptionService.decrypt(message.content),
+                },
+            };
         } catch (error) {
             if (error instanceof NotFoundException) throw error;
             throw new BadRequestException('Error al editar mensaje');
