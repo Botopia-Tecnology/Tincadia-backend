@@ -29,7 +29,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   await app.listen();
-  console.log(`🔐 Auth MS running on port ${port}`);
+  console.log(`🔐 Auth MS running on 0.0.0.0:${port}`);
 }
 bootstrap();
 

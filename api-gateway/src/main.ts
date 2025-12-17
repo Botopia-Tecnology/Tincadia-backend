@@ -1,15 +1,20 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { RpcExceptionFilter } from './common/filters/rpc-exception.filter';
 
 async function bootstrap() {
+  // Parse CORS origins from environment
+  const corsOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173'];
+
   // API Gateway HTTP
   const app = await NestFactory.create(AppModule, {
     cors: {
       origin: [
-        'http://localhost:3001',
-        'http://localhost:5173',
+        ...corsOrigins,
         'https://tincadia.vercel.app',
         /\.devtunnels\.ms$/,
       ],
@@ -33,8 +38,17 @@ async function bootstrap() {
       transformOptions: {
         enableImplicitConversion: true,
       },
+      exceptionFactory: (errors) => {
+        const messages = errors.map((error) => {
+          return Object.values(error.constraints || {})[0];
+        });
+        return new BadRequestException(messages[0] || 'Error de validación');
+      },
     }),
   );
+
+  // Register Global RPC Exception Filter
+  app.useGlobalFilters(new RpcExceptionFilter());
 
   // Configuración de Swagger
   const config = new DocumentBuilder()
@@ -47,7 +61,7 @@ async function bootstrap() {
     .addTag('Communication', 'Notificaciones y mensajería')
     .addBearerAuth()
     .build();
-  
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document, {
     customSiteTitle: 'Tincadia API Docs',
@@ -56,8 +70,8 @@ async function bootstrap() {
   });
 
   const port = process.env.PORT || 3001;
-  await app.listen(port);
-  console.log(`🚀 API Gateway running on http://localhost:${port}`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`🚀 API Gateway running on http://0.0.0.0:${port}`);
   console.log(`📚 Swagger docs available at http://localhost:${port}/api/docs`);
 }
 

@@ -2,12 +2,11 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
-  NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { ConfigService } from '@nestjs/config';
+import { SupabaseService } from '../supabase/supabase.service';
+import { TokenService } from './services/token.service';
+import { ProfileService } from './services/profile.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -18,49 +17,50 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class AuthService {
-  private supabase: SupabaseClient;
-
   constructor(
-    private jwtService: JwtService,
-    private configService: ConfigService,
-  ) {
-    // Inicializar cliente de Supabase
-    const supabaseUrl = this.configService.get<string>('SUPABASE_URL') || '';
-    const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_KEY') || '';
-    this.supabase = createClient(supabaseUrl, supabaseKey);
-  }
+    private readonly supabaseService: SupabaseService,
+    private readonly tokenService: TokenService,
+    private readonly profileService: ProfileService,
+  ) { }
 
-  async register(data: RegisterDto) {
-    const { email, password, firstName, lastName, phoneNumber } = data;
+  async register(data: RegisterDto): Promise<any> {
+    const { email, password, firstName, lastName, documentTypeId, documentNumber, phone } = data;
 
     try {
-      // Registrar usuario en Supabase Auth
-      const { data: authData, error: authError } =
-        await this.supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              first_name: firstName,
-              last_name: lastName,
-              phone_number: phoneNumber,
-            },
-          },
-        });
+      const supabase = this.supabaseService.getAdminClient();
+
+      // 1. Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+      });
 
       if (authError) {
         if (authError.message.includes('already registered')) {
-          throw new ConflictException('El usuario ya existe');
+          throw new ConflictException('El usuario ya está registrado');
+        }
+        if (authError.message.includes('Password should be at least')) {
+          throw new BadRequestException('La contraseña debe tener al menos 6 caracteres');
         }
         throw new BadRequestException(authError.message);
       }
 
       if (!authData.user) {
-        throw new BadRequestException('Error al crear usuario');
+        throw new BadRequestException('Error al crear el usuario');
       }
 
-      // Generar JWT
-      const token = this.generateJwtToken(authData.user);
+      // 2. Create profile
+      const profile = await this.profileService.create({
+        id: authData.user.id,
+        firstName,
+        lastName,
+        documentTypeId,
+        documentNumber,
+        phone,
+      });
+
+      // 3. Generate JWT
+      const token = this.tokenService.generateToken(authData.user);
 
       return {
         user: {
@@ -68,205 +68,207 @@ export class AuthService {
           email: authData.user.email,
           firstName,
           lastName,
-          phoneNumber,
+          documentNumber,
+          phone,
           emailVerified: false,
         },
         token,
         session: authData.session,
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
       if (error instanceof ConflictException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error al registrar usuario');
+      throw new BadRequestException(error.message || 'Error al registrar usuario');
     }
   }
 
-  async login(data: LoginDto) {
+  async login(data: LoginDto): Promise<any> {
     const { email, password } = data;
 
     try {
-      // Autenticar con Supabase
-      const { data: authData, error: authError } =
-        await this.supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+      const supabase = this.supabaseService.getAdminClient();
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-      if (authError || !authData.user) {
-        throw new UnauthorizedException('Credenciales inválidas');
+      if (authError) {
+        if (authError.message.includes('Invalid login credentials')) {
+          throw new UnauthorizedException('Correo o contraseña incorrectos');
+        }
+        if (authError.message.includes('Email not confirmed')) {
+          throw new UnauthorizedException('Debes verificar tu correo electrónico antes de iniciar sesión');
+        }
+        throw new BadRequestException(authError.message);
       }
 
-      // Generar JWT
-      const token = this.generateJwtToken(authData.user);
+      if (!authData.user) {
+        throw new UnauthorizedException('Correo o contraseña incorrectos');
+      }
+
+      const profile = await this.profileService.findById(authData.user.id);
+      const token = this.tokenService.generateToken(authData.user);
 
       return {
-        user: {
-          id: authData.user.id,
-          email: authData.user.email,
-          firstName: authData.user.user_metadata?.first_name || '',
-          lastName: authData.user.user_metadata?.last_name || '',
-          emailVerified: !!authData.user.email_confirmed_at,
-        },
+        user: this.profileService.toUserResponse(profile, authData.user),
         token,
         session: authData.session,
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
-      if (error instanceof UnauthorizedException) {
+      if (error instanceof UnauthorizedException || error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error al iniciar sesión');
+      throw new BadRequestException(error.message || 'Error al iniciar sesión');
     }
   }
 
-  async loginWithOAuth(data: OAuthLoginDto) {
-    const { provider, accessToken } = data;
+  async loginWithOAuth(data: OAuthLoginDto): Promise<any> {
+    const { provider, accessToken, idToken } = data;
 
     try {
-      // Obtener información del usuario desde Supabase usando el token OAuth
-      const { data: userData, error: userError } =
-        await this.supabase.auth.getUser(accessToken);
+      const supabase = this.supabaseService.getAdminClient();
 
-      if (userError || !userData.user) {
-        throw new UnauthorizedException('Token de OAuth inválido');
+      // Use signInWithIdToken to exchange the provider's ID token for a Supabase session
+      // This allows the frontend to use Google/Apple SDK directly without Supabase SDK
+      const tokenToUse = idToken || accessToken;
+
+      if (!tokenToUse) {
+        throw new BadRequestException('Either idToken or accessToken is required');
       }
 
-      const supabaseUser = userData.user;
+      const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
+        provider: provider as 'google' | 'apple',
+        token: tokenToUse,
+        access_token: accessToken,
+      });
 
-      // Generar JWT
-      const token = this.generateJwtToken(supabaseUser);
+      if (authError || !authData.user) {
+        throw new UnauthorizedException('Invalid OAuth token: ' + (authError?.message || 'Unknown error'));
+      }
+
+      const supabaseUser = authData.user;
+      const token = this.tokenService.generateToken(supabaseUser);
+
+      // Get or create profile
+      let profile = await this.profileService.findById(supabaseUser.id);
+
+      if (!profile) {
+        const fullName = supabaseUser.user_metadata?.full_name || '';
+        const nameParts = fullName.split(' ');
+        profile = await this.profileService.create({
+          id: supabaseUser.id,
+          firstName: nameParts[0] || '',
+          lastName: nameParts.slice(1).join(' ') || '',
+          documentNumber: '',
+          phone: '',
+        });
+      }
+
 
       return {
         user: {
           id: supabaseUser.id,
           email: supabaseUser.email,
-          firstName: supabaseUser.user_metadata?.full_name?.split(' ')[0] || '',
-          lastName: supabaseUser.user_metadata?.full_name?.split(' ').slice(1).join(' ') || '',
+          firstName: profile.firstName,
+          lastName: profile.lastName,
           avatarUrl: supabaseUser.user_metadata?.avatar_url || null,
           authProvider: provider,
-          emailVerified: true,
+          emailVerified: supabaseUser.email_confirmed_at ? true : false,
         },
         token,
+        session: authData.session,
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new BadRequestException('Error al autenticar con OAuth');
+      throw new BadRequestException('Error authenticating with OAuth: ' + (error as Error).message);
     }
   }
 
-  async logout(data: LogoutDto) {
+  async logout(data: LogoutDto): Promise<any> {
     const { userId, token } = data;
 
     try {
-      // Verificar que el token sea válido y corresponda al usuario
-      const payload = this.jwtService.verify(token);
+      const payload = this.tokenService.verifyToken(token);
       if (payload.sub !== userId) {
-        throw new UnauthorizedException('Token no corresponde al usuario');
+        throw new UnauthorizedException('Token does not match user');
       }
 
-      // Cerrar sesión del usuario específico en Supabase
-      const { error } = await this.supabase.auth.admin.signOut(userId, 'global');
-      
+      const supabase = this.supabaseService.getAdminClient();
+      const { error } = await supabase.auth.admin.signOut(userId, 'global');
+
       if (error) {
         throw new BadRequestException(error.message);
       }
 
-      return { message: 'Sesión cerrada exitosamente' };
+      return { message: 'Logged out successfully' };
     } catch (error) {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new BadRequestException('Error al cerrar sesión');
+      throw new BadRequestException('Error logging out');
     }
   }
 
-  async getProfile(data: GetProfileDto) {
+  async getProfile(data: GetProfileDto): Promise<any> {
     const { id } = data;
 
     try {
-      const { data: userData, error } = await this.supabase.auth.admin.getUserById(id);
+      const supabase = this.supabaseService.getAdminClient();
+      const { data: userData, error } = await supabase.auth.admin.getUserById(id);
 
       if (error || !userData.user) {
-        throw new NotFoundException('Usuario no encontrado');
+        throw new BadRequestException('User not found');
       }
 
+      const profile = await this.profileService.findById(id);
+
       return {
-        user: {
-          id: userData.user.id,
-          email: userData.user.email,
-          firstName: userData.user.user_metadata?.first_name || '',
-          lastName: userData.user.user_metadata?.last_name || '',
-          phoneNumber: userData.user.user_metadata?.phone_number || '',
-          emailVerified: !!userData.user.email_confirmed_at,
-        },
+        user: this.profileService.toUserResponse(profile, userData.user),
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException('Error al obtener perfil');
+      throw new BadRequestException('Error getting profile');
     }
   }
 
-  async updateProfile(userId: string, updateData: UpdateProfileDto) {
+  async updateProfile(userId: string, updateData: UpdateProfileDto): Promise<any> {
+    const profile = await this.profileService.update(userId, updateData);
+    return { user: { ...profile } };
+  }
+
+  async verifyToken(token: string): Promise<any> {
     try {
-      const { data, error } = await this.supabase.auth.admin.updateUserById(
-        userId,
-        {
-          user_metadata: updateData,
-        },
-      );
-
-      if (error) {
-        throw new NotFoundException('Usuario no encontrado');
-      }
+      const payload = this.tokenService.verifyToken(token);
+      const profile = await this.profileService.findByIdOrFail(payload.sub);
 
       return {
         user: {
-          id: data.user.id,
-          email: data.user.email,
-          ...data.user.user_metadata,
+          id: profile.id,
+          email: payload.email,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          documentNumber: profile.documentNumber,
+          documentTypeId: profile.documentTypeId,
+          phone: profile.phone,
         },
+        isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new BadRequestException('Error al actualizar perfil');
+      throw new UnauthorizedException('Invalid or expired token');
     }
   }
 
-  async verifyToken(token: string) {
-    try {
-      const payload = this.jwtService.verify(token);
-
-      const { data: userData, error } = await this.supabase.auth.admin.getUserById(payload.sub);
-
-      if (error || !userData.user) {
-        throw new UnauthorizedException('Usuario no válido');
-      }
-
-      return {
-        user: {
-          id: userData.user.id,
-          email: userData.user.email,
-          firstName: userData.user.user_metadata?.first_name || '',
-          lastName: userData.user.user_metadata?.last_name || '',
-        },
-      };
-    } catch (error) {
-      throw new UnauthorizedException('Token inválido o expirado');
-    }
-  }
-
-  async resetPassword(data: ResetPasswordDto) {
+  async resetPassword(data: ResetPasswordDto): Promise<any> {
     const { email } = data;
 
     try {
-      // Enviar email de recuperación de contraseña
-      const { error } = await this.supabase.auth.resetPasswordForEmail(email, {
+      const supabase = this.supabaseService.getAdminClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: 'https://tincadia.vercel.app/reset-password',
       });
 
@@ -274,21 +276,29 @@ export class AuthService {
         throw new BadRequestException(error.message);
       }
 
-      return { message: 'Email de recuperación enviado exitosamente' };
+      return { message: 'Recovery email sent successfully' };
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error al enviar email de recuperación');
+      throw new BadRequestException('Error sending recovery email');
     }
   }
 
-  private generateJwtToken(user: any): string {
-    const payload = {
-      sub: user.id,
-      email: user.email,
-    };
+  async getUsers(excludeUserId: string): Promise<any> {
+    try {
+      const profiles = await this.profileService.findAllExcept(excludeUserId);
 
-    return this.jwtService.sign(payload);
+      return {
+        users: profiles.map(p => ({
+          id: p.id,
+          firstName: p.firstName,
+          lastName: p.lastName,
+          phone: p.phone,
+        })),
+      };
+    } catch (error) {
+      throw new BadRequestException('Error getting users');
+    }
   }
 }

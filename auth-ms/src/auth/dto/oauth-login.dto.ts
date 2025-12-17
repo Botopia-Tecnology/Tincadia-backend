@@ -3,6 +3,7 @@ import { IsString, IsNotEmpty, IsEnum, IsOptional } from 'class-validator';
 export enum OAuthProvider {
   GOOGLE = 'google',
   APPLE = 'apple',
+  MICROSOFT = 'microsoft',
 }
 
 export class OAuthLoginDto {
@@ -11,8 +12,8 @@ export class OAuthLoginDto {
   provider: OAuthProvider;
 
   @IsString()
-  @IsNotEmpty()
-  accessToken: string; // Token de acceso del proveedor OAuth
+  @IsOptional()
+  accessToken?: string; // Token de acceso del proveedor OAuth (opcional)
 
   @IsString()
   @IsOptional()
