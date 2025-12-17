@@ -1,42 +1,88 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
-import { RpcException } from '@nestjs/microservices';
+import {
+    ExceptionFilter,
+    Catch,
+    ArgumentsHost,
+    HttpException,
+    HttpStatus,
+    Logger,
+} from '@nestjs/common';
 
-@Catch(RpcException)
+@Catch()
 export class RpcExceptionFilter implements ExceptionFilter {
-    catch(exception: RpcException, host: ArgumentsHost) {
-        const error: any = exception.getError();
+    private readonly logger = new Logger(RpcExceptionFilter.name);
+
+    catch(exception: unknown, host: ArgumentsHost) {
         const ctx = host.switchToHttp();
         const response = ctx.getResponse();
 
-        // Default status code and message
+
+        this.logger.error('⚠️ Exception caught by Global Filter:', exception);
+
         let status = HttpStatus.INTERNAL_SERVER_ERROR;
-        let message = 'Internal server error';
+        let message: string | string[] = 'Internal server error';
+        let errorName = 'Internal Server Error';
 
-        if (typeof error === 'object' && error !== null) {
-            // Check potential paths for status code
-            status = error.statusCode
-                || error.status
-                || (error.error && error.error.statusCode)
-                || (error.error && error.error.status)
-                || HttpStatus.INTERNAL_SERVER_ERROR;
-
-            // Check potential paths for message
-            message = error.message
-                || (error.error && error.error.message)
-                || message;
-
-            // If the message is an array (class-validator), take the first one
-            if (Array.isArray(message)) {
-                message = message[0];
+        // 1. Si es una excepción HTTP estándar (lanzada por el propio Gateway)
+        if (exception instanceof HttpException) {
+            status = exception.getStatus();
+            const res: any = exception.getResponse();
+            if (typeof res === 'object') {
+                message = res.message || message;
+                errorName = res.error || errorName;
+            } else {
+                message = res;
             }
-        } else {
-            message = error;
         }
+        // 2. Si es un error que viene de un Microservicio (RpcException o objeto genérico)
+        else if (exception) {
+            let errorObj = exception as any;
+
+            // CASO ESPECÍFICO: RpcException de NestJS Microservices
+            // Los RpcException envuelven el payload real y se accede con .getError()
+            if (typeof errorObj.getError === 'function') {
+                errorObj = errorObj.getError();
+            }
+
+            // Intenta extraer status y mensaje de varias estructuras comunes
+            if (errorObj.response && typeof errorObj.response === 'object') {
+                const potentialStatus = errorObj.response.statusCode || errorObj.status;
+                if (typeof potentialStatus === 'number') status = potentialStatus;
+
+                message = errorObj.response.message || message;
+                errorName = errorObj.response.error || errorName;
+            }
+            else if (errorObj.statusCode || errorObj.status) {
+                const potentialStatus = errorObj.statusCode || errorObj.status;
+                if (typeof potentialStatus === 'number') status = potentialStatus;
+
+                message = errorObj.message || message;
+                errorName = errorObj.error || errorName;
+            }
+            else if (errorObj.message) {
+                message = errorObj.message;
+                if (errorObj.error?.statusCode && typeof errorObj.error.statusCode === 'number') {
+                    status = errorObj.error.statusCode;
+                }
+            }
+        }
+
+        // Validación final de seguridad para el status
+        if (typeof status !== 'number' || isNaN(status) || status < 100 || status > 599) {
+            status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+
+        // Asegurar que el mensaje no sea un array (class-validator a veces devuelve array)
+        if (Array.isArray(message)) {
+            message = message[0];
+        }
+
+        // Log final para verificar qué estamos respondiendo
+        // Log final para verificar qué estamos respondiendo
 
         response.status(status).json({
             statusCode: status,
-            message,
-            error: error.error || 'Error',
+            message: message,
+            error: errorName,
         });
     }
 }

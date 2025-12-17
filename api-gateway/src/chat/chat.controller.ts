@@ -8,6 +8,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { StartConversationDto } from './dto/start-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, DeleteMessageDto } from './dto/chat.dto';
+import { AddContactDto, UpdateContactDto } from './dto/contact.dto';
 
 @ApiTags('Chat')
 @ApiBearerAuth()
@@ -23,7 +24,7 @@ export class ChatController {
         const apiKey = this.configService.get<string>('GEMINI_API_KEY');
         if (apiKey) {
             this.genAI = new GoogleGenerativeAI(apiKey);
-            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         }
     }
 
@@ -93,6 +94,45 @@ export class ChatController {
         );
     }
 
+    // ===== CONTACTS =====
+
+    @Post('contacts')
+    @HttpCode(HttpStatus.CREATED)
+    @ApiOperation({ summary: 'Agregar contacto por número de teléfono' })
+    @ApiResponse({ status: 201, description: 'Contacto agregado' })
+    @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
+    @ApiResponse({ status: 409, description: 'Contacto ya existe' })
+    addContact(@Body() dto: AddContactDto) {
+        return this.client.send('add_contact', dto);
+    }
+
+    @Get('contacts/:userId')
+    @ApiOperation({ summary: 'Obtener lista de contactos' })
+    @ApiResponse({ status: 200, description: 'Lista de contactos' })
+    getContacts(@Param('userId') userId: string) {
+        return this.client.send('get_contacts', { ownerId: userId });
+    }
+
+    @Put('contacts/:contactId')
+    @ApiOperation({ summary: 'Actualizar contacto (alias, nombre)' })
+    @ApiResponse({ status: 200, description: 'Contacto actualizado' })
+    updateContact(
+        @Param('contactId') contactId: string,
+        @Body() dto: UpdateContactDto & { ownerId: string },
+    ) {
+        return this.client.send('update_contact', { ...dto, contactId });
+    }
+
+    @Delete('contacts/:contactId')
+    @ApiOperation({ summary: 'Eliminar contacto' })
+    @ApiResponse({ status: 200, description: 'Contacto eliminado' })
+    deleteContact(
+        @Param('contactId') contactId: string,
+        @Body() dto: { ownerId: string },
+    ) {
+        return this.client.send('delete_contact', { contactId, ownerId: dto.ownerId });
+    }
+
     @Post('correct-text/stream')
     @ApiOperation({ summary: 'Corregir texto usando IA con streaming (SSE)' })
     @ApiResponse({ status: 200, description: 'Stream de texto corregido' })
@@ -132,6 +172,7 @@ Texto original: "${text}"`;
             res.write('data: [DONE]\n\n');
             res.end();
         } catch (error) {
+            console.error('❌ Gemini Streaming Error:', error);
             res.write(`data: ${JSON.stringify({ error: 'Error generating correction' })}\n\n`);
             res.write('data: [DONE]\n\n');
             res.end();

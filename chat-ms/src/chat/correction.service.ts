@@ -14,12 +14,12 @@ export class CorrectionService {
             this.logger.warn('GEMINI_API_KEY is not set in environment variables');
         } else {
             this.genAI = new GoogleGenerativeAI(apiKey);
-            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
         }
     }
 
     private getPrompt(text: string): string {
-        return `Eres un asistente experto en corrección de textos en español. Tu tarea es corregir la gramática, ortografía y puntuación del siguiente texto, convirtiéndolo en un español claro y legible. El texto original puede provenir de una persona sorda con estructuras gramaticales no convencionales.
+        return `Eres un asistente experto en corrección de textos en español. Tu tarea es corregir la gramática, el sentido de la oración, ortografía y puntuación del siguiente texto, convirtiéndolo en un español claro y legible. El texto original proviene de una persona sorda con estructuras gramaticales no convencionales.
       
 Instrucciones:
 1. Mantén el sentido original del mensaje.
