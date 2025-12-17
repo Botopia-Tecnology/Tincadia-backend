@@ -74,6 +74,7 @@ export class ContactService {
                 },
             };
         } catch (error) {
+            console.error('❌ Error adding contact:', error);
             if (
                 error instanceof NotFoundException ||
                 error instanceof BadRequestException ||
