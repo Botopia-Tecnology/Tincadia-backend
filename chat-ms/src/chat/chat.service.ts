@@ -185,18 +185,38 @@ export class ChatService {
                 .order('updated_at', { ascending: false });
 
             this.logger.log(`📋 Found ${conversations?.length || 0} conversations`);
-            this.logger.log(`📋 Conversations: ${JSON.stringify(conversations)}`);
 
             if (error) {
                 throw new BadRequestException('Error al obtener conversaciones');
             }
 
-            // Agregar info del otro usuario
-            const conversationsWithOther = conversations?.map((conv) => ({
-                ...conv,
-                otherUserId:
-                    conv.user1_id === data.userId ? conv.user2_id : conv.user1_id,
-            }));
+            // Get other user IDs
+            const otherUserIds = conversations?.map((conv) =>
+                conv.user1_id === data.userId ? conv.user2_id : conv.user1_id
+            ) || [];
+
+            // Fetch profiles for all other users
+            const { data: profiles } = await supabase
+                .from('profiles')
+                .select('id, first_name, last_name, phone')
+                .in('id', otherUserIds);
+
+            // Create a map for quick lookup
+            const profileMap = new Map(
+                profiles?.map((p) => [p.id, p]) || []
+            );
+
+            // Enrich conversations with other user info
+            const conversationsWithOther = conversations?.map((conv) => {
+                const otherUserId = conv.user1_id === data.userId ? conv.user2_id : conv.user1_id;
+                const profile = profileMap.get(otherUserId);
+                return {
+                    ...conv,
+                    otherUserId,
+                    otherUserPhone: profile?.phone || null,
+                    otherUserName: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : null,
+                };
+            });
 
             return { conversations: conversationsWithOther || [] };
         } catch (error) {
