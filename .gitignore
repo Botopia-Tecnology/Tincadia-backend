@@ -57,3 +57,8 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # API Keys - CONFIDENCIAL
 API_KEYS.md
+
+# Bun lockfiles (do not commit)
+**/bun.lock
+**/bun.lockb
+
