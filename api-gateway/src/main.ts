@@ -16,6 +16,7 @@ async function bootstrap() {
       origin: [
         ...corsOrigins,
         'https://tincadia.vercel.app',
+        'https://tincadia-frontend.vercel.app',
         /\.devtunnels\.ms$/,
       ],
       credentials: true,
