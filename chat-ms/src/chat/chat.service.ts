@@ -190,10 +190,14 @@ export class ChatService {
                 throw new BadRequestException('Error al obtener conversaciones');
             }
 
+            if (!conversations || conversations.length === 0) {
+                return { conversations: [] };
+            }
+
             // Get other user IDs
-            const otherUserIds = conversations?.map((conv) =>
+            const otherUserIds = conversations.map((conv) =>
                 conv.user1_id === data.userId ? conv.user2_id : conv.user1_id
-            ) || [];
+            );
 
             // Fetch profiles for all other users
             const { data: profiles } = await supabase
@@ -206,20 +210,70 @@ export class ChatService {
                 profiles?.map((p) => [p.id, p]) || []
             );
 
-            // Enrich conversations with other user info
-            const conversationsWithOther = conversations?.map((conv) => {
+            // Get conversation IDs for batch queries
+            const conversationIds = conversations.map((c) => c.id);
+
+            // Fetch last message for each conversation
+            const { data: lastMessages } = await supabase
+                .from('messages')
+                .select('conversation_id, content, created_at, sender_id')
+                .in('conversation_id', conversationIds)
+                .order('created_at', { ascending: false });
+
+            // Create a map with only the last message per conversation
+            const lastMessageMap = new Map<string, { content: string; created_at: string; sender_id: string }>();
+            for (const msg of lastMessages || []) {
+                if (!lastMessageMap.has(msg.conversation_id)) {
+                    // Decrypt the message content
+                    let decryptedContent = msg.content;
+                    try {
+                        decryptedContent = this.encryptionService.decrypt(msg.content);
+                    } catch {
+                        // If decryption fails, use original content
+                    }
+                    lastMessageMap.set(msg.conversation_id, {
+                        content: decryptedContent,
+                        created_at: msg.created_at,
+                        sender_id: msg.sender_id,
+                    });
+                }
+            }
+
+            // Fetch unread counts for each conversation
+            const { data: unreadCounts } = await supabase
+                .from('messages')
+                .select('conversation_id')
+                .in('conversation_id', conversationIds)
+                .neq('sender_id', data.userId)
+                .is('read_at', null);
+
+            // Count unread per conversation
+            const unreadMap = new Map<string, number>();
+            for (const msg of unreadCounts || []) {
+                unreadMap.set(msg.conversation_id, (unreadMap.get(msg.conversation_id) || 0) + 1);
+            }
+
+            // Enrich conversations with all info
+            const conversationsWithOther = conversations.map((conv) => {
                 const otherUserId = conv.user1_id === data.userId ? conv.user2_id : conv.user1_id;
                 const profile = profileMap.get(otherUserId);
+                const lastMsg = lastMessageMap.get(conv.id);
+                const unreadCount = unreadMap.get(conv.id) || 0;
+
                 return {
                     ...conv,
                     otherUserId,
                     otherUserPhone: profile?.phone || null,
                     otherUserName: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : null,
+                    lastMessage: lastMsg?.content || null,
+                    lastMessageAt: lastMsg?.created_at || null,
+                    unreadCount,
                 };
             });
 
-            return { conversations: conversationsWithOther || [] };
+            return { conversations: conversationsWithOther };
         } catch (error) {
+            this.logger.error(`Error getting conversations: ${error.message}`);
             if (error instanceof BadRequestException) throw error;
             throw new BadRequestException('Error al obtener conversaciones');
         }

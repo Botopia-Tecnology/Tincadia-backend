@@ -9,7 +9,7 @@ export class FormsController {
   constructor(
     @Inject('FORMS_SERVICE') private readonly client: ClientProxy,
     private readonly formsService: FormsService,
-  ) {}
+  ) { }
 
   @Post()
   create(@Body() createFormDto: CreateFormDto) {
@@ -34,6 +34,16 @@ export class FormsController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.client.send('delete_form', { id });
+  }
+
+  @Get('type/:type')
+  findByType(@Param('type') type: string) {
+    return this.client.send('find_form_by_type', { type });
+  }
+
+  @Post('submit')
+  submit(@Body() submissionDto: any) {
+    return this.client.send('submit_form', submissionDto);
   }
 }
 

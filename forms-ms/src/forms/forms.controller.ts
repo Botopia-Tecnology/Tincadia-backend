@@ -7,7 +7,7 @@ import { FormSubmissionDto } from './dto/form-submission.dto';
 
 @Controller()
 export class FormsController {
-  constructor(private readonly formsService: FormsService) {}
+  constructor(private readonly formsService: FormsService) { }
 
   @MessagePattern('create_form')
   create(@Payload() data: CreateFormDto) {
@@ -22,6 +22,11 @@ export class FormsController {
   @MessagePattern('find_one_form')
   findOne(@Payload() data: { id: string }) {
     return this.formsService.findOne(data.id);
+  }
+
+  @MessagePattern('find_form_by_type')
+  findByType(@Payload() data: { type: string }) {
+    return this.formsService.findByType(data.type);
   }
 
   @MessagePattern('update_form')

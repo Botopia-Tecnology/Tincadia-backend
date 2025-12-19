@@ -10,6 +10,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { FormsModule } from './forms/forms.module';
 import { CommunicationModule } from './communication/communication.module';
 import { ChatModule } from './chat/chat.module';
+import { ContactsModule } from './contacts/contacts.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { ChatModule } from './chat/chat.module';
     FormsModule,
     CommunicationModule,
     ChatModule,
+    ContactsModule,
   ],
   controllers: [AppController],
   providers: [

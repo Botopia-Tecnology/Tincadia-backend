@@ -16,6 +16,7 @@ async function bootstrap() {
       origin: [
         ...corsOrigins,
         'https://tincadia.vercel.app',
+        'https://tincadia-frontend.vercel.app',
         /\.devtunnels\.ms$/,
       ],
       credentials: true,
@@ -59,6 +60,7 @@ async function bootstrap() {
     .addTag('Forms', 'Gestión de formularios dinámicos')
     .addTag('Payments', 'Procesamiento de pagos y suscripciones')
     .addTag('Communication', 'Notificaciones y mensajería')
+    .addTag('Contacts', 'Sincronización y verificación de contactos')
     .addBearerAuth()
     .build();
 
