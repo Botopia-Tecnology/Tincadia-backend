@@ -27,7 +27,7 @@ export class Profile {
     @Column({ name: 'document_type_id', nullable: true })
     documentTypeId: number;
 
-    @Column({ name: 'document_number', length: 20 })
+    @Column({ name: 'document_number', length: 20, nullable: true })
     documentNumber: string;
 
     @Column({ length: 30, unique: true })

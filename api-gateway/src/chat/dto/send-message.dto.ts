@@ -1,13 +1,13 @@
 import { IsNotEmpty, IsString, IsOptional, IsEnum, IsObject } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
-export enum MessageType {
+export enum ChatMessageType {
     TEXT = 'text',
     IMAGE = 'image',
     FILE = 'file',
 }
 
-export class SendMessageDto {
+export class SendChatMessageDto {
     @ApiProperty({ description: 'ID de la conversación' })
     @IsString()
     @IsNotEmpty()
@@ -23,10 +23,10 @@ export class SendMessageDto {
     @IsNotEmpty()
     content: string;
 
-    @ApiProperty({ enum: MessageType, default: MessageType.TEXT, required: false })
-    @IsEnum(MessageType)
+    @ApiProperty({ enum: ChatMessageType, default: ChatMessageType.TEXT, required: false })
+    @IsEnum(ChatMessageType)
     @IsOptional()
-    type?: MessageType = MessageType.TEXT;
+    type?: ChatMessageType = ChatMessageType.TEXT;
 
     @ApiProperty({ description: 'Metadata adicional', required: false })
     @IsObject()

@@ -60,6 +60,7 @@ async function bootstrap() {
     .addTag('Forms', 'Gestión de formularios dinámicos')
     .addTag('Payments', 'Procesamiento de pagos y suscripciones')
     .addTag('Communication', 'Notificaciones y mensajería')
+    .addTag('Contacts', 'Sincronización y verificación de contactos')
     .addBearerAuth()
     .build();
 

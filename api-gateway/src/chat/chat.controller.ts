@@ -6,7 +6,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { StartConversationDto } from './dto/start-conversation.dto';
-import { SendMessageDto } from './dto/send-message.dto';
+import { SendChatMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, DeleteMessageDto } from './dto/chat.dto';
 import { AddContactDto, UpdateContactDto } from './dto/contact.dto';
 
@@ -47,7 +47,7 @@ export class ChatController {
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Enviar mensaje' })
     @ApiResponse({ status: 201, description: 'Mensaje enviado' })
-    sendMessage(@Body() dto: SendMessageDto) {
+    sendMessage(@Body() dto: SendChatMessageDto) {
         return this.client.send('send_message', dto);
     }
 
