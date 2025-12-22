@@ -4,6 +4,7 @@ import {
     NotFoundException,
     BadRequestException,
 } from '@nestjs/common';
+import { AccessToken } from 'livekit-server-sdk';
 import { SupabaseService } from '../supabase/supabase.service';
 import { EncryptionService } from './encryption.service';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -362,6 +363,32 @@ export class ChatService {
         } catch (error) {
             if (error instanceof NotFoundException) throw error;
             throw new BadRequestException('Error al eliminar mensaje');
+        }
+    }
+    /**
+     * Generar Token para LiveKit Video Calls
+     */
+    async generateVideoToken(roomName: string, username: string) {
+        try {
+            const apiKey = process.env.LIVEKIT_API_KEY;
+            const apiSecret = process.env.LIVEKIT_API_SECRET;
+
+            if (!apiKey || !apiSecret) {
+                this.logger.error('LiveKit keys not found in environment variables');
+                throw new BadRequestException('Servicio de video no configurado correctamente');
+            }
+
+            const at = new AccessToken(apiKey, apiSecret, {
+                identity: username,
+            });
+
+            at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
+
+            const token = await at.toJwt();
+            return { token };
+        } catch (error) {
+            this.logger.error(`Error generating token: ${error.message}`);
+            throw new BadRequestException('Error al generar token de video');
         }
     }
 }

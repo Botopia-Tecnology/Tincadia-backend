@@ -20,7 +20,7 @@ import { FormsModule } from './forms/forms.module';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: true, // Note: Set to false in production
+        synchronize: false, // NEVER true in production - was causing column drops!
         ssl: (configService.get<string>('DB_HOST')?.includes('supabase.co') || configService.get<string>('DB_HOST')?.includes('supabase.com'))
           ? { rejectUnauthorized: false }
           : false,
