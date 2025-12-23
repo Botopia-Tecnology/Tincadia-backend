@@ -5,6 +5,7 @@ import { RegisterDto } from './dto/register.dto';
 import { OAuthLoginDto } from './dto/oauth-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Authentication')
@@ -98,9 +99,19 @@ export class AuthController {
     }
   })
   @ApiResponse({ status: 401, description: 'Token de OAuth inválido o expirado' })
-  @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   loginWithOAuth(@Body() oauthDto: OAuthLoginDto) {
     return this.client.send('oauth_login', oauthDto);
+  }
+
+  @Post('push-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Actualizar token de notificaciones push',
+    description: 'Guarda el token de Expo para enviar notificaciones push al dispositivo.'
+  })
+  @ApiResponse({ status: 200, description: 'Token actualizado exitosamente' })
+  updatePushToken(@Body() data: UpdatePushTokenDto) {
+    return this.client.send('update_push_token', data);
   }
 
   @Post('logout')
@@ -290,5 +301,7 @@ export class AuthController {
   getUsers(@Param('userId') userId: string) {
     return this.client.send('get_users', { excludeUserId: userId });
   }
+
+
 }
 

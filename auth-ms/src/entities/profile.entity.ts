@@ -33,6 +33,9 @@ export class Profile {
     @Column({ length: 30, unique: true })
     phone: string;
 
+    @Column({ name: 'push_token', length: 255, nullable: true })
+    pushToken: string;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

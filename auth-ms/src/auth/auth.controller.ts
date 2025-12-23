@@ -8,6 +8,7 @@ import { GetProfileDto } from './dto/get-profile.dto';
 import { OAuthLoginDto } from './dto/oauth-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 
 @Controller()
 export class AuthController {
@@ -48,6 +49,11 @@ export class AuthController {
     return this.authService.updateProfile(data.userId, data.updateData);
   }
 
+  @MessagePattern('update_push_token')
+  updatePushToken(@Payload() data: UpdatePushTokenDto): Promise<void> {
+    return this.authService.updatePushToken(data.userId, data.pushToken);
+  }
+
   @MessagePattern('reset_password')
   resetPassword(@Payload() data: ResetPasswordDto): Promise<any> {
     return this.authService.resetPassword(data);
@@ -57,4 +63,6 @@ export class AuthController {
   getUsers(@Payload() data: { excludeUserId: string }): Promise<any> {
     return this.authService.getUsers(data.excludeUserId);
   }
+
+
 }

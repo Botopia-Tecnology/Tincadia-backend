@@ -3,7 +3,9 @@ import {
     Logger,
     NotFoundException,
     BadRequestException,
+    Inject,
 } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
 import { AccessToken } from 'livekit-server-sdk';
 import { SupabaseService } from '../supabase/supabase.service';
 import { EncryptionService } from './encryption.service';
@@ -21,6 +23,7 @@ export class ChatService {
     constructor(
         private readonly supabaseService: SupabaseService,
         private readonly encryptionService: EncryptionService,
+        @Inject('COMMUNICATION_SERVICE') private readonly communicationClient: ClientProxy,
     ) { }
 
     /**
@@ -112,6 +115,44 @@ export class ChatService {
 
             // Broadcast via Realtime
             await this.supabaseService.broadcastMessage(data.conversationId, decryptedMessage);
+
+            // Send Push Notification
+            try {
+                const recipientId = conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id;
+
+                // Fetch recipient's push token and sender's name
+                const { data: profiles } = await supabase
+                    .from('profiles')
+                    .select('id, first_name, last_name, push_token')
+                    .in('id', [data.senderId, recipientId]);
+
+                const senderProfile = profiles?.find(p => p.id === data.senderId);
+                const recipientProfile = profiles?.find(p => p.id === recipientId);
+
+                this.logger.log(`📱 Push Notification Check - Recipient: ${recipientId}, Has Token: ${!!recipientProfile?.push_token}`);
+
+                if (recipientProfile?.push_token) {
+                    const senderName = senderProfile ? `${senderProfile.first_name || ''} ${senderProfile.last_name || ''}`.trim() : 'Nuevo mensaje';
+
+                    this.logger.log(`🚀 Sending push notification to: ${recipientProfile.push_token.substring(0, 20)}...`);
+                    this.communicationClient.emit('send_push_notification', {
+                        to: recipientProfile.push_token,
+                        title: senderName,
+                        body: data.content,
+                        data: {
+                            type: 'chat_message',
+                            conversationId: data.conversationId,
+                            senderId: data.senderId,
+                        },
+                    });
+                    this.logger.log('✅ Push notification event emitted successfully');
+                } else {
+                    this.logger.warn(`⚠️ No push token found for recipient: ${recipientId}`);
+                }
+            } catch (notifyError) {
+                this.logger.error(`Failed to send push notification: ${notifyError.message}`);
+                // Don't fail the message if notification fails
+            }
 
             return { message: decryptedMessage };
         } catch (error) {
