@@ -16,8 +16,6 @@ export class NotificationsService {
         body: string;
         data?: any;
     }) {
-        this.logger.log(`Push notification request - Token: ${data.to.substring(0, 20)}...`);
-
         if (!Expo.isExpoPushToken(data.to)) {
             this.logger.error(`Invalid Expo push token: ${data.to}`);
             return { success: false, error: 'Invalid token' };
@@ -30,19 +28,15 @@ export class NotificationsService {
             body: data.body,
             data: data.data || {},
             priority: 'high',
+            channelId: 'default',
         };
-
-        this.logger.log(`Prepared notification: ${data.title}`);
 
         try {
             const chunks = this.expo.chunkPushNotifications([message]);
-            this.logger.log(`Created ${chunks.length} chunk(s)`);
 
             for (const chunk of chunks) {
                 try {
-                    this.logger.log('Sending to Expo servers...');
-                    const tickets = await this.expo.sendPushNotificationsAsync(chunk);
-                    this.logger.log('SUCCESS - Tickets:', JSON.stringify(tickets));
+                    await this.expo.sendPushNotificationsAsync(chunk);
                 } catch (error) {
                     this.logger.error('Error sending chunk:', error);
                 }

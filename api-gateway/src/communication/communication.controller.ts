@@ -9,7 +9,7 @@ export class CommunicationController {
   constructor(
     @Inject('COMMUNICATION_SERVICE') private readonly client: ClientProxy,
     private readonly communicationService: CommunicationService,
-  ) {}
+  ) { }
 
   @Post('send')
   send(@Body() sendDto: SendMessageDto) {

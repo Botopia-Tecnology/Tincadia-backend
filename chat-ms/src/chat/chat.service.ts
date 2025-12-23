@@ -129,12 +129,9 @@ export class ChatService {
                 const senderProfile = profiles?.find(p => p.id === data.senderId);
                 const recipientProfile = profiles?.find(p => p.id === recipientId);
 
-                this.logger.log(`📱 Push Notification Check - Recipient: ${recipientId}, Has Token: ${!!recipientProfile?.push_token}`);
-
                 if (recipientProfile?.push_token) {
                     const senderName = senderProfile ? `${senderProfile.first_name || ''} ${senderProfile.last_name || ''}`.trim() : 'Nuevo mensaje';
 
-                    this.logger.log(`🚀 Sending push notification to: ${recipientProfile.push_token.substring(0, 20)}...`);
                     this.communicationClient.emit('send_push_notification', {
                         to: recipientProfile.push_token,
                         title: senderName,
@@ -145,9 +142,6 @@ export class ChatService {
                             senderId: data.senderId,
                         },
                     });
-                    this.logger.log('✅ Push notification event emitted successfully');
-                } else {
-                    this.logger.warn(`⚠️ No push token found for recipient: ${recipientId}`);
                 }
             } catch (notifyError) {
                 this.logger.error(`Failed to send push notification: ${notifyError.message}`);

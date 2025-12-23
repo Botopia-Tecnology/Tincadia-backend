@@ -10,7 +10,7 @@ import { CommunicationService } from './communication.service';
         name: 'COMMUNICATION_SERVICE',
         transport: Transport.TCP,
         options: {
-          host: process.env.communicationHost || 'localhost',
+          host: process.env.communicationHost || '127.0.0.1',
           port: parseInt(process.env.communicationPort || '3005'),
         },
       },
@@ -19,5 +19,5 @@ import { CommunicationService } from './communication.service';
   controllers: [CommunicationController],
   providers: [CommunicationService],
 })
-export class CommunicationModule {}
+export class CommunicationModule { }
 
