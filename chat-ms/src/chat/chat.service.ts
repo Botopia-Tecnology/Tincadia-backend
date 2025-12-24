@@ -3,7 +3,10 @@ import {
     Logger,
     NotFoundException,
     BadRequestException,
+    Inject,
 } from '@nestjs/common';
+import { ClientProxy } from '@nestjs/microservices';
+import { AccessToken } from 'livekit-server-sdk';
 import { SupabaseService } from '../supabase/supabase.service';
 import { EncryptionService } from './encryption.service';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -20,6 +23,7 @@ export class ChatService {
     constructor(
         private readonly supabaseService: SupabaseService,
         private readonly encryptionService: EncryptionService,
+        @Inject('COMMUNICATION_SERVICE') private readonly communicationClient: ClientProxy,
     ) { }
 
     /**
@@ -111,6 +115,38 @@ export class ChatService {
 
             // Broadcast via Realtime
             await this.supabaseService.broadcastMessage(data.conversationId, decryptedMessage);
+
+            // Send Push Notification
+            try {
+                const recipientId = conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id;
+
+                // Fetch recipient's push token and sender's name
+                const { data: profiles } = await supabase
+                    .from('profiles')
+                    .select('id, first_name, last_name, push_token')
+                    .in('id', [data.senderId, recipientId]);
+
+                const senderProfile = profiles?.find(p => p.id === data.senderId);
+                const recipientProfile = profiles?.find(p => p.id === recipientId);
+
+                if (recipientProfile?.push_token) {
+                    const senderName = senderProfile ? `${senderProfile.first_name || ''} ${senderProfile.last_name || ''}`.trim() : 'Nuevo mensaje';
+
+                    this.communicationClient.emit('send_push_notification', {
+                        to: recipientProfile.push_token,
+                        title: senderName,
+                        body: data.content,
+                        data: {
+                            type: 'chat_message',
+                            conversationId: data.conversationId,
+                            senderId: data.senderId,
+                        },
+                    });
+                }
+            } catch (notifyError) {
+                this.logger.error(`Failed to send push notification: ${notifyError.message}`);
+                // Don't fail the message if notification fails
+            }
 
             return { message: decryptedMessage };
         } catch (error) {
@@ -362,6 +398,32 @@ export class ChatService {
         } catch (error) {
             if (error instanceof NotFoundException) throw error;
             throw new BadRequestException('Error al eliminar mensaje');
+        }
+    }
+    /**
+     * Generar Token para LiveKit Video Calls
+     */
+    async generateVideoToken(roomName: string, username: string) {
+        try {
+            const apiKey = process.env.LIVEKIT_API_KEY;
+            const apiSecret = process.env.LIVEKIT_API_SECRET;
+
+            if (!apiKey || !apiSecret) {
+                this.logger.error('LiveKit keys not found in environment variables');
+                throw new BadRequestException('Servicio de video no configurado correctamente');
+            }
+
+            const at = new AccessToken(apiKey, apiSecret, {
+                identity: username,
+            });
+
+            at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
+
+            const token = await at.toJwt();
+            return { token };
+        } catch (error) {
+            this.logger.error(`Error generating token: ${error.message}`);
+            throw new BadRequestException('Error al generar token de video');
         }
     }
 }

@@ -24,4 +24,8 @@ export class UpdateProfileDto {
   @IsUrl()
   @IsOptional()
   avatarUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  pushToken?: string;
 }

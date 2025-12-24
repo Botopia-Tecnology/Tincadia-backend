@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { TokenService } from './services/token.service';
@@ -17,6 +18,8 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly tokenService: TokenService,
@@ -299,6 +302,29 @@ export class AuthService {
       };
     } catch (error) {
       throw new BadRequestException('Error getting users');
+    }
+  }
+
+  async updatePushToken(userId: string, pushToken: string): Promise<void> {
+    try {
+      const supabase = this.supabaseService.getAdminClient();
+
+      this.logger.log(`📱 Updating push token for user ${userId}`);
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ push_token: pushToken })
+        .eq('id', userId);
+
+      if (error) {
+        this.logger.error(`Error updating push token: ${error.message}`);
+        throw new Error(error.message);
+      }
+
+      this.logger.log('✅ Push token updated successfully');
+    } catch (error) {
+      this.logger.error(`Error updating push token: ${error.message}`);
+      throw new BadRequestException('Error al actualizar token de notificaciones');
     }
   }
 }

@@ -11,6 +11,7 @@ import { FormsModule } from './forms/forms.module';
 import { CommunicationModule } from './communication/communication.module';
 import { ChatModule } from './chat/chat.module';
 import { ContactsModule } from './contacts/contacts.module';
+import { CallsModule } from './calls/calls.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { ContactsModule } from './contacts/contacts.module';
     CommunicationModule,
     ChatModule,
     ContactsModule,
+    CallsModule,
   ],
   controllers: [AppController],
   providers: [

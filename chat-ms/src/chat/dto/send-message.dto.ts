@@ -4,6 +4,8 @@ export enum MessageType {
     TEXT = 'text',
     IMAGE = 'image',
     FILE = 'file',
+    CALL = 'call',
+    CALL_ENDED = 'call_ended',
 }
 
 export class SendMessageDto {

@@ -87,4 +87,9 @@ export class ChatController {
             yield chunk;
         }
     }
+
+    @MessagePattern('generate_video_token')
+    generateVideoToken(@Payload() data: { roomName: string; username: string }) {
+        return this.chatService.generateVideoToken(data.roomName, data.username);
+    }
 }
