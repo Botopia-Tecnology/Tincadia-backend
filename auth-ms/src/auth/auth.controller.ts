@@ -7,6 +7,7 @@ import { LogoutDto } from './dto/logout.dto';
 import { GetProfileDto } from './dto/get-profile.dto';
 import { OAuthLoginDto } from './dto/oauth-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 
@@ -64,5 +65,16 @@ export class AuthController {
     return this.authService.getUsers(data.excludeUserId);
   }
 
+  @MessagePattern('update_password')
+  updatePassword(@Payload() data: { accessToken: string; password: string }): Promise<any> {
+    return this.authService.updatePassword(data.accessToken, { password: data.password });
+  }
+
+  @MessagePattern('upload_profile_picture')
+  uploadProfilePicture(@Payload() data: { userId: string; file: { data: number[] } | Buffer; mimeType: string }): Promise<{ avatarUrl: string }> {
+    // Reconstruct Buffer from network payload
+    const buffer = Buffer.isBuffer(data.file) ? data.file : Buffer.from(data.file.data);
+    return this.authService.uploadProfilePicture(data.userId, buffer, data.mimeType);
+  }
 
 }

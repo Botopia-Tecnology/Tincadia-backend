@@ -1,9 +1,12 @@
-import { Controller, Post, Body, Get, Param, Put, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Put, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientProxy } from '@nestjs/microservices';
+import { Express } from 'express';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { OAuthLoginDto } from './dto/oauth-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
@@ -302,6 +305,55 @@ export class AuthController {
     return this.client.send('get_users', { excludeUserId: userId });
   }
 
+  @Post('update-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Actualizar contraseña del usuario',
+    description: 'Actualiza la contraseña del usuario usando el token de recuperación de Supabase. Requiere el access_token en el header Authorization.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Contraseña actualizada exitosamente',
+    schema: { example: { message: 'Contraseña actualizada exitosamente' } }
+  })
+  @ApiResponse({ status: 400, description: 'Error al actualizar contraseña o contraseña inválida' })
+  @ApiResponse({ status: 401, description: 'Token inválido o expirado' })
+  updatePassword(
+    @Headers('authorization') authHeader: string,
+    @Body() updatePasswordDto: UpdatePasswordDto
+  ) {
+    if (!authHeader) {
+      throw new UnauthorizedException('Authorization header is required');
+    }
+
+    const accessToken = authHeader.replace('Bearer ', '');
+    if (!accessToken) {
+      throw new UnauthorizedException('Token is required');
+    }
+
+    return this.client.send('update_password', {
+      accessToken,
+      password: updatePasswordDto.password
+    });
+  }
+
+  @Post('profile/:userId/avatar')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Subir foto de perfil' })
+  @ApiResponse({ status: 201, description: 'Foto subida exitosamente' })
+  async uploadAvatar(
+    @Param('userId') userId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('File is required');
+
+    return this.client.send('upload_profile_picture', {
+      userId,
+      file: file.buffer,
+      mimeType: file.mimetype,
+    });
+  }
 
 }
 

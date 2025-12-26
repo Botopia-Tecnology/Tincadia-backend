@@ -14,6 +14,7 @@ import { LogoutDto } from './dto/logout.dto';
 import { GetProfileDto } from './dto/get-profile.dto';
 import { OAuthLoginDto } from './dto/oauth-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
 @Injectable()
@@ -244,6 +245,28 @@ export class AuthService {
     return { user: { ...profile } };
   }
 
+  async uploadProfilePicture(userId: string, fileBuffer: Buffer, mimeType: string): Promise<{ avatarUrl: string }> {
+    try {
+      // 1. Upload to Supabase Storage
+      const avatarUrl = await this.supabaseService.uploadProfilePicture(userId, fileBuffer, mimeType);
+
+      // 2. Update Supabase Auth User metadata
+      const supabase = this.supabaseService.getAdminClient();
+      const { error } = await supabase.auth.admin.updateUserById(userId, {
+        user_metadata: { avatar_url: avatarUrl },
+      });
+
+      if (error) {
+        throw new BadRequestException('Error updating user metadata with avatar URL');
+      }
+
+      return { avatarUrl };
+    } catch (error) {
+      this.logger.error(`Error uploading profile picture for ${userId}:`, error);
+      throw new BadRequestException('Failed to upload profile picture');
+    }
+  }
+
   async verifyToken(token: string): Promise<any> {
     try {
       const payload = this.tokenService.verifyToken(token);
@@ -325,6 +348,32 @@ export class AuthService {
     } catch (error) {
       this.logger.error(`Error updating push token: ${error.message}`);
       throw new BadRequestException('Error al actualizar token de notificaciones');
+    }
+  }
+
+  async updatePassword(accessToken: string, data: UpdatePasswordDto): Promise<any> {
+    const { password } = data;
+
+    try {
+      // Create a Supabase client with the user's access token
+      const supabase = this.supabaseService.getClientWithToken(accessToken);
+
+      const { error } = await supabase.auth.updateUser({
+        password,
+      });
+
+      if (error) {
+        this.logger.error(`Error updating password: ${error.message}`);
+        throw new BadRequestException(error.message);
+      }
+
+      return { message: 'Contraseña actualizada exitosamente' };
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error(`Error updating password: ${error.message}`);
+      throw new BadRequestException('Error al actualizar la contraseña');
     }
   }
 }
