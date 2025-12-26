@@ -38,6 +38,7 @@
     "@nestjs/swagger": "^11.2.0",
     "@nestjs/throttler": "^6.4.0",
     "@nestjs/typeorm": "^11.0.0",
+    "@supabase/supabase-js": "^2.89.0",
     "cache-manager": "^7.0.1",
     "cacheable": "^2.0.0",
     "class-transformer": "^0.5.1",

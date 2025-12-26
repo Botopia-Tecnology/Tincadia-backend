@@ -21,6 +21,7 @@ export interface UserResponse {
     phone: string;
     documentType?: string | null;
     emailVerified: boolean;
+    avatarUrl?: string | null; // Added avatarUrl
 }
 
 @Injectable()
@@ -66,7 +67,7 @@ export class ProfileService {
 
     toUserResponse(
         profile: Profile | null,
-        authUser: { id: string; email?: string; email_confirmed_at?: string | null },
+        authUser: { id: string; email?: string; email_confirmed_at?: string | null; user_metadata?: any },
     ): UserResponse {
         return {
             id: authUser.id,
@@ -77,6 +78,7 @@ export class ProfileService {
             phone: profile?.phone || '',
             documentType: profile?.documentType?.name || null,
             emailVerified: !!authUser.email_confirmed_at,
+            avatarUrl: authUser.user_metadata?.avatar_url || null, // Map from metadata
         };
     }
 
