@@ -60,7 +60,7 @@ export class SupabaseService implements OnModuleInit {
     }
 
     async broadcastMessage(conversationId: string, message: any): Promise<void> {
-        const channelName = `conversation:${conversationId}`;
+        const channelName = `chat:${conversationId}`;
         this.logger.log(`Attempting to broadcast to channel: ${channelName}`);
 
         // Crear un canal nuevo y efímero para este mensaje
