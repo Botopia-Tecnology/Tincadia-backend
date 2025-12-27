@@ -107,14 +107,19 @@ export class ChatService {
                 .update({ updated_at: new Date().toISOString() })
                 .eq('id', data.conversationId);
 
-            // Decrypt content before broadcasting so clients receive plaintext
-            const decryptedMessage = {
-                ...message,
+            // Decrypt content and transform to camelCase before broadcasting
+            const broadcastPayload = {
+                id: message.id,
+                conversationId: message.conversation_id,
+                senderId: message.sender_id,
                 content: this.encryptionService.decrypt(message.content),
+                type: message.type,
+                createdAt: message.created_at,
+                updatedAt: message.updated_at,
             };
 
             // Broadcast via Realtime
-            await this.supabaseService.broadcastMessage(data.conversationId, decryptedMessage);
+            await this.supabaseService.broadcastMessage(data.conversationId, broadcastPayload);
 
             // Send Push Notification
             try {
@@ -148,7 +153,7 @@ export class ChatService {
                 // Don't fail the message if notification fails
             }
 
-            return { message: decryptedMessage };
+            return { message: broadcastPayload };
         } catch (error) {
             if (
                 error instanceof BadRequestException ||
