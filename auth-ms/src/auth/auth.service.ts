@@ -295,7 +295,7 @@ export class AuthService {
     try {
       const supabase = this.supabaseService.getAdminClient();
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://tincadia.vercel.app/reset-password',
+        redirectTo: 'https://tincadia-frontend.vercel.app/reset-password',
       });
 
       if (error) {
