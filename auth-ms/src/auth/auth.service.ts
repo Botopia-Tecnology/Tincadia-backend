@@ -160,12 +160,28 @@ export class AuthService {
       let profile = await this.profileService.findById(supabaseUser.id);
 
       if (!profile) {
-        const fullName = supabaseUser.user_metadata?.full_name || '';
-        const nameParts = fullName.split(' ');
+        // Extract name from various possible Google metadata fields
+        const metadata = supabaseUser.user_metadata || {};
+        const fullName = metadata.full_name || metadata.name || '';
+        const givenName = metadata.given_name || '';
+        const familyName = metadata.family_name || '';
+
+        // Use given_name/family_name if available, otherwise split full_name
+        let firstName = givenName;
+        let lastName = familyName;
+
+        if (!firstName && fullName) {
+          const nameParts = fullName.split(' ');
+          firstName = nameParts[0] || '';
+          lastName = nameParts.slice(1).join(' ') || '';
+        }
+
+        this.logger.log(`📝 Creating OAuth profile: firstName="${firstName}", lastName="${lastName}"`);
+
         profile = await this.profileService.create({
           id: supabaseUser.id,
-          firstName: nameParts[0] || '',
-          lastName: nameParts.slice(1).join(' ') || '',
+          firstName,
+          lastName,
           documentNumber: '',
           phone: '',
         });
@@ -295,7 +311,7 @@ export class AuthService {
     try {
       const supabase = this.supabaseService.getAdminClient();
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: 'https://tincadia.vercel.app/reset-password',
+        redirectTo: 'https://tincadia-frontend.vercel.app/reset-password',
       });
 
       if (error) {

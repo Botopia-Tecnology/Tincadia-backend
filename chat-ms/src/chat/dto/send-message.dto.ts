@@ -3,6 +3,7 @@ import { IsNotEmpty, IsString, IsOptional, IsEnum, IsObject } from 'class-valida
 export enum MessageType {
     TEXT = 'text',
     IMAGE = 'image',
+    AUDIO = 'audio',
     FILE = 'file',
     CALL = 'call',
     CALL_ENDED = 'call_ended',
