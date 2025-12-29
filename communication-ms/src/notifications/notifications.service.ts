@@ -36,7 +36,15 @@ export class NotificationsService {
 
             for (const chunk of chunks) {
                 try {
-                    await this.expo.sendPushNotificationsAsync(chunk);
+                    const ticketChunks = await this.expo.sendPushNotificationsAsync(chunk);
+                    this.logger.log(`📢 Expo Push Tickets: ${JSON.stringify(ticketChunks)}`);
+
+                    // Check for errors in tickets
+                    for (const ticket of ticketChunks) {
+                        if (ticket.status === 'error') {
+                            this.logger.error(`❌ Push Error: ${ticket.message} (${ticket.details?.error})`);
+                        }
+                    }
                 } catch (error) {
                     this.logger.error('Error sending chunk:', error);
                 }

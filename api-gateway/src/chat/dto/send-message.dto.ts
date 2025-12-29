@@ -4,6 +4,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export enum ChatMessageType {
     TEXT = 'text',
     IMAGE = 'image',
+    AUDIO = 'audio',
     FILE = 'file',
     CALL = 'call',
     CALL_ENDED = 'call_ended',

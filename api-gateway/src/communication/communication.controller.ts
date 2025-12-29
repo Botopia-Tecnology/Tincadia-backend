@@ -104,4 +104,18 @@ export class AppNotificationsController {
   deleteNotification(@Param('id') id: string) {
     return this.client.send('delete_app_notification', { id });
   }
+
+  // ==================== Push Notification Test ====================
+
+  @Post('push-test')
+  @ApiOperation({ summary: 'Enviar notificación push de prueba' })
+  @ApiResponse({ status: 200, description: 'Notificación enviada' })
+  sendPushTest(@Body() body: { userId: string; token: string }) {
+    return this.client.send('send_push_notification', {
+      to: body.token,
+      title: 'Prueba Tincadia',
+      body: 'Esta es una notificación de prueba desde tu perfil 🚀',
+      data: { type: 'test' }
+    });
+  }
 }

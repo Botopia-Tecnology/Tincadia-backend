@@ -52,9 +52,14 @@ export class ProfileService {
     }
 
     async update(id: string, data: Partial<Profile>): Promise<Profile> {
-        const profile = await this.findByIdOrFail(id);
-        Object.assign(profile, data);
-        return this.profileRepository.save(profile);
+        // First check if profile exists
+        await this.findByIdOrFail(id);
+
+        // Use update method to avoid relation overwrite issues
+        await this.profileRepository.update({ id }, data);
+
+        // Return updated profile
+        return this.findByIdOrFail(id);
     }
 
     async findAllExcept(excludeUserId: string): Promise<Profile[]> {
