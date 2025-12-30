@@ -12,6 +12,7 @@ import { CommunicationModule } from './communication/communication.module';
 import { ChatModule } from './chat/chat.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { CallsModule } from './calls/calls.module';
+import { ContentModule } from './content/content.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { CallsModule } from './calls/calls.module';
     ChatModule,
     ContactsModule,
     CallsModule,
+    ContentModule,
   ],
   controllers: [AppController],
   providers: [

@@ -41,4 +41,7 @@ export class Profile {
 
     @UpdateDateColumn({ name: 'updated_at' })
     updatedAt: Date;
+
+    @Column({ default: 'User', length: 50 })
+    role: string;
 }

@@ -297,6 +297,7 @@ export class AuthService {
           documentNumber: profile.documentNumber,
           documentTypeId: profile.documentTypeId,
           phone: profile.phone,
+          role: profile.role || 'User',
         },
         isProfileComplete: this.profileService.isProfileComplete(profile),
       };
@@ -329,17 +330,47 @@ export class AuthService {
 
   async getUsers(excludeUserId: string): Promise<any> {
     try {
+      const supabase = this.supabaseService.getAdminClient();
+
+      // 1. Get all profiles from local DB
       const profiles = await this.profileService.findAllExcept(excludeUserId);
 
-      return {
-        users: profiles.map(p => ({
-          id: p.id,
-          firstName: p.firstName,
-          lastName: p.lastName,
-          phone: p.phone,
-        })),
-      };
+      // 2. Get all users from Supabase Auth (for email, last_sign_in, etc.)
+      const { data: { users: authUsers }, error } = await supabase.auth.admin.listUsers();
+
+      if (error) {
+        this.logger.error(`Error fetching Supabase users: ${error.message}`);
+      }
+
+      // 3. Map profiles with auth data
+      const mappedUsers = profiles.map(profile => {
+        const authUser = authUsers?.find(u => u.id === profile.id);
+
+        let role = profile.role || 'User';
+        // If you have roles in metadata, use them (Deprecated):
+        // if (authUser?.user_metadata?.role) role = authUser.user_metadata.role;
+
+        // Determine status
+        let status = 'Inactive';
+        if (authUser?.email_confirmed_at) status = 'Active';
+        if ((authUser as any)?.banned_until) status = 'Banned';
+
+        return {
+          id: profile.id,
+          firstName: profile.firstName,
+          lastName: profile.lastName,
+          email: authUser?.email || '',
+          phone: profile.phone,
+          role: role,
+          status: status,
+          lastActive: authUser?.last_sign_in_at || profile.updatedAt,
+          createdAt: profile.createdAt,
+        };
+      });
+
+      return { users: mappedUsers };
     } catch (error) {
+      this.logger.error(`Error getting users: ${error.message}`);
       throw new BadRequestException('Error getting users');
     }
   }

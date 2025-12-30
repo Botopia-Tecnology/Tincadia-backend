@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsObject } from 'class-validator';
+import { IsNotEmpty, IsString, IsObject, IsOptional } from 'class-validator';
 
 export class FormSubmissionDto {
   @IsString()
@@ -10,7 +10,7 @@ export class FormSubmissionDto {
   data: Record<string, any>;
 
   @IsString()
-  @IsNotEmpty()
-  submittedBy: string;
+  @IsOptional()
+  submittedBy?: string;
 }
 

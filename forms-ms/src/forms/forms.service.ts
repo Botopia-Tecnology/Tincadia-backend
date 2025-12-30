@@ -34,6 +34,13 @@ export class FormsService {
     return await this.formRepository.find();
   }
 
+  async findAllSubmissions() {
+    return await this.submissionRepository.find({
+      relations: ['form'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   async findOne(id: string) {
     const form = await this.formRepository.findOneBy({ id });
     if (!form) {
@@ -61,47 +68,121 @@ export class FormsService {
   }
 
   async submit(submissionDto: FormSubmissionDto) {
-    const { formId, data, submittedBy } = submissionDto;
+    try {
+      console.log('📝 [Forms Service] Submit method called');
+      const { formId, data, submittedBy } = submissionDto;
 
-    // Check if form exists
-    const form = await this.findOne(formId);
+      console.log('📝 [Forms Service] Submitting form:', { formId, submittedBy, dataKeys: Object.keys(data) });
 
-    // Check if user exists by document number (assuming it's in the data)
-    // The field name might vary, we check 'documentNumber' or 'document_number'
-    const documentNumber = data['documentNumber'] || data['document_number'];
-    let profile: Profile | null = null;
-    let userStatus = 'unknown';
+      // Check if form exists
+      const form = await this.findOne(formId);
+      console.log('✅ Form found:', form.id, form.type);
 
-    if (documentNumber) {
-      profile = await this.profileRepository.findOneBy({ documentNumber });
-      if (profile) {
-        userStatus = 'registered';
-      } else {
-        userStatus = 'not_registered';
+      // Check if user exists by document number (assuming it's in the data)
+      const documentNumber = data['documentNumber'] || data['document_number'] || data['documentoIdentidad'];
+      let profile: Profile | null = null;
+      let userStatus = 'unknown';
+
+      if (documentNumber) {
+        console.log('🔍 Looking for profile with documentNumber:', documentNumber);
+        try {
+          profile = await this.profileRepository.findOneBy({ documentNumber });
+          if (profile) {
+            userStatus = 'registered';
+            console.log('✅ Profile found:', profile.id);
+          } else {
+            userStatus = 'not_registered';
+            console.log('ℹ️ Profile not found for this document');
+          }
+        } catch (profileError) {
+          console.error('❌ Error finding profile:', profileError);
+          // Continue without profile
+        }
       }
+
+      console.log('📦 Creating submission object...');
+      
+      // Create submission using direct field assignment to avoid TypeORM relation issues
+      const submissionData: any = {
+        formId: form.id,
+        data,
+        submittedBy: submittedBy || undefined,
+        profileId: profile ? profile.id : undefined,
+        documentNumber: documentNumber || undefined,
+        email: data['email'] || data['correoElectronico'] || undefined,
+        phone: data['phone'] || data['telefono'] || data['telefonoWhatsapp'] || undefined,
+        fullName: data['fullName'] || data['full_name'] || data['nombreCompleto'] || undefined,
+      };
+      
+      // Remove undefined values
+      Object.keys(submissionData).forEach(key => {
+        if (submissionData[key] === undefined) {
+          delete submissionData[key];
+        }
+      });
+      
+      const submission = this.submissionRepository.create(submissionData);
+      
+      // TypeORM create can return array or single object, ensure we have a single object
+      const submissionObj = Array.isArray(submission) ? submission[0] : submission;
+      
+      console.log('📦 Submission created:', {
+        formId: (submissionObj as any).formId,
+        profileId: (submissionObj as any).profileId,
+        submittedBy: (submissionObj as any).submittedBy,
+        hasData: !!(submissionObj as any).data,
+      });
+
+      console.log('💾 Saving submission...');
+      let savedSubmission;
+      try {
+        savedSubmission = await this.submissionRepository.save(submissionObj);
+        console.log('✅ Submission saved:', savedSubmission.id);
+      } catch (saveError) {
+        console.error('❌ Error saving submission:', saveError);
+        console.error('❌ Save error details:', {
+          message: saveError?.message,
+          code: saveError?.code,
+          detail: saveError?.detail,
+          constraint: saveError?.constraint,
+          stack: saveError?.stack,
+        });
+        throw saveError;
+      }
+
+      // Return a clean response without circular references
+      const response = {
+        message: 'Form submitted successfully',
+        submission: {
+          id: savedSubmission.id,
+          formId: savedSubmission.formId,
+          profileId: (savedSubmission as any).profileId || null,
+          submittedBy: savedSubmission.submittedBy,
+          documentNumber: savedSubmission.documentNumber,
+          email: savedSubmission.email,
+          phone: savedSubmission.phone,
+          fullName: savedSubmission.fullName,
+          createdAt: savedSubmission.createdAt,
+        },
+        userStatus,
+        action: userStatus === 'not_registered' ? 'redirect_to_register' : 'none',
+      };
+      
+      console.log('✅ Returning response:', { 
+        submissionId: response.submission.id,
+        userStatus: response.userStatus 
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('❌ Error in submit method:', error);
+      console.error('❌ Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name,
+      });
+      throw error;
     }
-
-    const submission = this.submissionRepository.create({
-      form,
-      data,
-      submittedBy,
-      profile: profile || undefined, // Handle null vs undefined for TypeORM
-      profileId: profile ? profile.id : null,
-      // Map common fields from the dynamic data
-      documentNumber: data['documentNumber'] || data['document_number'] || data['documentoIdentidad'],
-      email: data['email'] || data['correoElectronico'],
-      phone: data['phone'] || data['telefono'] || data['telefonoWhatsapp'],
-      fullName: data['fullName'] || data['full_name'] || data['nombreCompleto'],
-    } as any); // Cast to any to avoid strict DeepPartial mismatches specific to relations
-
-    const savedSubmission = await this.submissionRepository.save(submission);
-
-    return {
-      message: 'Form submitted successfully',
-      submission: savedSubmission,
-      userStatus,
-      action: userStatus === 'not_registered' ? 'redirect_to_register' : 'none',
-    };
   }
 }
 

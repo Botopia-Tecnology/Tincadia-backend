@@ -22,6 +22,7 @@ export interface UserResponse {
     documentType?: string | null;
     emailVerified: boolean;
     avatarUrl?: string | null; // Added avatarUrl
+    role: string;
 }
 
 @Injectable()
@@ -84,6 +85,7 @@ export class ProfileService {
             documentType: profile?.documentType?.name || null,
             emailVerified: !!authUser.email_confirmed_at,
             avatarUrl: authUser.user_metadata?.avatar_url || null, // Map from metadata
+            role: profile?.role || 'User',
         };
     }
 
