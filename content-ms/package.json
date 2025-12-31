@@ -73,5 +73,13 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "@nestjs/config": {
+      "@nestjs/common": "$@nestjs/common"
+    },
+    "@nestjs/typeorm": {
+      "@nestjs/common": "$@nestjs/common"
+    }
   }
 }
