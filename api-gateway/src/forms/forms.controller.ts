@@ -23,8 +23,24 @@ export class FormsController {
   }
 
   @Get('submissions')
-  findAllSubmissions() {
-    return this.client.send('find_all_submissions', {});
+  async findAllSubmissions() {
+    try {
+      console.log('📝 [API Gateway] Fetching all submissions');
+      const result = await this.client.send('find_all_submissions', {}).toPromise();
+      console.log(`✅ [API Gateway] Received ${Array.isArray(result) ? result.length : 'invalid'} submissions`);
+      return result;
+    } catch (error) {
+      console.error('❌ [API Gateway] Error fetching submissions:', error);
+
+      const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
+      const message = error?.message || 'Internal server error fetching submissions';
+
+      throw new HttpException({
+        status,
+        message,
+        timestamp: new Date().toISOString(),
+      }, status);
+    }
   }
 
   @Get(':id')
@@ -56,11 +72,11 @@ export class FormsController {
         status: error?.status,
         statusCode: error?.statusCode,
       });
-      
+
       // Convert RpcException to HttpException
       const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
       const message = error?.message || 'Internal server error';
-      
+
       throw new HttpException(message, status);
     }
   }
@@ -74,20 +90,20 @@ export class FormsController {
         hasData: !!submissionDto.data,
         dataSize: JSON.stringify(submissionDto.data || {}).length,
       });
-      
+
       // Add timeout to prevent hanging
       const result = await Promise.race([
         this.client.send('submit_form', submissionDto).toPromise(),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Request timeout after 30s')), 30000)
         ),
       ]) as any;
-      
+
       console.log('✅ [API Gateway] Form submission successful:', {
         submissionId: result?.submission?.id,
         userStatus: result?.userStatus,
       });
-      
+
       return result;
     } catch (error) {
       console.error('❌ [API Gateway] Error in form submission:', error);

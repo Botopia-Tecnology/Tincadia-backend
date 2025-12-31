@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { TokenService } from './services/token.service';
 import { ProfileService } from './services/profile.service';
-import { Profile, DocumentType } from '../entities';
+import { SupabaseService } from '../supabase/supabase.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
+import { Profile } from '../entities/profile.entity';
+import { DocumentType } from '../entities/document-type.entity';
 
 @Module({
   imports: [
@@ -23,7 +26,7 @@ import { Profile, DocumentType } from '../entities';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, TokenService, ProfileService],
+  providers: [AuthService, TokenService, ProfileService, SupabaseService, CloudinaryService],
   exports: [AuthService, TokenService, ProfileService, JwtModule],
 })
 export class AuthModule { }

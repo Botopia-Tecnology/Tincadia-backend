@@ -36,11 +36,17 @@ export class Profile {
     @Column({ name: 'push_token', length: 255, nullable: true })
     pushToken: string;
 
+    @Column({ name: 'read_receipts_enabled', default: true })
+    readReceiptsEnabled: boolean;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 
     @UpdateDateColumn({ name: 'updated_at' })
     updatedAt: Date;
+
+    @Column({ name: 'avatar_url', nullable: true })
+    avatarUrl: string;
 
     @Column({ default: 'User', length: 50 })
     role: string;

@@ -21,8 +21,9 @@ export interface UserResponse {
     phone: string;
     documentType?: string | null;
     emailVerified: boolean;
-    avatarUrl?: string | null; // Added avatarUrl
+    avatarUrl?: string | null;
     role: string;
+    readReceiptsEnabled: boolean; // Added
 }
 
 @Injectable()
@@ -84,8 +85,9 @@ export class ProfileService {
             phone: profile?.phone || '',
             documentType: profile?.documentType?.name || null,
             emailVerified: !!authUser.email_confirmed_at,
-            avatarUrl: authUser.user_metadata?.avatar_url || null, // Map from metadata
+            avatarUrl: profile?.avatarUrl || authUser.user_metadata?.avatar_url || null,
             role: profile?.role || 'User',
+            readReceiptsEnabled: profile?.readReceiptsEnabled ?? true, // Default true
         };
     }
 

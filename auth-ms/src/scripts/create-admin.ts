@@ -41,8 +41,8 @@ async function createAdmin() {
         if (authError.message.includes('already registered')) {
             console.log('User exists. Updating role in DB...');
             // Need user ID.
-            const { data: listData } = await supabase.auth.admin.listUsers();
-            const user = listData.users.find(u => u.email === email);
+            const { data: listData } = await supabase.auth.admin.listUsers() as { data: { users: any[] } };
+            const user = listData.users.find((u: any) => u.email === email);
             if (user) {
                 const { error: updateError } = await supabase
                     .from('profiles')
