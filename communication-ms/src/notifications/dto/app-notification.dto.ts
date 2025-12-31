@@ -31,6 +31,10 @@ export class CreateAppNotificationDto {
     @IsOptional()
     @IsDateString()
     expiresAt?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    sendPush?: boolean;
 }
 
 export class UpdateAppNotificationDto {

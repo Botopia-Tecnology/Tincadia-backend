@@ -24,66 +24,61 @@ export class ChatService {
         private readonly supabaseService: SupabaseService,
         private readonly encryptionService: EncryptionService,
         @Inject('COMMUNICATION_SERVICE') private readonly communicationClient: ClientProxy,
+        @Inject('CONTENT_SERVICE') private readonly contentClient: ClientProxy,
     ) { }
 
     /**
-     * Iniciar o obtener conversación 1:1 entre dos usuarios
+     * Iniciar nueva conversación
      */
     async startConversation(data: StartConversationDto) {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
-            // Usar función de Supabase para obtener o crear conversación
-            const { data: result, error } = await supabase.rpc(
-                'get_or_create_conversation',
-                {
-                    p_user1: data.userId,
-                    p_user2: data.otherUserId,
-                },
-            );
+            // Check if conversation already exists
+            const { data: existing, error: findError } = await supabase
+                .from('conversations')
+                .select('*')
+                .or(`and(user1_id.eq.${data.userId},user2_id.eq.${data.otherUserId}),and(user1_id.eq.${data.otherUserId},user2_id.eq.${data.userId})`)
+                .single();
 
-            if (error) {
-                this.logger.error(`Error starting conversation: ${error.message}`);
-                throw new BadRequestException('Error al iniciar conversación');
+            if (existing) {
+                return { conversationId: existing.id };
             }
 
-            return { conversationId: result };
+            // Create new conversation
+            const { data: conversation, error } = await supabase
+                .from('conversations')
+                .insert({
+                    user1_id: data.userId,
+                    user2_id: data.otherUserId,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                })
+                .select()
+                .single();
+
+            if (error) {
+                this.logger.error(`Error creating conversation: ${error.message}`);
+                throw new BadRequestException('Error al crear conversación');
+            }
+
+            return { conversationId: conversation.id };
         } catch (error) {
-            if (error instanceof BadRequestException) throw error;
+            this.logger.error(`Start conv error: ${error.message}`);
             throw new BadRequestException('Error al iniciar conversación');
         }
     }
 
     /**
-     * Enviar mensaje en una conversación
+     * Enviar mensaje
      */
     async sendMessage(data: SendMessageDto) {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
-            // Verificar que el usuario es parte de la conversación
-            const { data: conversation, error: convError } = await supabase
-                .from('conversations')
-                .select('id, user1_id, user2_id')
-                .eq('id', data.conversationId)
-                .single();
-
-            if (convError || !conversation) {
-                throw new NotFoundException('Conversación no encontrada');
-            }
-
-            const isParticipant =
-                conversation.user1_id === data.senderId ||
-                conversation.user2_id === data.senderId;
-
-            if (!isParticipant) {
-                throw new BadRequestException('No eres parte de esta conversación');
-            }
-
-            // Encrypt the message content before storing
+            // Encrypt content (text/media placeholders)
             const encryptedContent = this.encryptionService.encrypt(data.content);
 
-            // Insertar mensaje
             const { data: message, error } = await supabase
                 .from('messages')
                 .insert({
@@ -92,6 +87,8 @@ export class ChatService {
                     content: encryptedContent,
                     type: data.type || 'text',
                     metadata: data.metadata || {},
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
                 })
                 .select()
                 .single();
@@ -101,72 +98,57 @@ export class ChatService {
                 throw new BadRequestException('Error al enviar mensaje');
             }
 
-            // Actualizar timestamp de conversación
+            // Update conversation updated_at
             await supabase
                 .from('conversations')
                 .update({ updated_at: new Date().toISOString() })
                 .eq('id', data.conversationId);
 
-            // Decrypt content and transform to camelCase before broadcasting
-            const broadcastPayload = {
-                id: message.id,
-                conversationId: message.conversation_id,
-                senderId: message.sender_id,
-                content: this.encryptionService.decrypt(message.content),
-                type: message.type,
-                createdAt: message.created_at,
-                updatedAt: message.updated_at,
-            };
+            // Notify via Broadcast (Realtime is separate, but we trigger Push Notifications here)
+            // Get other user ID for push notification
+            const { data: conversation } = await supabase
+                .from('conversations')
+                .select('user1_id, user2_id')
+                .eq('id', data.conversationId)
+                .single();
 
-            // Broadcast via Realtime
-            await this.supabaseService.broadcastMessage(data.conversationId, broadcastPayload);
-
-            // Send Push Notification
-            try {
+            if (conversation) {
                 const recipientId = conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id;
 
-                // Fetch recipient's push token and sender's name
-                const { data: profiles } = await supabase
+                // Fetch recipient's push token
+                const { data: recipientProfile } = await supabase
                     .from('profiles')
-                    .select('id, first_name, last_name, push_token')
-                    .in('id', [data.senderId, recipientId]);
-
-                const senderProfile = profiles?.find(p => p.id === data.senderId);
-                const recipientProfile = profiles?.find(p => p.id === recipientId);
+                    .select('push_token')
+                    .eq('id', recipientId)
+                    .single();
 
                 if (recipientProfile?.push_token) {
-                    const senderName = senderProfile ? `${senderProfile.first_name || ''} ${senderProfile.last_name || ''}`.trim() : 'Nuevo mensaje';
-
                     this.communicationClient.emit('send_push_notification', {
-                        to: recipientProfile.push_token,
-                        title: senderName,
-                        body: data.content,
+                        token: recipientProfile.push_token,
+                        title: 'Nuevo Mensaje',
+                        body: data.type === 'text' ? data.content : '📷 Foto', // Send decrypted content or placeholder
                         data: {
-                            type: 'chat_message',
                             conversationId: data.conversationId,
-                            senderId: data.senderId,
-                        },
+                            type: 'new_message',
+                            senderId: data.senderId
+                        }
                     });
                 }
-            } catch (notifyError) {
-                this.logger.error(`Failed to send push notification: ${notifyError.message}`);
-                // Don't fail the message if notification fails
             }
 
-            return { message: broadcastPayload };
+            // Return decrypted message
+            return {
+                message: {
+                    ...message,
+                    content: data.content, // Return original content (decrypted)
+                },
+            };
         } catch (error) {
-            if (
-                error instanceof BadRequestException ||
-                error instanceof NotFoundException
-            )
-                throw error;
+            this.logger.error(`Send message error: ${error.message}`);
             throw new BadRequestException('Error al enviar mensaje');
         }
     }
 
-    /**
-     * Obtener mensajes de una conversación
-     */
     async getMessages(data: GetMessagesDto) {
         try {
             const supabase = this.supabaseService.getAdminClient();
@@ -185,23 +167,44 @@ export class ChatService {
                 throw new BadRequestException('Error al obtener mensajes');
             }
 
-            // Decrypt message contents
-            const decryptedMessages = messages?.map((msg) => {
+            // Process messages: Decrypt text AND sign media URLs
+            const processedMessages = await Promise.all(messages?.map(async (msg) => {
                 try {
+                    // 1. Decrypt Text
+                    let content = msg.content;
+                    if (msg.type === 'text' && this.encryptionService.isEncrypted(msg.content)) {
+                        content = this.encryptionService.decrypt(msg.content);
+                    }
+
+                    // 2. Sign Media URLs (Image/Video/Audio)
+                    if (['image', 'video', 'audio'].includes(msg.type) && msg.metadata?.publicId) {
+                        try {
+                            const response = await this.contentClient.send('generateSignedUrl', {
+                                publicId: msg.metadata.publicId,
+                                resourceType: msg.type === 'audio' ? 'video' : msg.type // Audio in cloudinary often treated as video resource_type or raw
+                            }).toPromise();
+
+                            // Replace stored public_id/raw_url with the temporary signed URL for the frontend
+                            if (response?.url) {
+                                content = response.url;
+                            }
+                        } catch (signError) {
+                            this.logger.error(`Failed to sign URL for msg ${msg.id}: ${signError.message}`);
+                        }
+                    }
+
                     return {
                         ...msg,
-                        content: this.encryptionService.isEncrypted(msg.content)
-                            ? this.encryptionService.decrypt(msg.content)
-                            : msg.content, // Handle legacy unencrypted messages
+                        content: content
                     };
                 } catch (e) {
-                    this.logger.warn(`Failed to decrypt message ${msg.id}`);
-                    return msg; // Return as-is if decryption fails
+                    this.logger.warn(`Failed to process message ${msg.id}`);
+                    return msg;
                 }
-            });
+            }) || []);
 
             return {
-                messages: decryptedMessages?.reverse() || [],
+                messages: processedMessages.reverse(),
                 hasMore: (messages?.length || 0) === limit,
             };
         } catch (error) {

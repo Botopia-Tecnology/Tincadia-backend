@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
 
 export enum FormType {
     CONTACT = 'contact',
@@ -30,9 +30,9 @@ export class Form {
     @Column({ name: 'user_id' })
     userId: string; // The creator ID
 
-    @CreateDateColumn({ name: 'created_at' })
+    @CreateDateColumn({ name: 'created_at', type: 'timestamp without time zone' })
     createdAt: Date;
 
-    @UpdateDateColumn({ name: 'updated_at' })
+    @Column({ name: 'updated_at', type: 'timestamp without time zone', default: () => 'CURRENT_TIMESTAMP' })
     updatedAt: Date;
 }

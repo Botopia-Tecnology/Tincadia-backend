@@ -37,3 +37,4 @@ export class Profile {
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date;
 }
+
