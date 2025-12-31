@@ -17,6 +17,14 @@ import { ContactService } from './contact.service';
                     port: parseInt(process.env.communicationPort || '3005'),
                 },
             },
+            {
+                name: 'CONTENT_SERVICE',
+                transport: Transport.TCP,
+                options: {
+                    host: process.env.contentHost || '127.0.0.1',
+                    port: parseInt(process.env.contentPort || '3008'),
+                },
+            },
         ]),
     ],
     controllers: [ChatController],

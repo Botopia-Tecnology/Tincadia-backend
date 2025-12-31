@@ -4,6 +4,10 @@
  * Service for managing in-app notifications (news, updates, promotions)
  */
 
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { CreateAppNotificationDto, UpdateAppNotificationDto } from './dto/app-notification.dto';
 import { NotificationsService } from './notifications.service';
 
 @Injectable()
@@ -13,18 +17,14 @@ export class AppNotificationsService {
 
     constructor(
         private configService: ConfigService,
-        private readonly notificationsService: NotificationsService // Inject
+        private readonly notificationsService: NotificationsService
     ) {
         const supabaseUrl = this.configService.get<string>('SUPABASE_URL')!;
         const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_KEY')!;
 
         this.supabase = createClient(supabaseUrl, supabaseKey);
     }
-    // ... (skip unchanged methods until createNotification)
 
-    /**
-     * Create a new notification (admin only)
-     */
     async createNotification(dto: CreateAppNotificationDto): Promise<any> {
         const { data, error } = await this.supabase
             .from('app_notifications')
@@ -61,12 +61,9 @@ export class AppNotificationsService {
                 const uniqueTokens = [...new Set(profiles.map(p => p.push_token))];
                 this.logger.log(`Found ${uniqueTokens.length} recipients.`);
 
-                // Send to each token (or use chunking if we implement bulk send in notificationsService)
-                // Assuming sendPushNotification handles one or we loop.
-                // notificationsService.sendPushNotification takes { to, title, body }
                 for (const token of uniqueTokens) {
                     await this.notificationsService.sendPushNotification({
-                        to: token,
+                        to: token as string,
                         title: dto.title,
                         body: dto.message,
                         data: { notificationId: data.id, link: dto.linkUrl }
@@ -151,58 +148,8 @@ export class AppNotificationsService {
         return true;
     }
 
-    /**
-     * Create a new notification (admin only)
-     */
-    async createNotification(dto: CreateAppNotificationDto): Promise<any> {
-        const { data, error } = await this.supabase
-            .from('app_notifications')
-            .insert({
-                title: dto.title,
-                message: dto.message,
-                type: dto.type || 'news',
-                image_url: dto.imageUrl,
-                link_url: dto.linkUrl,
-                priority: dto.priority || 0,
-                expires_at: dto.expiresAt,
-                is_active: true,
-            })
-            .select()
-            .single();
+    // Removed duplicate createNotification method
 
-        if (error) {
-            this.logger.error('Error creating notification:', error);
-            throw error;
-        }
-
-        // Send Push if requested
-        if (dto.sendPush) {
-            this.logger.log('🚀 Sending push notifications to all users...');
-            // Fetch all users with push tokens
-            const { data: profiles, error: profileError } = await this.supabase
-                .from('profiles')
-                .select('push_token')
-                .not('push_token', 'is', null);
-
-            if (profileError) {
-                this.logger.error('Error fetching profiles for push:', profileError);
-            } else if (profiles && profiles.length > 0) {
-                const uniqueTokens = [...new Set(profiles.map(p => p.push_token))];
-                this.logger.log(`Found ${uniqueTokens.length} recipients.`);
-
-                for (const token of uniqueTokens) {
-                    await this.notificationsService.sendPushNotification({
-                        to: token,
-                        title: dto.title,
-                        body: dto.message,
-                        data: { notificationId: data.id, link: dto.linkUrl }
-                    });
-                }
-            }
-        }
-
-        return data;
-    }
 
     /**
      * Update a notification (admin only)

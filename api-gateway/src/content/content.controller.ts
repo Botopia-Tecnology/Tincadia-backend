@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Body, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
@@ -16,9 +17,142 @@ export class ContentController {
         return this.client.send('findAllCourses', {});
     }
 
+    @Get('categories')
+    @ApiOperation({ summary: 'Get all categories' })
+    async findAllCategories() {
+        return this.client.send('findAllCategories', {});
+    }
+
+    @Post('categories')
+    @ApiOperation({ summary: 'Create a new category' })
+    async createCategory(@Body() data: any) {
+        return this.client.send('createCategory', data);
+    }
+
+    @Put('categories/:id')
+    @ApiOperation({ summary: 'Update category' })
+    async updateCategory(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('updateCategory', { id, updateData: data });
+    }
+
+    @Delete('categories/:id')
+    @ApiOperation({ summary: 'Delete category' })
+    async deleteCategory(@Param('id') id: string) {
+        return this.client.send('deleteCategory', id);
+    }
+
+    // --- Course ---
+
     @Post('courses')
     @ApiOperation({ summary: 'Create a new course' })
     async create(@Body() data: any) {
         return this.client.send('createCourse', data);
+    }
+
+    @Put('courses/:id')
+    @ApiOperation({ summary: 'Update course' })
+    async update(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('updateCourse', { id, updateData: data });
+    }
+
+    @Delete('courses/:id')
+    @ApiOperation({ summary: 'Delete course' })
+    async deleteCourse(@Param('id') id: string) {
+        return this.client.send('deleteCourse', id);
+    }
+
+    @Get('courses/:id')
+    @ApiOperation({ summary: 'Get course by id' })
+    async findOne(@Param('id') id: string) {
+        return this.client.send('findOneCourse', id);
+    }
+
+    // --- Module ---
+
+    @Post('courses/:courseId/modules')
+    @ApiOperation({ summary: 'Create a module for a course' })
+    async createModule(@Param('courseId') courseId: string, @Body() data: any) {
+        return this.client.send('createModule', { ...data, courseId });
+    }
+
+    @Put('modules/:id')
+    @ApiOperation({ summary: 'Update module' })
+    async updateModule(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('updateModule', { id, updateData: data });
+    }
+
+    @Delete('modules/:id')
+    @ApiOperation({ summary: 'Delete module' })
+    async deleteModule(@Param('id') id: string) {
+        return this.client.send('deleteModule', id);
+    }
+
+    // --- Lesson ---
+
+    @Post('modules/:moduleId/lessons')
+    @ApiOperation({ summary: 'Create a lesson for a module' })
+    async createLesson(@Param('moduleId') moduleId: string, @Body() data: any) {
+        return this.client.send('createLesson', { ...data, moduleId });
+    }
+
+    @Put('lessons/:id')
+    @ApiOperation({ summary: 'Update lesson' })
+    async updateLesson(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('updateLesson', { id, updateData: data });
+    }
+
+    @Delete('lessons/:id')
+    @ApiOperation({ summary: 'Delete lesson' })
+    async deleteLesson(@Param('id') id: string) {
+        return this.client.send('deleteLesson', id);
+    }
+
+    @Delete('lessons/:id/video')
+    @ApiOperation({ summary: 'Remove lesson video' })
+    async removeLessonVideo(@Param('id') id: string) {
+        // We reuse the update method to set videoUrl to null
+        return this.client.send('updateLesson', { id, updateData: { videoUrl: null, durationSeconds: null } });
+    }
+
+    @Post('lessons/:lessonId/video')
+    @UseInterceptors(FileInterceptor('video'))
+    @ApiOperation({ summary: 'Upload lesson video' })
+    async uploadLessonVideo(
+        @Param('lessonId') lessonId: string,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        return this.client.send('uploadLessonVideo', {
+            buffer: Array.from(file.buffer),
+            fileName: file.originalname,
+            lessonId,
+        });
+    }
+
+    @Post('courses/:courseId/thumbnail')
+    @UseInterceptors(FileInterceptor('thumbnail'))
+    @ApiOperation({ summary: 'Upload course thumbnail' })
+    async uploadCourseThumbnail(
+        @Param('courseId') courseId: string,
+        @UploadedFile() file: Express.Multer.File,
+    ) {
+        return this.client.send('uploadCourseThumbnail', {
+            buffer: Array.from(file.buffer),
+            fileName: file.originalname,
+            courseId,
+        });
+    }
+
+    @Post('chat/media')
+    @UseInterceptors(FileInterceptor('file'))
+    @ApiOperation({ summary: 'Upload secure chat media (image/video/audio)' })
+    async uploadChatMedia(
+        @UploadedFile() file: Express.Multer.File,
+        @Body('type') type: 'image' | 'video' | 'raw',
+    ) {
+        return this.client.send('uploadChatMedia', {
+            buffer: Array.from(file.buffer),
+            fileName: file.originalname,
+            type: type || 'image',
+        });
     }
 }

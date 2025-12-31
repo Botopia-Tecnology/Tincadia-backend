@@ -16,7 +16,7 @@ export class Course {
     @Column({ nullable: true })
     thumbnailUrl: string;
 
-    @ManyToOne(() => Category, (category) => category.courses)
+    @ManyToOne(() => Category, (category) => category.courses, { onDelete: 'SET NULL' })
     @JoinColumn({ name: 'category_id' })
     category: Category;
 

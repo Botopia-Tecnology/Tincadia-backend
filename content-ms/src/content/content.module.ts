@@ -6,10 +6,15 @@ import { Course } from './entities/course.entity';
 import { Category } from './entities/category.entity';
 import { Module as CourseModule } from './entities/module.entity'; // Rename to avoid conflict
 import { Lesson } from './entities/lesson.entity';
+import { ConfigModule } from '@nestjs/config';
+import { CloudinaryService } from './cloudinary.service';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Course, Category, CourseModule, Lesson])],
+    imports: [
+        ConfigModule.forRoot(),
+        TypeOrmModule.forFeature([Course, Category, CourseModule, Lesson])
+    ],
     controllers: [ContentController],
-    providers: [ContentService],
+    providers: [ContentService, CloudinaryService],
 })
 export class ContentModule { }
