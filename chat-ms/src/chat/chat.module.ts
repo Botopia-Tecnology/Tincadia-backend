@@ -5,9 +5,11 @@ import { ChatService } from './chat.service';
 import { CorrectionService } from './correction.service';
 import { EncryptionService } from './encryption.service';
 import { ContactService } from './contact.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
     imports: [
+        NotificationsModule,
         ClientsModule.register([
             {
                 name: 'COMMUNICATION_SERVICE',

@@ -105,6 +105,38 @@ export class AppNotificationsController {
     return this.client.send('delete_app_notification', { id });
   }
 
+  // ==================== Categories ====================
+
+  @Get('categories/all')
+  @ApiOperation({ summary: 'Obtener todas las categorías de notificación' })
+  @ApiResponse({ status: 200, description: 'Lista de categorías' })
+  getCategories() {
+    return this.client.send('get_notification_categories', {});
+  }
+
+  @Post('categories')
+  @ApiOperation({ summary: '[Admin] Crear categoría de notificación' })
+  @ApiResponse({ status: 201, description: 'Categoría creada' })
+  createCategory(@Body() dto: any) {
+    return this.client.send('create_notification_category', dto);
+  }
+
+  @Put('categories/:id')
+  @ApiOperation({ summary: '[Admin] Actualizar categoría' })
+  @ApiParam({ name: 'id', description: 'ID de la categoría' })
+  @ApiResponse({ status: 200, description: 'Categoría actualizada' })
+  updateCategory(@Param('id') id: string, @Body() dto: any) {
+    return this.client.send('update_notification_category', { id, dto });
+  }
+
+  @Delete('categories/:id')
+  @ApiOperation({ summary: '[Admin] Eliminar categoría' })
+  @ApiParam({ name: 'id', description: 'ID de la categoría' })
+  @ApiResponse({ status: 200, description: 'Categoría eliminada' })
+  deleteCategory(@Param('id') id: string) {
+    return this.client.send('delete_notification_category', { id });
+  }
+
   // ==================== Push Notification Test ====================
 
   @Post('push-test')

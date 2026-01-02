@@ -77,4 +77,9 @@ export class AuthController {
     return this.authService.uploadProfilePicture(data.userId, buffer, data.mimeType);
   }
 
+  @MessagePattern('delete_profile_picture')
+  deleteProfilePicture(@Payload() data: { userId: string }): Promise<any> {
+    return this.authService.deleteProfilePicture(data.userId);
+  }
+
 }

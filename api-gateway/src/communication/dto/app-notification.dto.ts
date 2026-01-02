@@ -20,10 +20,15 @@ export class CreateAppNotificationDto {
     @IsString()
     message: string;
 
-    @ApiPropertyOptional({ enum: NotificationType, default: NotificationType.NEWS })
+    @ApiPropertyOptional({ example: 'news' })
     @IsOptional()
-    @IsEnum(NotificationType)
-    type?: NotificationType;
+    @IsString()
+    type?: string;
+
+    @ApiPropertyOptional({ example: 'uuid-category-123' })
+    @IsOptional()
+    @IsString()
+    categoryId?: string;
 
     @ApiPropertyOptional({ example: 'https://example.com/image.jpg' })
     @IsOptional()
@@ -44,6 +49,11 @@ export class CreateAppNotificationDto {
     @IsOptional()
     @IsDateString()
     expiresAt?: string;
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @IsBoolean()
+    sendPush?: boolean;
 }
 
 export class UpdateAppNotificationDto {
@@ -57,10 +67,15 @@ export class UpdateAppNotificationDto {
     @IsString()
     message?: string;
 
-    @ApiPropertyOptional({ enum: NotificationType })
+    @ApiPropertyOptional({ example: 'news' })
     @IsOptional()
-    @IsEnum(NotificationType)
-    type?: NotificationType;
+    @IsString()
+    type?: string;
+
+    @ApiPropertyOptional({ example: 'uuid-category-123' })
+    @IsOptional()
+    @IsString()
+    categoryId?: string;
 
     @ApiPropertyOptional()
     @IsOptional()
@@ -96,4 +111,45 @@ export class MarkAsReadDto {
     @ApiProperty({ example: 'notification-uuid-456' })
     @IsString()
     notificationId: string;
+}
+
+export class CreateNotificationCategoryDto {
+    @ApiProperty({ example: 'urgent_alert' })
+    @IsString()
+    name: string;
+
+    @ApiProperty({ example: 'Aviso Urgente' })
+    @IsString()
+    label: string;
+
+    @ApiProperty({ example: '#ff0000' })
+    @IsString()
+    color: string;
+
+    @ApiPropertyOptional({ example: 'AlertTriangle' })
+    @IsOptional()
+    @IsString()
+    icon?: string;
+}
+
+export class UpdateNotificationCategoryDto {
+    @ApiPropertyOptional({ example: 'Aviso Muy Urgente' })
+    @IsOptional()
+    @IsString()
+    label?: string;
+
+    @ApiPropertyOptional({ example: '#cc0000' })
+    @IsOptional()
+    @IsString()
+    color?: string;
+
+    @ApiPropertyOptional({ example: 'Siren' })
+    @IsOptional()
+    @IsString()
+    icon?: string;
+
+    @ApiPropertyOptional()
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean;
 }

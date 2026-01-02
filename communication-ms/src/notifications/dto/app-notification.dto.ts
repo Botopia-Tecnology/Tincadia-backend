@@ -3,7 +3,6 @@
  */
 
 import { IsString, IsOptional, IsEnum, IsNumber, IsBoolean, IsDateString } from 'class-validator';
-import { NotificationType } from '../entities/app-notification.entity';
 
 export class CreateAppNotificationDto {
     @IsString()
@@ -13,8 +12,12 @@ export class CreateAppNotificationDto {
     message: string;
 
     @IsOptional()
-    @IsEnum(NotificationType)
-    type?: NotificationType;
+    @IsString()
+    type?: string;
+
+    @IsOptional()
+    @IsString()
+    categoryId?: string;
 
     @IsOptional()
     @IsString()
@@ -47,8 +50,12 @@ export class UpdateAppNotificationDto {
     message?: string;
 
     @IsOptional()
-    @IsEnum(NotificationType)
-    type?: NotificationType;
+    @IsString()
+    type?: string;
+
+    @IsOptional()
+    @IsString()
+    categoryId?: string;
 
     @IsOptional()
     @IsString()
@@ -77,4 +84,37 @@ export class MarkAsReadDto {
 
     @IsString()
     notificationId: string;
+}
+
+export class CreateNotificationCategoryDto {
+    @IsString()
+    name: string;
+
+    @IsString()
+    label: string;
+
+    @IsString()
+    color: string;
+
+    @IsOptional()
+    @IsString()
+    icon?: string;
+}
+
+export class UpdateNotificationCategoryDto {
+    @IsOptional()
+    @IsString()
+    label?: string;
+
+    @IsOptional()
+    @IsString()
+    color?: string;
+
+    @IsOptional()
+    @IsString()
+    icon?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    isActive?: boolean;
 }

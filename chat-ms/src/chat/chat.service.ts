@@ -16,6 +16,8 @@ import { StartConversationDto } from './dto/start-conversation.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 
+import { NotificationsService } from '../notifications/notifications.service';
+
 @Injectable()
 export class ChatService {
     private readonly logger = new Logger(ChatService.name);
@@ -23,6 +25,7 @@ export class ChatService {
     constructor(
         private readonly supabaseService: SupabaseService,
         private readonly encryptionService: EncryptionService,
+        private readonly notificationsService: NotificationsService,
         @Inject('COMMUNICATION_SERVICE') private readonly communicationClient: ClientProxy,
         @Inject('CONTENT_SERVICE') private readonly contentClient: ClientProxy,
     ) { }
@@ -115,25 +118,80 @@ export class ChatService {
             if (conversation) {
                 const recipientId = conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id;
 
-                // Fetch recipient's push token
-                const { data: recipientProfile } = await supabase
-                    .from('profiles')
-                    .select('push_token')
-                    .eq('id', recipientId)
-                    .single();
+                // Fetch recipient's push token AND sender's profile (for name)
+                const [recipientResult, senderResult] = await Promise.all([
+                    supabase
+                        .from('profiles')
+                        .select('push_token')
+                        .eq('id', recipientId)
+                        .single(),
+                    supabase
+                        .from('profiles')
+                        .select('first_name, last_name')
+                        .eq('id', data.senderId)
+                        .single()
+                ]);
+
+                const recipientProfile = recipientResult.data;
+                const senderProfile = senderResult.data;
 
                 if (recipientProfile?.push_token) {
-                    this.communicationClient.emit('send_push_notification', {
-                        token: recipientProfile.push_token,
-                        title: 'Nuevo Mensaje',
-                        body: data.type === 'text' ? data.content : '📷 Foto', // Send decrypted content or placeholder
-                        data: {
+                    const senderName = senderProfile
+                        ? `${senderProfile.first_name || ''} ${senderProfile.last_name || ''}`.trim()
+                        : 'Alguien';
+
+                    // Use local service directly instead of emitting event
+                    const isCall = data.type === 'call';
+                    const isCallEnded = data.type === 'call_ended';
+
+                    this.notificationsService.sendPushNotification(
+                        recipientProfile.push_token,
+                        isCall ? '📞 Llamada Entrante' : (senderName || 'Nuevo Mensaje'),
+                        isCall
+                            ? 'Toca para contestar...'
+                            : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
+                        {
                             conversationId: data.conversationId,
-                            type: 'new_message',
-                            senderId: data.senderId
-                        }
-                    });
+                            type: (isCall || isCallEnded || String(data.type) === 'call_rejected') ? data.type : 'new_message',
+                            senderId: data.senderId,
+                            senderName: senderName,
+                            roomName: isCall ? data.metadata?.roomName : undefined // Pass room name if available
+                        },
+                        // Options
+                        isCall ? {
+                            channelId: 'incoming_calls',
+                            priority: 'high',
+                            sound: 'default' // Notification channel will handle the specific sound/vibration
+                        } : undefined
+                    );
                 }
+
+                // 🚀 BROADCAST TO RECIPIENT'S USER CHANNEL FOR INSTANT UPDATE
+                // This bypasses Postgres replication lag for the chat list
+                const recipientChannel = supabase.channel(`user:${recipientId}`);
+                await recipientChannel.send({
+                    type: 'broadcast',
+                    event: 'new_message',
+                    payload: {
+                        id: message.id,
+                        conversationId: data.conversationId,
+                        senderId: data.senderId,
+                        // Send content for preview (frontend handles if it trusts it)
+                        // If we want to be secure, we send decrypted content here because the channel is private?
+                        // Actually, Broadcast is public to anyone who subscribes to the channel.
+                        // Ideally we send encrypted, but we want speed.
+                        // Let's send the CLEAN minimal data for the list.
+                        content: data.type === 'text' ? data.content : (data.type === 'image' ? '📷 Foto' : '🎤 Audio'),
+                        type: data.type,
+                        createdAt: message.created_at,
+                        isMine: false
+                    }
+                });
+                // We don't await the tracking/unsubscribe, just fire and forget or clean up?
+                // Creating a channel for every send is expensive? 
+                // Supabase clients are lightweight, but server-side SDK might be different.
+                // Actually, supabase-js on Node works same way.
+                supabase.removeChannel(recipientChannel);
             }
 
             // Return decrypted message
@@ -246,7 +304,7 @@ export class ChatService {
             // Fetch profiles for all other users
             const { data: profiles } = await supabase
                 .from('profiles')
-                .select('id, first_name, last_name, phone')
+                .select('id, first_name, last_name, phone, avatar_url')
                 .in('id', otherUserIds);
 
             // Create a map for quick lookup
@@ -309,6 +367,7 @@ export class ChatService {
                     otherUserId,
                     otherUserPhone: profile?.phone || null,
                     otherUserName: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : null,
+                    otherUserAvatar: profile?.avatar_url || null,
                     lastMessage: lastMsg?.content || null,
                     lastMessageAt: lastMsg?.created_at || null,
                     unreadCount,

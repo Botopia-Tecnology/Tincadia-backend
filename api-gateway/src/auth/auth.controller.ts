@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Put, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Put, Delete, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientProxy } from '@nestjs/microservices';
 import { Express } from 'express';
@@ -353,6 +353,14 @@ export class AuthController {
       file: file.buffer,
       mimeType: file.mimetype,
     });
+  }
+
+  @Delete('profile/:userId/avatar')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Eliminar foto de perfil' })
+  @ApiResponse({ status: 200, description: 'Foto eliminada exitosamente' })
+  deleteAvatar(@Param('userId') userId: string) {
+    return this.client.send('delete_profile_picture', { userId });
   }
 
 }

@@ -155,4 +155,12 @@ export class ContentController {
             type: type || 'image',
         });
     }
+    @Post('chat/media/url')
+    @ApiOperation({ summary: 'Generate signed URL for private media' })
+    async generateSignedUrl(@Body() data: { publicId: string }) {
+        return this.client.send('generateSignedUrl', {
+            publicId: data.publicId,
+            resourceType: 'image' // Default to image, can be extended if needed
+        });
+    }
 }

@@ -126,16 +126,35 @@ export class ContactService {
                 };
             }
 
+            // 2. Get auth users to retrieve avatars
+            const contactUserIds = contacts.map((c: any) => c.contact_user_id);
+            // Optimization: In a real app we might filter listUsers or use getUsersByIds if available
+            // For now, listUsers() gets a page, we might need logic to ensure we get specific users if list is large.
+            // But since we can't filter listUsers by ID array easily without RPC, we'll try to get all or assume manageable size.
+            // Better approach: Since we have the IDs, let's map them.
+            // Actually, Supabase Admin ListUsers doesn't support "in" array. 
+            // We will fetch all and filter in memory (not ideal for huge apps but functional for now) 
+            // OR simpler: iterate and fetch (slow).
+            // Let's stick to listUsers() for now as in auth-ms.
+
+            const { data: { users: authUsers } } = await supabase.auth.admin.listUsers() as { data: { users: any[] }, error: any };
+
             // Transform to cleaner format
-            const formattedContacts = contacts.map((c: any) => ({
-                id: c.id,
-                contactUserId: c.contact_user_id,
-                alias: c.alias,
-                customFirstName: c.custom_first_name,
-                customLastName: c.custom_last_name,
-                createdAt: c.created_at,
-                user: c.profiles,
-            }));
+            const formattedContacts = contacts.map((c: any) => {
+                const authUser = authUsers?.find(u => u.id === c.contact_user_id);
+                return {
+                    id: c.id,
+                    contactUserId: c.contact_user_id,
+                    alias: c.alias,
+                    customFirstName: c.custom_first_name,
+                    customLastName: c.custom_last_name,
+                    createdAt: c.created_at,
+                    user: {
+                        ...c.profiles,
+                        avatarUrl: authUser?.user_metadata?.avatar_url || null,
+                    },
+                };
+            });
 
             return { contacts: formattedContacts };
         } catch (error) {

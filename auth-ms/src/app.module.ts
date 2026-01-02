@@ -21,6 +21,8 @@ import { Profile, DocumentType } from './entities';
         password: configService.get<string>('DB_PASSWORD'),
         database: configService.get<string>('DB_NAME'),
         entities: [Profile, DocumentType],
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
+        migrationsRun: true, // Auto-run migrations on startup
         synchronize: false,
         ssl: configService.get<string>('DB_HOST')?.includes('supabase.co')
           ? { rejectUnauthorized: false }

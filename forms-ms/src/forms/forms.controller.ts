@@ -24,8 +24,26 @@ export class FormsController {
   }
 
   @MessagePattern('find_all_submissions')
-  findAllSubmissions() {
-    return this.formsService.findAllSubmissions();
+  async findAllSubmissions() {
+    try {
+      console.log('📥 [Forms MS] find_all_submissions handler called');
+      const submissions = await this.formsService.findAllSubmissions();
+      console.log(`✅ [Forms MS] Found ${submissions?.length || 0} submissions`);
+      return submissions;
+    } catch (error) {
+      console.error('❌ [Forms MS] Error in findAllSubmissions:', error);
+      console.error('❌ [Forms MS] Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name,
+      });
+
+      throw new RpcException({
+        status: 500,
+        message: error?.message || 'Failed to fetch submissions',
+        error: error?.name || 'InternalServerError',
+      });
+    }
   }
 
   @MessagePattern('find_one_form')
@@ -44,7 +62,7 @@ export class FormsController {
       console.error('❌ [Forms MS] Error in findByType:', error);
       const errorMessage = error?.message || 'Form not found';
       const errorStatus = error?.status || error?.statusCode || 404;
-      
+
       throw new RpcException({
         status: errorStatus,
         message: errorMessage,
@@ -66,7 +84,7 @@ export class FormsController {
   @MessagePattern('submit_form')
   async submit(@Payload() data: FormSubmissionDto) {
     console.log('📥 [Forms MS] submit_form handler called');
-    
+
     try {
       console.log('📥 [Forms MS] Received submit_form request:', {
         formId: data?.formId,
@@ -74,14 +92,14 @@ export class FormsController {
         hasData: !!data?.data,
         dataType: typeof data,
       });
-      
+
       if (!data || !data.formId) {
         throw new Error('Invalid submission data: formId is required');
       }
-      
+
       console.log('📥 [Forms MS] Calling formsService.submit...');
       const result = await this.formsService.submit(data);
-      
+
       console.log('✅ [Forms MS] Submit completed successfully, returning result');
       return result;
     } catch (error) {
@@ -97,22 +115,22 @@ export class FormsController {
         status: error?.status,
         statusCode: error?.statusCode,
       });
-      
+
       // Ensure we throw a proper RpcException
       const errorMessage = error?.message || 'Internal server error';
       const errorStatus = error?.status || error?.statusCode || 500;
-      
+
       const rpcError = new RpcException({
         status: errorStatus,
         message: errorMessage,
         error: error?.name || 'InternalServerError',
       });
-      
+
       console.error('❌ [Forms MS] Throwing RpcException:', {
         status: errorStatus,
         message: errorMessage,
       });
-      
+
       throw rpcError;
     }
   }

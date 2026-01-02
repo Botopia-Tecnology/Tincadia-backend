@@ -28,4 +28,7 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   pushToken?: string;
+
+  @IsOptional()
+  readReceiptsEnabled?: boolean;
 }

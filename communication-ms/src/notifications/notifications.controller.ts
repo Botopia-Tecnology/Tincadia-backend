@@ -59,4 +59,27 @@ export class NotificationsController {
     async getAllNotifications() {
         return this.appNotificationsService.getAllNotifications();
     }
+
+    // ==================== Categories ====================
+
+    @MessagePattern('create_notification_category')
+    async createCategory(@Payload() dto: any) {
+        return this.appNotificationsService.createCategory(dto);
+    }
+
+    @MessagePattern('get_notification_categories')
+    async getCategories() {
+        return this.appNotificationsService.getCategories();
+    }
+
+    @MessagePattern('update_notification_category')
+    async updateCategory(@Payload() data: { id: string; dto: any }) {
+        return this.appNotificationsService.updateCategory(data.id, data.dto);
+    }
+
+    @MessagePattern('delete_notification_category')
+    async deleteCategory(@Payload() data: { id: string }) {
+        const success = await this.appNotificationsService.deleteCategory(data.id);
+        return { success };
+    }
 }

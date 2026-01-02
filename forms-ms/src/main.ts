@@ -5,7 +5,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  
+
   try {
     const port = parseInt(process.env.formsPort || '3004', 10);
 
@@ -14,7 +14,7 @@ async function bootstrap() {
       {
         transport: Transport.TCP,
         options: {
-          host: '127.0.0.1',
+          host: '0.0.0.0',
           port,
           // Increase max message size for large form submissions
           maxMessageSize: 10 * 1024 * 1024, // 10MB

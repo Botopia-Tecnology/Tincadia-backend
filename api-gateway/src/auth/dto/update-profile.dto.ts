@@ -31,4 +31,8 @@ export class UpdateProfileDto {
   @IsUrl()
   @IsOptional()
   avatarUrl?: string;
+
+  @ApiProperty({ example: true, required: false, description: 'Habilitar confirmaciones de lectura' })
+  @IsOptional()
+  readReceiptsEnabled?: boolean;
 }
