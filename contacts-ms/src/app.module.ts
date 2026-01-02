@@ -32,7 +32,8 @@ import {
     ContactsModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }
+
 
 
 

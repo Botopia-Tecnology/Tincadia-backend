@@ -13,7 +13,13 @@ export class NotificationsService {
     /**
      * Enviar una notificación push a un token de Expo
      */
-    async sendPushNotification(pushToken: string, title: string, body: string, data?: any) {
+    async sendPushNotification(
+        pushToken: string,
+        title: string,
+        body: string,
+        data?: any,
+        options?: { channelId?: string; sound?: string | null; priority?: 'default' | 'normal' | 'high' }
+    ) {
         if (!Expo.isExpoPushToken(pushToken)) {
             this.logger.error(`Push token ${pushToken} is not a valid Expo push token`);
             return;
@@ -21,11 +27,12 @@ export class NotificationsService {
 
         const message: ExpoPushMessage = {
             to: pushToken,
-            sound: 'default',
+            sound: options?.sound !== undefined ? options.sound : 'default',
             title,
             body,
             data: data || {},
-            priority: 'high',
+            priority: options?.priority || 'high',
+            channelId: options?.channelId,
         };
 
         try {

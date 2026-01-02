@@ -32,6 +32,7 @@ export class AppNotificationsService {
                 title: dto.title,
                 message: dto.message,
                 type: dto.type || 'news',
+                category_id: dto.categoryId || null,
                 image_url: dto.imageUrl,
                 link_url: dto.linkUrl,
                 priority: dto.priority || 0,
@@ -208,7 +209,10 @@ export class AppNotificationsService {
     async getAllNotifications(): Promise<any[]> {
         const { data, error } = await this.supabase
             .from('app_notifications')
-            .select('*')
+            .select(`
+                *,
+                category:notification_categories(*)
+            `)
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -217,5 +221,65 @@ export class AppNotificationsService {
         }
 
         return data || [];
+    }
+
+    // ==================== Category Management ====================
+
+    async createCategory(dto: any): Promise<any> {
+        const { data, error } = await this.supabase
+            .from('notification_categories')
+            .insert({
+                name: dto.name,
+                label: dto.label,
+                color: dto.color,
+                icon: dto.icon,
+                is_active: true
+            })
+            .select()
+            .single();
+
+        if (error) {
+            this.logger.error('Error creating category:', error);
+            throw error;
+        }
+        return data;
+    }
+
+    async getCategories(): Promise<any[]> {
+        const { data, error } = await this.supabase
+            .from('notification_categories')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return data || [];
+    }
+
+    async updateCategory(id: string, dto: any): Promise<any> {
+        const updateData: any = {};
+        if (dto.label) updateData.label = dto.label;
+        if (dto.color) updateData.color = dto.color;
+        if (dto.icon) updateData.icon = dto.icon;
+        if (dto.isActive !== undefined) updateData.is_active = dto.isActive;
+
+        const { data, error } = await this.supabase
+            .from('notification_categories')
+            .update(updateData)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    }
+
+    async deleteCategory(id: string): Promise<boolean> {
+        const { error } = await this.supabase
+            .from('notification_categories')
+            .delete()
+            .eq('id', id);
+
+        if (error) return false;
+        return true;
     }
 }

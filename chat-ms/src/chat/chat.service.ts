@@ -141,15 +141,28 @@ export class ChatService {
                         : 'Alguien';
 
                     // Use local service directly instead of emitting event
+                    const isCall = data.type === 'call';
+                    const isCallEnded = data.type === 'call_ended';
+
                     this.notificationsService.sendPushNotification(
                         recipientProfile.push_token,
-                        senderName || 'Nuevo Mensaje',
-                        data.type === 'text' ? data.content : '📷 Foto',
+                        isCall ? '📞 Llamada Entrante' : (senderName || 'Nuevo Mensaje'),
+                        isCall
+                            ? 'Toca para contestar...'
+                            : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
                         {
                             conversationId: data.conversationId,
-                            type: 'new_message',
-                            senderId: data.senderId
-                        }
+                            type: (isCall || isCallEnded || String(data.type) === 'call_rejected') ? data.type : 'new_message',
+                            senderId: data.senderId,
+                            senderName: senderName,
+                            roomName: isCall ? data.metadata?.roomName : undefined // Pass room name if available
+                        },
+                        // Options
+                        isCall ? {
+                            channelId: 'incoming_calls',
+                            priority: 'high',
+                            sound: 'default' // Notification channel will handle the specific sound/vibration
+                        } : undefined
                     );
                 }
 

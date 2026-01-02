@@ -1,11 +1,5 @@
-/**
- * App Notification Entity
- * 
- * Entity for app-wide notifications like news, updates, and promotions
- * Different from push notifications - these are stored and displayed in-app
- */
-
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
+import { NotificationCategory } from './notification-category.entity';
 
 export enum NotificationType {
     NEWS = 'news',
@@ -24,12 +18,16 @@ export class AppNotification {
     @Column('text')
     message: string;
 
-    @Column({
-        type: 'enum',
-        enum: NotificationType,
-        default: NotificationType.NEWS,
-    })
-    type: NotificationType;
+    // Type can now be a generic string (legacy support + custom types by name)
+    @Column({ default: 'news' })
+    type: string;
+
+    @Column({ name: 'category_id', nullable: true })
+    categoryId?: string;
+
+    @ManyToOne(() => NotificationCategory, { nullable: true, eager: true })
+    @JoinColumn({ name: 'category_id' })
+    category?: NotificationCategory;
 
     @Column({ name: 'image_url', nullable: true })
     imageUrl?: string;
@@ -49,3 +47,4 @@ export class AppNotification {
     @Column({ name: 'expires_at', nullable: true })
     expiresAt?: Date;
 }
+

@@ -231,14 +231,50 @@ export class AuthService {
     }
   }
 
+  private extractPublicId(url: string): string | null {
+    if (!url || !url.includes('cloudinary')) return null;
+    try {
+      // Example: https://res.cloudinary.com/.../image/upload/v1234/folder/id.jpg
+      // Split by /upload/
+      const parts = url.split(/\/upload\/(?:v\d+\/)?/);
+      if (parts.length < 2) return null;
+
+      // Get the part after upload/ (and optional version)
+      const publicIdWithExt = parts[1];
+
+      // Remove extension
+      const publicId = publicIdWithExt.replace(/\.[^/.]+$/, "");
+      return publicId;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async uploadProfilePicture(userId: string, fileBuffer: Buffer, mimeType: string): Promise<{ avatarUrl: string }> {
     try {
-      // 1. Upload to Cloudinary
+      const supabase = this.supabaseService.getAdminClient();
+
+      // 1. Check for existing avatar to delete
+      const { data: { user } } = await supabase.auth.admin.getUserById(userId);
+      const oldAvatarUrl = user?.user_metadata?.avatar_url;
+
+      if (oldAvatarUrl) {
+        const publicId = this.extractPublicId(oldAvatarUrl);
+        if (publicId) {
+          try {
+            await this.cloudinaryService.deleteAsset(publicId);
+            this.logger.log(`🗑️ Deleted old avatar: ${publicId}`);
+          } catch (delError) {
+            this.logger.warn(`Failed to delete old avatar: ${delError.message}`);
+          }
+        }
+      }
+
+      // 2. Upload to Cloudinary
       const result = await this.cloudinaryService.uploadImage(fileBuffer, `avatar_${userId}`, 'tincadia/avatars');
       const avatarUrl = result.secure_url;
 
-      // 2. Update Supabase Auth User metadata
-      const supabase = this.supabaseService.getAdminClient();
+      // 3. Update Supabase Auth User metadata
       const { error } = await supabase.auth.admin.updateUserById(userId, {
         user_metadata: { avatar_url: avatarUrl },
       });
@@ -247,8 +283,8 @@ export class AuthService {
         throw new BadRequestException('Error updating user metadata with avatar URL');
       }
 
-      // 3. Also update the local database profile if needed (optional but good for consistency if avatars are stored there too)
-      await this.profileService.update(userId, { avatarUrl }); // If profile entity has avatarUrl
+      // 4. Also update the local database profile if needed
+      await this.profileService.update(userId, { avatarUrl });
 
       this.logger.log(`✅ Avatar updated for ${userId}: ${avatarUrl}`);
 
@@ -256,6 +292,36 @@ export class AuthService {
     } catch (error) {
       this.logger.error(`Error uploading profile picture for ${userId}:`, error);
       throw new BadRequestException('Failed to upload profile picture');
+    }
+  }
+
+  async deleteProfilePicture(userId: string): Promise<{ success: boolean }> {
+    try {
+      const supabase = this.supabaseService.getAdminClient();
+
+      // 1. Get current avatar
+      const { data: { user } } = await supabase.auth.admin.getUserById(userId);
+      const oldAvatarUrl = user?.user_metadata?.avatar_url;
+
+      if (oldAvatarUrl) {
+        const publicId = this.extractPublicId(oldAvatarUrl);
+        if (publicId) {
+          await this.cloudinaryService.deleteAsset(publicId);
+        }
+      }
+
+      // 2. Remove from Metadata
+      await supabase.auth.admin.updateUserById(userId, {
+        user_metadata: { avatar_url: null },
+      });
+
+      // 3. Remove from Profile Entity
+      await this.profileService.update(userId, { avatarUrl: null });
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Error deleting profile picture: ${error.message}`);
+      throw new BadRequestException('Error al eliminar foto de perfil');
     }
   }
 
