@@ -14,6 +14,7 @@ import { ContactsModule } from './contacts/contacts.module';
 import { CallsModule } from './calls/calls.module';
 import { ContentModule } from './content/content.module';
 import { EmergencyModule } from './emergency/emergency.module';
+import { ModelModule } from './Model-ms/model.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { EmergencyModule } from './emergency/emergency.module';
     CallsModule,
     ContentModule,
     EmergencyModule,
+    ModelModule
   ],
   controllers: [AppController],
   providers: [
