@@ -13,6 +13,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto } from './dto/get-messages.dto';
 import { GetConversationsDto } from './dto/get-conversations.dto';
 import { StartConversationDto } from './dto/start-conversation.dto';
+import { CreateGroupDto } from './dto/create-group.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 
@@ -73,6 +74,74 @@ export class ChatService {
     }
 
     /**
+     * Crear nuevo grupo
+     */
+    async createGroup(data: CreateGroupDto) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+
+            // 1. Create conversation of type 'group'
+            const { data: conversation, error: convError } = await supabase
+                .from('conversations')
+                .insert({
+                    type: 'group',
+                    title: data.title,
+                    description: data.description || '',
+                    image_url: data.imageUrl || null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString(),
+                })
+                .select()
+                .single();
+
+            if (convError || !conversation) {
+                this.logger.error(`Error creating group conversation: ${convError?.message}`);
+                throw new BadRequestException('Error al crear grupo');
+            }
+
+            // 2. Add participants (Admin + Members)
+            const participantsToAdd = [
+                // Creator as Admin
+                {
+                    conversation_id: conversation.id,
+                    user_id: data.creatorId,
+                    role: 'admin',
+                    added_by: data.creatorId,
+                    joined_at: new Date().toISOString(),
+                },
+                // Other participants as Members
+                ...data.participants
+                    .filter(id => id !== data.creatorId) // Ensure creator isn't added twice
+                    .map(userId => ({
+                        conversation_id: conversation.id,
+                        user_id: userId,
+                        role: 'member',
+                        added_by: data.creatorId,
+                        joined_at: new Date().toISOString(),
+                    }))
+            ];
+
+            const { error: partError } = await supabase
+                .from('conversation_participants')
+                .insert(participantsToAdd);
+
+            if (partError) {
+                this.logger.error(`Error adding participants: ${partError.message}`);
+                // Rollback conversation creation? Or just fail? (Supabase doesn't support transactions easily here unless using rpc)
+                // For now, let's try to delete the conversation if participants fail.
+                await supabase.from('conversations').delete().eq('id', conversation.id);
+                throw new BadRequestException('Error al añadir participantes al grupo');
+            }
+
+            return { conversationId: conversation.id };
+        } catch (error) {
+            this.logger.error(`Create group error: ${error.message}`);
+            if (error instanceof BadRequestException) throw error;
+            throw new BadRequestException('Error al crear grupo');
+        }
+    }
+
+    /**
      * Enviar mensaje
      */
     async sendMessage(data: SendMessageDto) {
@@ -107,91 +176,104 @@ export class ChatService {
                 .update({ updated_at: new Date().toISOString() })
                 .eq('id', data.conversationId);
 
-            // Notify via Broadcast (Realtime is separate, but we trigger Push Notifications here)
-            // Get other user ID for push notification
+            // Notify via Broadcast and Push
             const { data: conversation } = await supabase
                 .from('conversations')
-                .select('user1_id, user2_id')
+                .select('*') // Get full conversation to check type
                 .eq('id', data.conversationId)
                 .single();
 
             if (conversation) {
-                const recipientId = conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id;
+                // Determine recipients
+                let recipientIds: string[] = [];
+                let groupTitle = null;
 
-                // Fetch recipient's push token AND sender's profile (for name)
-                const [recipientResult, senderResult] = await Promise.all([
-                    supabase
-                        .from('profiles')
-                        .select('push_token')
-                        .eq('id', recipientId)
-                        .single(),
-                    supabase
-                        .from('profiles')
-                        .select('first_name, last_name')
-                        .eq('id', data.senderId)
-                        .single()
-                ]);
+                if (conversation.type === 'group') {
+                    groupTitle = conversation.title;
+                    const { data: participants } = await supabase
+                        .from('conversation_participants')
+                        .select('user_id')
+                        .eq('conversation_id', conversation.id);
 
-                const recipientProfile = recipientResult.data;
-                const senderProfile = senderResult.data;
-
-                if (recipientProfile?.push_token) {
-                    const senderName = senderProfile
-                        ? `${senderProfile.first_name || ''} ${senderProfile.last_name || ''}`.trim()
-                        : 'Alguien';
-
-                    // Use local service directly instead of emitting event
-                    const isCall = data.type === 'call';
-                    const isCallEnded = data.type === 'call_ended';
-
-                    this.notificationsService.sendPushNotification(
-                        recipientProfile.push_token,
-                        isCall ? '📞 Llamada Entrante' : (senderName || 'Nuevo Mensaje'),
-                        isCall
-                            ? 'Toca para contestar...'
-                            : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
-                        {
-                            conversationId: data.conversationId,
-                            type: (isCall || isCallEnded || String(data.type) === 'call_rejected') ? data.type : 'new_message',
-                            senderId: data.senderId,
-                            senderName: senderName,
-                            roomName: isCall ? data.metadata?.roomName : undefined // Pass room name if available
-                        },
-                        // Options
-                        isCall ? {
-                            channelId: 'incoming_calls',
-                            priority: 'high',
-                            sound: 'default' // Notification channel will handle the specific sound/vibration
-                        } : undefined
-                    );
+                    if (participants) {
+                        recipientIds = participants
+                            .map(p => p.user_id)
+                            .filter(id => id !== data.senderId);
+                    }
+                } else {
+                    // Direct chat
+                    recipientIds = [conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id];
                 }
 
-                // 🚀 BROADCAST TO RECIPIENT'S USER CHANNEL FOR INSTANT UPDATE
-                // This bypasses Postgres replication lag for the chat list
-                const recipientChannel = supabase.channel(`user:${recipientId}`);
-                await recipientChannel.send({
-                    type: 'broadcast',
-                    event: 'new_message',
-                    payload: {
-                        id: message.id,
-                        conversationId: data.conversationId,
-                        senderId: data.senderId,
-                        // Send content for preview (frontend handles if it trusts it)
-                        // If we want to be secure, we send decrypted content here because the channel is private?
-                        // Actually, Broadcast is public to anyone who subscribes to the channel.
-                        // Ideally we send encrypted, but we want speed.
-                        // Let's send the CLEAN minimal data for the list.
-                        content: data.type === 'text' ? data.content : (data.type === 'image' ? '📷 Foto' : '🎤 Audio'),
-                        type: data.type,
-                        createdAt: message.created_at,
-                        isMine: false
+                // Fetch sender profile once
+                const { data: senderProfile } = await supabase
+                    .from('profiles')
+                    .select('first_name, last_name')
+                    .eq('id', data.senderId)
+                    .single();
+
+                const senderName = senderProfile
+                    ? `${senderProfile.first_name || ''} ${senderProfile.last_name || ''}`.trim()
+                    : 'Alguien';
+
+                // Fetch push tokens for all recipients
+                const { data: recipientsProfiles } = await supabase
+                    .from('profiles')
+                    .select('id, push_token')
+                    .in('id', recipientIds);
+
+                // Send Notifications and Broadcasts
+                for (const recipient of recipientsProfiles || []) {
+                    if (recipient.push_token) {
+                        const isCall = data.type === 'call';
+                        const isCallEnded = data.type === 'call_ended';
+
+                        // Customize title: Group Name or Sender Name
+                        const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
+
+                        this.notificationsService.sendPushNotification(
+                            recipient.push_token,
+                            isCall ? '📞 Llamada Entrante' : (notifTitle || 'Nuevo Mensaje'),
+                            isCall
+                                ? 'Toca para contestar...'
+                                : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
+                            {
+                                conversationId: data.conversationId,
+                                type: (isCall || isCallEnded || String(data.type) === 'call_rejected') ? data.type : 'new_message',
+                                senderId: data.senderId,
+                                senderName: senderName,
+                                roomName: isCall ? data.metadata?.roomName : undefined,
+                                isGroup: conversation.type === 'group' ? 'true' : 'false'
+                            },
+                            // Options
+                            isCall ? {
+                                channelId: 'incoming_calls',
+                                priority: 'high',
+                                sound: 'default'
+                            } : undefined
+                        );
                     }
-                });
-                // We don't await the tracking/unsubscribe, just fire and forget or clean up?
-                // Creating a channel for every send is expensive? 
-                // Supabase clients are lightweight, but server-side SDK might be different.
-                // Actually, supabase-js on Node works same way.
-                supabase.removeChannel(recipientChannel);
+
+                    // 🚀 BROADCAST TO RECIPIENT'S USER CHANNEL
+                    const recipientChannel = supabase.channel(`user:${recipient.id}`);
+                    await recipientChannel.send({
+                        type: 'broadcast',
+                        event: 'new_message',
+                        payload: {
+                            id: message.id,
+                            conversationId: data.conversationId,
+                            senderId: data.senderId,
+                            content: data.type === 'text' ? data.content : (data.type === 'image' ? '📷 Foto' : '🎤 Audio'),
+                            type: data.type,
+                            createdAt: message.created_at,
+                            isMine: false,
+                            // Add group info for frontend update if needed
+                            isGroup: conversation.type === 'group',
+                            groupTitle: groupTitle
+                        }
+                    });
+                    supabase.removeChannel(recipientChannel);
+                }
             }
 
             // Return decrypted message
@@ -277,71 +359,86 @@ export class ChatService {
     async getConversations(data: GetConversationsDto) {
         try {
             const supabase = this.supabaseService.getAdminClient();
-
             this.logger.log(`🔍 Getting conversations for userId: ${data.userId}`);
 
-            const { data: conversations, error } = await supabase
+            // 1. Get Direct Chats (where user is user1 or user2)
+            const { data: directConversations, error: directError } = await supabase
                 .from('conversations')
                 .select('*')
                 .or(`user1_id.eq.${data.userId},user2_id.eq.${data.userId}`)
+                .eq('type', 'direct') // Optimization if type col exists now
                 .order('updated_at', { ascending: false });
 
-            this.logger.log(`📋 Found ${conversations?.length || 0} conversations`);
+            // 2. Get Group Chats (from conversation_participants)
+            const { data: participations, error: partError } = await supabase
+                .from('conversation_participants')
+                .select('conversation_id')
+                .eq('user_id', data.userId);
 
-            if (error) {
-                throw new BadRequestException('Error al obtener conversaciones');
+            let groupConversations: any[] = [];
+            if (participations && participations.length > 0) {
+                const groupIds = participations.map(p => p.conversation_id);
+                const { data: groups, error: groupsError } = await supabase
+                    .from('conversations')
+                    .select('*')
+                    .in('id', groupIds)
+                    .order('updated_at', { ascending: false });
+
+                if (groups) groupConversations = groups;
             }
 
-            if (!conversations || conversations.length === 0) {
+            // 3. Merge and Deduplicate (though types shouldn't overlap usually if migrated correctly, but for safety)
+            const allConversationsMap = new Map();
+            [...(directConversations || []), ...(groupConversations || [])].forEach(conv => {
+                allConversationsMap.set(conv.id, conv);
+            });
+            const allConversations = Array.from(allConversationsMap.values())
+                .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+            this.logger.log(`📋 Found ${allConversations.length} total conversations`);
+
+            if (allConversations.length === 0) {
                 return { conversations: [] };
             }
 
-            // Get other user IDs
-            const otherUserIds = conversations.map((conv) =>
-                conv.user1_id === data.userId ? conv.user2_id : conv.user1_id
-            );
+            // 4. Enrich Data
+            // Get other user IDs for Direct Chats only
+            const directChatUserIds = allConversations
+                .filter(c => c.type === 'direct' || (!c.type && (c.user1_id || c.user2_id))) // Handle legacy or direct
+                .map(conv => conv.user1_id === data.userId ? conv.user2_id : conv.user1_id)
+                .filter(Boolean); // Filter nulls just in case
 
-            // Fetch profiles for all other users
+            // Fetch profiles
             const { data: profiles } = await supabase
                 .from('profiles')
                 .select('id, first_name, last_name, phone, avatar_url')
-                .in('id', otherUserIds);
+                .in('id', directChatUserIds);
 
-            // Create a map for quick lookup
-            const profileMap = new Map(
-                profiles?.map((p) => [p.id, p]) || []
-            );
+            const profileMap = new Map(profiles?.map((p) => [p.id, p]) || []);
 
-            // Get conversation IDs for batch queries
-            const conversationIds = conversations.map((c) => c.id);
+            // Fetch Last Messages and Unread Counts
+            const conversationIds = allConversations.map(c => c.id);
 
-            // Fetch last message for each conversation
+            // Last Messages (simplified query, might need optimization for huge datasets)
+            // Ideally we use a view or lateral join, but here:
             const { data: lastMessages } = await supabase
                 .from('messages')
-                .select('conversation_id, content, created_at, sender_id')
+                .select('conversation_id, content, created_at, sender_id, type')
                 .in('conversation_id', conversationIds)
                 .order('created_at', { ascending: false });
 
-            // Create a map with only the last message per conversation
-            const lastMessageMap = new Map<string, { content: string; created_at: string; sender_id: string }>();
+            // Map last messages (only keep first found per conv as it's sorted desc)
+            const lastMessageMap = new Map();
             for (const msg of lastMessages || []) {
                 if (!lastMessageMap.has(msg.conversation_id)) {
-                    // Decrypt the message content
-                    let decryptedContent = msg.content;
-                    try {
-                        decryptedContent = this.encryptionService.decrypt(msg.content);
-                    } catch {
-                        // If decryption fails, use original content
+                    let content = msg.content;
+                    if (msg.type === 'text' && this.encryptionService.isEncrypted(content)) {
+                        try { content = this.encryptionService.decrypt(content); } catch { }
                     }
-                    lastMessageMap.set(msg.conversation_id, {
-                        content: decryptedContent,
-                        created_at: msg.created_at,
-                        sender_id: msg.sender_id,
-                    });
+                    lastMessageMap.set(msg.conversation_id, { ...msg, content });
                 }
             }
 
-            // Fetch unread counts for each conversation
             const { data: unreadCounts } = await supabase
                 .from('messages')
                 .select('conversation_id')
@@ -349,32 +446,44 @@ export class ChatService {
                 .neq('sender_id', data.userId)
                 .is('read_at', null);
 
-            // Count unread per conversation
             const unreadMap = new Map<string, number>();
             for (const msg of unreadCounts || []) {
                 unreadMap.set(msg.conversation_id, (unreadMap.get(msg.conversation_id) || 0) + 1);
             }
 
-            // Enrich conversations with all info
-            const conversationsWithOther = conversations.map((conv) => {
-                const otherUserId = conv.user1_id === data.userId ? conv.user2_id : conv.user1_id;
-                const profile = profileMap.get(otherUserId);
+            // 5. Build Final Result
+            const conversationsWithOther = allConversations.map(conv => {
+                const isGroup = conv.type === 'group';
+                let otherUser = null;
+
+                if (!isGroup) {
+                    const otherId = conv.user1_id === data.userId ? conv.user2_id : conv.user1_id;
+                    otherUser = profileMap.get(otherId);
+                }
+
                 const lastMsg = lastMessageMap.get(conv.id);
-                const unreadCount = unreadMap.get(conv.id) || 0;
 
                 return {
                     ...conv,
-                    otherUserId,
-                    otherUserPhone: profile?.phone || null,
-                    otherUserName: profile ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim() : null,
-                    otherUserAvatar: profile?.avatar_url || null,
+                    // For Group: Use group title/image. For Direct: Use other user name/avatar.
+                    title: isGroup ? conv.title : (otherUser ? `${otherUser.first_name || ''} ${otherUser.last_name || ''}`.trim() : 'Chat'),
+                    imageUrl: isGroup ? conv.image_url : (otherUser?.avatar_url || null),
+
+                    // Legacy fields for frontend compatibility (if it expects otherUser...)
+                    otherUserId: !isGroup ? (conv.user1_id === data.userId ? conv.user2_id : conv.user1_id) : null,
+                    otherUserName: !isGroup ? (otherUser ? `${otherUser.first_name || ''} ${otherUser.last_name || ''}`.trim() : null) : conv.title,
+                    otherUserAvatar: !isGroup ? (otherUser?.avatar_url || null) : conv.image_url,
+
+                    // Common fields
                     lastMessage: lastMsg?.content || null,
                     lastMessageAt: lastMsg?.created_at || null,
-                    unreadCount,
+                    unreadCount: unreadMap.get(conv.id) || 0,
+                    isGroup: isGroup
                 };
             });
 
             return { conversations: conversationsWithOther };
+
         } catch (error) {
             this.logger.error(`Error getting conversations: ${error.message}`);
             if (error instanceof BadRequestException) throw error;
@@ -491,6 +600,75 @@ export class ChatService {
         } catch (error) {
             this.logger.error(`Error generating token: ${error.message}`);
             throw new BadRequestException('Error al generar token de video');
+        }
+    }
+
+    /**
+     * Invitar intérpretes a una llamada
+     */
+    async inviteInterpreters(data: { roomName: string; userId: string; username: string }) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+            this.logger.log(`📞 Inviting interpreters for call ${data.roomName} by ${data.username}`);
+
+            // 1. Find all users with role 'interpreter'
+            const { data: interpreters, error } = await supabase
+                .from('profiles')
+                .select('id, push_token')
+                .eq('role', 'interpreter');
+
+            if (error) {
+                this.logger.error(`Error fetching interpreters: ${error.message}`);
+                return { success: false, message: 'Error buscando intérpretes' };
+            }
+
+            if (!interpreters || interpreters.length === 0) {
+                return { success: false, message: 'No hay intérpretes disponibles' };
+            }
+
+            this.logger.log(`Found ${interpreters.length} interpreters`);
+
+            // 2. Notify them
+            const notifications = interpreters.map(async (interpreter) => {
+                if (interpreter.push_token) {
+                    await this.notificationsService.sendPushNotification(
+                        interpreter.push_token,
+                        '📞 Solicitud de Intérprete',
+                        `${data.username} requiere un intérprete en una llamada.`,
+                        {
+                            type: 'call_invite',
+                            roomName: data.roomName,
+                            senderId: data.userId,
+                            senderName: data.username,
+                        },
+                        {
+                            channelId: 'incoming_calls',
+                            priority: 'high',
+                            sound: 'default'
+                        }
+                    );
+                }
+
+                const channel = supabase.channel(`user:${interpreter.id}`);
+                await channel.send({
+                    type: 'broadcast',
+                    event: 'call_invite',
+                    payload: {
+                        roomName: data.roomName,
+                        senderId: data.userId,
+                        senderName: data.username,
+                    }
+                });
+                supabase.removeChannel(channel);
+            });
+
+            await Promise.all(notifications);
+
+            return { success: true, count: interpreters.length };
+
+        } catch (error) {
+            this.logger.error(`Error inviting interpreters: ${error.message}`);
+            throw new BadRequestException('Error al invitar intérpretes');
         }
     }
 }
