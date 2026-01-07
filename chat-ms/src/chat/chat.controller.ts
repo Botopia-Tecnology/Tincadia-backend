@@ -7,6 +7,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto } from './dto/get-messages.dto';
 import { GetConversationsDto } from './dto/get-conversations.dto';
 import { StartConversationDto } from './dto/start-conversation.dto';
+import { CreateGroupDto } from './dto/create-group.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 import { AddContactDto, UpdateContactDto, DeleteContactDto, GetContactsDto } from './dto/contact.dto';
@@ -27,6 +28,11 @@ export class ChatController {
     @MessagePattern('start_conversation')
     startConversation(@Payload() data: StartConversationDto) {
         return this.chatService.startConversation(data);
+    }
+
+    @MessagePattern('create_group')
+    createGroup(@Payload() data: CreateGroupDto) {
+        return this.chatService.createGroup(data);
     }
 
     @MessagePattern('send_message')
@@ -91,5 +97,10 @@ export class ChatController {
     @MessagePattern('generate_video_token')
     generateVideoToken(@Payload() data: { roomName: string; username: string }) {
         return this.chatService.generateVideoToken(data.roomName, data.username);
+    }
+
+    @MessagePattern('invite_interpreters')
+    inviteInterpreters(@Payload() data: { roomName: string; userId: string; username: string }) {
+        return this.chatService.inviteInterpreters(data);
     }
 }

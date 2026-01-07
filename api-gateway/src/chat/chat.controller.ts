@@ -6,6 +6,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { StartConversationDto } from './dto/start-conversation.dto';
+import { CreateGroupDto } from './dto/create-group.dto';
 import { SendChatMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, DeleteMessageDto } from './dto/chat.dto';
 import { AddContactDto, UpdateContactDto } from './dto/contact.dto';
@@ -34,6 +35,14 @@ export class ChatController {
     @ApiResponse({ status: 201, description: 'Conversación creada/obtenida' })
     startConversation(@Body() dto: StartConversationDto) {
         return this.client.send('start_conversation', dto);
+    }
+
+    @Post('groups')
+    @HttpCode(HttpStatus.CREATED)
+    @ApiOperation({ summary: 'Crear nuevo grupo' })
+    @ApiResponse({ status: 201, description: 'Grupo creado' })
+    createGroup(@Body() dto: CreateGroupDto) {
+        return this.client.send('create_group', dto);
     }
 
     @Get('conversations/:userId')
@@ -131,6 +140,14 @@ export class ChatController {
         @Body() dto: { ownerId: string },
     ) {
         return this.client.send('delete_contact', { contactId, ownerId: dto.ownerId });
+    }
+
+    @Post('calls/interpreters')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'Invitar intérpretes a una llamada' })
+    @ApiResponse({ status: 200, description: 'Invitaciones enviadas' })
+    inviteInterpreters(@Body() dto: { roomName: string; userId: string; username: string }) {
+        return this.client.send('invite_interpreters', dto);
     }
 
     @Post('correct-text/stream')

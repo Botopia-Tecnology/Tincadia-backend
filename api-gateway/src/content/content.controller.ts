@@ -163,4 +163,24 @@ export class ContentController {
             resourceType: 'image' // Default to image, can be extended if needed
         });
     }
+
+    // --- Landing Page Config ---
+
+    @Get('landing-config')
+    @ApiOperation({ summary: 'Get all landing page configurations' })
+    async getLandingConfig() {
+        return this.client.send('get_landing_config', {});
+    }
+
+    @Get('landing-config/:key')
+    @ApiOperation({ summary: 'Get landing page config by key' })
+    async getLandingConfigByKey(@Param('key') key: string) {
+        return this.client.send('get_landing_config_by_key', { key });
+    }
+
+    @Put('landing-config')
+    @ApiOperation({ summary: 'Update landing page config' })
+    async updateLandingConfig(@Body() data: { key: string; value: string; description?: string }) {
+        return this.client.send('update_landing_config', data);
+    }
 }

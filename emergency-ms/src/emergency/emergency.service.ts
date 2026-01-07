@@ -12,27 +12,37 @@ export class EmergencyService {
     private readonly outputDir = path.resolve(__dirname, '../../output');
     private genAI: GoogleGenAI;
 
+    // ==================== CONFIGURATION KEYS ====================
+    private readonly CONFIG_KEYS = {
+        GEMINI_API_KEY: 'GEMINI_API_KEY',
+        CLOUDINARY_CLOUD_NAME: 'CLOUDINARY_CLOUD_NAME',
+        CLOUDINARY_API_KEY: 'CLOUDINARY_API_KEY',
+        CLOUDINARY_API_SECRET: 'CLOUDINARY_API_SECRET',
+    };
+    // ==============================================================
+
     constructor(private configService: ConfigService) {
         // Ensure output directory exists
         if (!fs.existsSync(this.outputDir)) {
             fs.mkdirSync(this.outputDir, { recursive: true });
         }
 
-        const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-        if (!apiKey) {
-            this.logger.error('GEMINI_API_KEY not found in environment variables');
+        // Load configuration
+        const geminiApiKey = this.configService.get<string>(this.CONFIG_KEYS.GEMINI_API_KEY);
+        const cloudName = this.configService.get<string>(this.CONFIG_KEYS.CLOUDINARY_CLOUD_NAME);
+        const cloudApiKey = this.configService.get<string>(this.CONFIG_KEYS.CLOUDINARY_API_KEY);
+        const cloudApiSecret = this.configService.get<string>(this.CONFIG_KEYS.CLOUDINARY_API_SECRET);
+
+        // Initialize Gemini API
+        if (!geminiApiKey) {
+            this.logger.error(`${this.CONFIG_KEYS.GEMINI_API_KEY} not found in environment variables`);
         } else {
-            // Log masked key for debugging
-            const maskedKey = apiKey.substring(0, 4) + '...' + apiKey.substring(apiKey.length - 4);
+            const maskedKey = geminiApiKey.substring(0, 4) + '...' + geminiApiKey.substring(geminiApiKey.length - 4);
             this.logger.debug(`Initializing Gemini API with key: ${maskedKey}`);
-            this.genAI = new GoogleGenAI({ apiKey });
+            this.genAI = new GoogleGenAI({ apiKey: geminiApiKey });
         }
 
-        // Configure Cloudinary
-        const cloudName = this.configService.get<string>('CLOUDINARY_CLOUD_NAME');
-        const cloudApiKey = this.configService.get<string>('CLOUDINARY_API_KEY');
-        const cloudApiSecret = this.configService.get<string>('CLOUDINARY_API_SECRET');
-
+        // Initialize Cloudinary
         if (cloudName && cloudApiKey && cloudApiSecret) {
             cloudinary.config({
                 cloud_name: cloudName,
@@ -41,7 +51,7 @@ export class EmergencyService {
             });
             this.logger.log('Cloudinary initialized successfully.');
         } else {
-            this.logger.warn('Cloudinary credentials missing. Audio will unlikely be uploaded.');
+            this.logger.warn('Cloudinary credentials missing. Audio will not be uploaded.');
         }
     }
 
