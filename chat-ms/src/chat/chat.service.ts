@@ -313,7 +313,14 @@ export class ChatService {
                     // 1. Decrypt Text
                     let content = msg.content;
                     if (msg.type === 'text' && this.encryptionService.isEncrypted(msg.content)) {
-                        content = this.encryptionService.decrypt(msg.content);
+                        try {
+                            content = this.encryptionService.decrypt(msg.content);
+                        } catch (decryptError) {
+                            this.logger.warn(`Failed to decrypt message ${msg.id}: ${decryptError.message}`);
+                            // Keep content as is (encrypted) or set to placeholder?
+                            // Returning raw encrypted text confuses users, but hiding it is also bad.
+                            // Let's log it and maybe prefix? No, frontend handles strings.
+                        }
                     }
 
                     // 2. Sign Media URLs (Image/Video/Audio)
@@ -321,10 +328,9 @@ export class ChatService {
                         try {
                             const response = await this.contentClient.send('generateSignedUrl', {
                                 publicId: msg.metadata.publicId,
-                                resourceType: msg.type === 'audio' ? 'video' : msg.type // Audio in cloudinary often treated as video resource_type or raw
+                                resourceType: msg.type === 'audio' ? 'video' : msg.type
                             }).toPromise();
 
-                            // Replace stored public_id/raw_url with the temporary signed URL for the frontend
                             if (response?.url) {
                                 content = response.url;
                             }
@@ -416,6 +422,14 @@ export class ChatService {
 
             const profileMap = new Map(profiles?.map((p) => [p.id, p]) || []);
 
+            // 4b. Fetch CONTACTS to resolve aliases (overrides/augments profile names)
+            const { data: contacts } = await supabase
+                .from('contacts')
+                .select('contact_user_id, alias, custom_first_name, custom_last_name')
+                .eq('owner_id', data.userId);
+
+            const contactMap = new Map(contacts?.map(c => [c.contact_user_id, c]) || []);
+
             // Fetch Last Messages and Unread Counts
             const conversationIds = allConversations.map(c => c.id);
 
@@ -432,9 +446,31 @@ export class ChatService {
             for (const msg of lastMessages || []) {
                 if (!lastMessageMap.has(msg.conversation_id)) {
                     let content = msg.content;
-                    if (msg.type === 'text' && this.encryptionService.isEncrypted(content)) {
-                        try { content = this.encryptionService.decrypt(content); } catch { }
+
+                    // 1. Decrypt if encrypted (REGARDLESS of type, because sendMessage encrypts everything)
+                    if (this.encryptionService.isEncrypted(content)) {
+                        try {
+                            content = this.encryptionService.decrypt(content);
+                        } catch (e) {
+                            this.logger.warn(`Last message decryption failed for conv ${msg.conversation_id}: ${e.message}`);
+                        }
                     }
+
+                    // 2. Format System Messages (Calls)
+                    if (['call', 'call_ended', 'call_rejected', 'call_missed'].includes(msg.type)) {
+                        if (content === 'call_ended') content = '📞 Llamada finalizada';
+                        else if (content === 'call_rejected') content = '📞 Llamada rechazada';
+                        else if (content === 'call_missed') content = '📞 Llamada perdida';
+                        else if (msg.type === 'call') content = '📞 Llamada entrante';
+                        // If checks fail, it might be custom content, allow it or fallback
+                    } else if (msg.type === 'image') {
+                        content = '📷 Foto';
+                    } else if (msg.type === 'audio') {
+                        content = '🎤 Audio';
+                    } else if (msg.type === 'video') {
+                        content = '🎥 Video';
+                    }
+
                     lastMessageMap.set(msg.conversation_id, { ...msg, content });
                 }
             }
@@ -459,6 +495,26 @@ export class ChatService {
                 if (!isGroup) {
                     const otherId = conv.user1_id === data.userId ? conv.user2_id : conv.user1_id;
                     otherUser = profileMap.get(otherId);
+
+                    // Try to get contact info
+                    const contact = contactMap.get(otherId);
+                    if (contact) {
+                        // Create a synthetic "otherUser" or augment it
+                        // Preference: Alias > Custom Name > Profile Name
+                        const contactName = contact.alias ||
+                            ((contact.custom_first_name || contact.custom_last_name) ? `${contact.custom_first_name || ''} ${contact.custom_last_name || ''}`.trim() : null);
+
+                        if (contactName) {
+                            // Override profile name logic below by patching otherUser or just handling it in assignment
+                            if (!otherUser) {
+                                // If they don't have a profile but they are in contacts
+                                otherUser = { first_name: contactName, last_name: '', avatar_url: null, id: otherId } as any;
+                            } else {
+                                // They have a profile, but we prefer contact name
+                                otherUser = { ...otherUser, first_name: contactName, last_name: '' };
+                            }
+                        }
+                    }
                 }
 
                 const lastMsg = lastMessageMap.get(conv.id);
@@ -473,6 +529,7 @@ export class ChatService {
                     otherUserId: !isGroup ? (conv.user1_id === data.userId ? conv.user2_id : conv.user1_id) : null,
                     otherUserName: !isGroup ? (otherUser ? `${otherUser.first_name || ''} ${otherUser.last_name || ''}`.trim() : null) : conv.title,
                     otherUserAvatar: !isGroup ? (otherUser?.avatar_url || null) : conv.image_url,
+                    otherUserPhone: !isGroup ? (otherUser?.phone || null) : null,
 
                     // Common fields
                     lastMessage: lastMsg?.content || null,
