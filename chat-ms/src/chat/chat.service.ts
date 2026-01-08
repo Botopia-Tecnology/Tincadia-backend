@@ -910,5 +910,59 @@ export class ChatService {
             throw new BadRequestException('Error al actualizar el grupo');
         }
     }
+
+    /**
+     * Obtener participantes de un grupo con sus perfiles
+     */
+    async getGroupParticipants(conversationId: string) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+
+            // 1. Obtener los IDs de los participantes y sus roles
+            const { data: participants, error: partError } = await supabase
+                .from('conversation_participants')
+                .select('user_id, role')
+                .eq('conversation_id', conversationId);
+
+            if (partError) {
+                this.logger.error(`Error fetching participants: ${partError.message}`);
+                throw new BadRequestException(`Could not fetch participants: ${partError.message}`);
+            }
+
+            if (!participants || participants.length === 0) {
+                return [];
+            }
+
+            const participantIds = participants.map(p => p.user_id);
+
+            // 2. Obtener los perfiles de esos participantes
+            const { data: profiles, error: profError } = await supabase
+                .from('profiles')
+                .select('id, first_name, last_name, phone, avatar_url')
+                .in('id', participantIds);
+
+            if (profError) {
+                this.logger.error(`Error fetching profiles: ${profError.message}`);
+                throw new BadRequestException(`Could not fetch profiles: ${profError.message}`);
+            }
+
+            // 3. Mapear datos
+            return participantIds.map(id => {
+                const profile = profiles.find(p => p.id === id);
+                const participation = participants.find(p => p.user_id === id);
+                return {
+                    id,
+                    firstName: profile?.first_name,
+                    lastName: profile?.last_name,
+                    phone: profile?.phone,
+                    avatarUrl: profile?.avatar_url,
+                    role: participation?.role || 'member'
+                };
+            });
+        } catch (error) {
+            this.logger.error(`Error in getGroupParticipants: ${error.message}`);
+            throw new BadRequestException('Error al obtener participantes del grupo');
+        }
+    }
 }
 
