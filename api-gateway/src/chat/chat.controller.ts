@@ -10,6 +10,7 @@ import { CreateGroupDto } from './dto/create-group.dto';
 import { SendChatMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, DeleteMessageDto } from './dto/chat.dto';
 import { AddContactDto, UpdateContactDto } from './dto/contact.dto';
+import { RemoveParticipantDto, PromoteToAdminDto, LeaveGroupDto, UpdateGroupDto } from './dto/group-management.dto';
 
 @ApiTags('Chat')
 @ApiBearerAuth()
@@ -158,6 +159,32 @@ export class ChatController {
     @ApiBody({ schema: { type: 'object', properties: { userId: { type: 'string' }, isBusy: { type: 'boolean' } } } })
     setInterpreterStatus(@Body() body: { userId: string; isBusy: boolean }) {
         return this.client.send('set_interpreter_status', body);
+    }
+
+    // ===== GESTIÓN DE GRUPOS =====
+
+    @Post('groups/remove')
+    @ApiOperation({ summary: 'Eliminar participante del grupo' })
+    removeParticipant(@Body() dto: RemoveParticipantDto) {
+        return this.client.send('remove_participant', dto);
+    }
+
+    @Post('groups/promote')
+    @ApiOperation({ summary: 'Promover a administrador del grupo' })
+    promoteToAdmin(@Body() dto: PromoteToAdminDto) {
+        return this.client.send('promote_to_admin', dto);
+    }
+
+    @Post('groups/leave')
+    @ApiOperation({ summary: 'Salir del grupo' })
+    leaveGroup(@Body() dto: LeaveGroupDto) {
+        return this.client.send('leave_group', dto);
+    }
+
+    @Put('groups')
+    @ApiOperation({ summary: 'Actualizar información del grupo' })
+    updateGroup(@Body() dto: UpdateGroupDto) {
+        return this.client.send('update_group', dto);
     }
 
     @Post('correct-text/stream')
