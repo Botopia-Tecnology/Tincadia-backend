@@ -20,7 +20,8 @@ import {
     RemoveParticipantDto,
     PromoteToAdminDto,
     LeaveGroupDto,
-    UpdateGroupDto
+    UpdateGroupDto,
+    AddParticipantDto
 } from './dto/group-management.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
@@ -805,6 +806,48 @@ export class ChatService {
         } catch (error) {
             if (error instanceof BadRequestException) throw error;
             throw new BadRequestException('Error al eliminar participante');
+        }
+    }
+
+    /**
+     * Añadir un participante al grupo
+     */
+    async addParticipant(data: AddParticipantDto) {
+        try {
+            await this.verifyAdmin(data.conversationId, data.adminId);
+            const supabase = this.supabaseService.getAdminClient();
+
+            // Check if already a participant
+            const { data: existing } = await supabase
+                .from('conversation_participants')
+                .select('user_id')
+                .eq('conversation_id', data.conversationId)
+                .eq('user_id', data.userIdToAdd)
+                .single();
+
+            if (existing) {
+                throw new BadRequestException('El usuario ya es miembro de este grupo');
+            }
+
+            const { error } = await supabase
+                .from('conversation_participants')
+                .insert({
+                    conversation_id: data.conversationId,
+                    user_id: data.userIdToAdd,
+                    role: 'member',
+                    added_by: data.adminId,
+                    joined_at: new Date().toISOString()
+                });
+
+            if (error) {
+                this.logger.error(`Error adding participant: ${error.message}`);
+                throw new BadRequestException('Error al añadir participante');
+            }
+
+            return { success: true };
+        } catch (error) {
+            if (error instanceof BadRequestException) throw error;
+            throw new BadRequestException('Error al añadir participante');
         }
     }
 

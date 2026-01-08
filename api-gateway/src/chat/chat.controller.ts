@@ -10,7 +10,7 @@ import { CreateGroupDto } from './dto/create-group.dto';
 import { SendChatMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, DeleteMessageDto } from './dto/chat.dto';
 import { AddContactDto, UpdateContactDto } from './dto/contact.dto';
-import { RemoveParticipantDto, PromoteToAdminDto, LeaveGroupDto, UpdateGroupDto } from './dto/group-management.dto';
+import { RemoveParticipantDto, PromoteToAdminDto, LeaveGroupDto, UpdateGroupDto, AddParticipantDto } from './dto/group-management.dto';
 
 @ApiTags('Chat')
 @ApiBearerAuth()
@@ -162,6 +162,12 @@ export class ChatController {
     }
 
     // ===== GESTIÓN DE GRUPOS =====
+
+    @Post('groups/add')
+    @ApiOperation({ summary: 'Añadir participante al grupo' })
+    addParticipant(@Body() dto: AddParticipantDto) {
+        return this.client.send('add_participant', dto);
+    }
 
     @Post('groups/remove')
     @ApiOperation({ summary: 'Eliminar participante del grupo' })
