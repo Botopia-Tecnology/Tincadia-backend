@@ -16,6 +16,12 @@ import { StartConversationDto } from './dto/start-conversation.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
+import {
+    RemoveParticipantDto,
+    PromoteToAdminDto,
+    LeaveGroupDto,
+    UpdateGroupDto
+} from './dto/group-management.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -757,4 +763,152 @@ export class ChatService {
         }
         return { success: true };
     }
+
+    /**
+     * Verificar si un usuario es administrador de una conversación
+     */
+    private async verifyAdmin(conversationId: string, userId: string) {
+        const supabase = this.supabaseService.getAdminClient();
+        const { data, error } = await supabase
+            .from('conversation_participants')
+            .select('role')
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId)
+            .single();
+
+        if (error || !data || data.role !== 'admin') {
+            throw new BadRequestException('El usuario no tiene permisos de administrador en este grupo');
+        }
+        return true;
+    }
+
+    /**
+     * Eliminar un participante del grupo
+     */
+    async removeParticipant(data: RemoveParticipantDto) {
+        try {
+            await this.verifyAdmin(data.conversationId, data.adminId);
+            const supabase = this.supabaseService.getAdminClient();
+
+            const { error } = await supabase
+                .from('conversation_participants')
+                .delete()
+                .eq('conversation_id', data.conversationId)
+                .eq('user_id', data.userIdToRemove);
+
+            if (error) {
+                this.logger.error(`Error removing participant: ${error.message}`);
+                throw new BadRequestException('Error al eliminar participante');
+            }
+
+            return { success: true };
+        } catch (error) {
+            if (error instanceof BadRequestException) throw error;
+            throw new BadRequestException('Error al eliminar participante');
+        }
+    }
+
+    /**
+     * Promover un participante a administrador
+     */
+    async promoteToAdmin(data: PromoteToAdminDto) {
+        try {
+            await this.verifyAdmin(data.conversationId, data.adminId);
+            const supabase = this.supabaseService.getAdminClient();
+
+            const { error } = await supabase
+                .from('conversation_participants')
+                .update({ role: 'admin' })
+                .eq('conversation_id', data.conversationId)
+                .eq('user_id', data.userIdToPromote);
+
+            if (error) {
+                this.logger.error(`Error promoting to admin: ${error.message}`);
+                throw new BadRequestException('Error al promover a administrador');
+            }
+
+            return { success: true };
+        } catch (error) {
+            if (error instanceof BadRequestException) throw error;
+            throw new BadRequestException('Error al promover a administrador');
+        }
+    }
+
+    /**
+     * Salir de un grupo
+     */
+    async leaveGroup(data: LeaveGroupDto) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+
+            // Check if user is the last admin
+            const { data: admins, error: adminsError } = await supabase
+                .from('conversation_participants')
+                .select('user_id')
+                .eq('conversation_id', data.conversationId)
+                .eq('role', 'admin');
+
+            if (!adminsError && admins?.length === 1 && admins[0].user_id === data.userId) {
+                // If it's the last admin, and there are other members, one must be promoted or the group closed?
+                // For now, let's just error if it's the last admin and there are other people.
+                const { count, error: countError } = await supabase
+                    .from('conversation_participants')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('conversation_id', data.conversationId);
+
+                if (!countError && count && count > 1) {
+                    throw new BadRequestException('Debe designar a otro administrador antes de salir');
+                }
+            }
+
+            const { error } = await supabase
+                .from('conversation_participants')
+                .delete()
+                .eq('conversation_id', data.conversationId)
+                .eq('user_id', data.userId);
+
+            if (error) {
+                this.logger.error(`Error leaving group: ${error.message}`);
+                throw new BadRequestException('Error al salir del grupo');
+            }
+
+            return { success: true };
+        } catch (error) {
+            if (error instanceof BadRequestException) throw error;
+            throw new BadRequestException('Error al salir del grupo');
+        }
+    }
+
+    /**
+     * Actualizar información del grupo (título, imagen, descripción)
+     */
+    async updateGroup(data: UpdateGroupDto) {
+        try {
+            await this.verifyAdmin(data.conversationId, data.adminId);
+            const supabase = this.supabaseService.getAdminClient();
+
+            const updates: any = { updated_at: new Date().toISOString() };
+            if (data.title) updates.title = data.title;
+            if (data.imageUrl) updates.image_url = data.imageUrl;
+            if (data.description) updates.description = data.description;
+
+            const { data: group, error } = await supabase
+                .from('conversations')
+                .update(updates)
+                .eq('id', data.conversationId)
+                .select()
+                .single();
+
+            if (error) {
+                this.logger.error(`Error updating group: ${error.message}`);
+                throw new BadRequestException('Error al actualizar la información del grupo');
+            }
+
+            return { group };
+        } catch (error) {
+            if (error instanceof BadRequestException) throw error;
+            throw new BadRequestException('Error al actualizar el grupo');
+        }
+    }
 }
+

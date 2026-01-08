@@ -11,6 +11,7 @@ import { CreateGroupDto } from './dto/create-group.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 import { AddContactDto, UpdateContactDto, DeleteContactDto, GetContactsDto } from './dto/contact.dto';
+import { RemoveParticipantDto, PromoteToAdminDto, LeaveGroupDto, UpdateGroupDto } from './dto/group-management.dto';
 
 @Controller()
 export class ChatController {
@@ -107,5 +108,25 @@ export class ChatController {
     @MessagePattern('set_interpreter_status')
     setInterpreterStatus(@Payload() data: { userId: string; isBusy: boolean }) {
         return this.chatService.setInterpreterStatus(data.userId, data.isBusy);
+    }
+
+    @MessagePattern('remove_participant')
+    removeParticipant(@Payload() data: RemoveParticipantDto) {
+        return this.chatService.removeParticipant(data);
+    }
+
+    @MessagePattern('promote_to_admin')
+    promoteToAdmin(@Payload() data: PromoteToAdminDto) {
+        return this.chatService.promoteToAdmin(data);
+    }
+
+    @MessagePattern('leave_group')
+    leaveGroup(@Payload() data: LeaveGroupDto) {
+        return this.chatService.leaveGroup(data);
+    }
+
+    @MessagePattern('update_group')
+    updateGroup(@Payload() data: UpdateGroupDto) {
+        return this.chatService.updateGroup(data);
     }
 }
