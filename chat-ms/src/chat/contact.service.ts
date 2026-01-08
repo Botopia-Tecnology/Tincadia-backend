@@ -21,14 +21,33 @@ export class ContactService {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
-            // 1. Find user by phone number
+            // Normalize phone: remove spaces, ensure consistent format
+            const inputPhone = (data.phone || '').trim();
+
+            // Create variations to search for (handles different storage formats)
+            const phoneVariations: string[] = [];
+
+            // Add original input
+            phoneVariations.push(inputPhone);
+
+            // If starts with +, also try without it
+            if (inputPhone.startsWith('+')) {
+                phoneVariations.push(inputPhone.slice(1));
+            } else {
+                // If doesn't start with +, also try with it
+                phoneVariations.push('+' + inputPhone);
+            }
+
+            // Try to find user with any of the phone variations
             const { data: targetUser, error: userError } = await supabase
                 .from('profiles')
                 .select('id, first_name, last_name, phone')
-                .eq('phone', data.phone)
+                .in('phone', phoneVariations)
+                .limit(1)
                 .single();
 
             if (userError || !targetUser) {
+                this.logger.warn(`No user found for phone variations: ${phoneVariations.join(', ')}`);
                 throw new NotFoundException('No se encontró usuario con ese número de teléfono');
             }
 

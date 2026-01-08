@@ -73,6 +73,14 @@ export class AppNotificationsController {
     return this.client.send('mark_notification_read', { userId: body.userId, notificationId });
   }
 
+  @Post('mark-all-read/:userId')
+  @ApiOperation({ summary: 'Marcar todas las notificaciones como leídas' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiResponse({ status: 200, description: 'Todas marcadas como leídas' })
+  markAllAsRead(@Param('userId') userId: string) {
+    return this.client.send('mark_all_notifications_read', { userId });
+  }
+
   // ==================== Admin Endpoints ====================
 
   @Get('admin/all')
