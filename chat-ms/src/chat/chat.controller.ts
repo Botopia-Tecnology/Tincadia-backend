@@ -11,7 +11,7 @@ import { CreateGroupDto } from './dto/create-group.dto';
 import { EditMessageDto } from './dto/edit-message.dto';
 import { DeleteMessageDto } from './dto/delete-message.dto';
 import { AddContactDto, UpdateContactDto, DeleteContactDto, GetContactsDto } from './dto/contact.dto';
-import { RemoveParticipantDto, PromoteToAdminDto, LeaveGroupDto, UpdateGroupDto } from './dto/group-management.dto';
+import { RemoveParticipantDto, PromoteToAdminDto, LeaveGroupDto, UpdateGroupDto, AddParticipantDto } from './dto/group-management.dto';
 
 @Controller()
 export class ChatController {
@@ -113,6 +113,11 @@ export class ChatController {
     @MessagePattern('remove_participant')
     removeParticipant(@Payload() data: RemoveParticipantDto) {
         return this.chatService.removeParticipant(data);
+    }
+
+    @MessagePattern('add_participant')
+    addParticipant(@Payload() data: AddParticipantDto) {
+        return this.chatService.addParticipant(data);
     }
 
     @MessagePattern('promote_to_admin')

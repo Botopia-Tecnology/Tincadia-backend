@@ -4,6 +4,12 @@ export class RemoveParticipantDto {
     userIdToRemove: string;
 }
 
+export class AddParticipantDto {
+    conversationId: string;
+    adminId: string;
+    userIdToAdd: string;
+}
+
 export class PromoteToAdminDto {
     conversationId: string;
     adminId: string;
