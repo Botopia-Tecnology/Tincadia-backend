@@ -113,7 +113,7 @@ export class ContactService {
             const supabase = this.supabaseService.getAdminClient();
 
             // Single query with FK join to profiles
-            const { data: contacts, error } = await supabase
+            let query = supabase
                 .from('contacts')
                 .select(`
                     id,
@@ -131,6 +131,12 @@ export class ContactService {
                 `)
                 .eq('owner_id', data.ownerId)
                 .order('created_at', { ascending: false });
+
+            if (data.since) {
+                query = query.gt('created_at', data.since);
+            }
+
+            const { data: contacts, error } = await query;
 
             if (error) {
                 this.logger.error(`Error getting contacts: ${error.message}`);

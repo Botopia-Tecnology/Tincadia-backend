@@ -1,10 +1,10 @@
-import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param, Query } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-
-@ApiTags('Content')
+import { FileInterceptor } from '@nestjs/platform-express';
+// ...
 @Controller('content')
+@ApiTags('content')
 export class ContentController {
     constructor(
         @Inject('CONTENT_SERVICE') private readonly client: ClientProxy,
@@ -13,8 +13,8 @@ export class ContentController {
     @Get('courses')
     @ApiOperation({ summary: 'Get all courses' })
     @ApiResponse({ status: 200, description: 'Return all courses.' })
-    async findAll() {
-        return this.client.send('findAllCourses', {});
+    async findAll(@Query('after') after?: string) {
+        return this.client.send('findAllCourses', { after });
     }
 
     @Get('categories')

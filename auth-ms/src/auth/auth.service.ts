@@ -196,8 +196,8 @@ export class AuthService {
     }
   }
 
-  async getProfile(data: GetProfileDto): Promise<any> {
-    const { id: userId } = data;
+  async getProfile(data: GetProfileDto & { ifNoneMatch?: string }): Promise<any> {
+    const { id: userId, ifNoneMatch } = data;
 
     try {
       const supabase = this.supabaseService.getAdminClient();
@@ -210,9 +210,17 @@ export class AuthService {
         throw new UnauthorizedException('User not found');
       }
 
+      // Generate ETag (simple hash of updatedAt)
+      const etag = `W/"${new Date(profile.updatedAt).getTime()}"`;
+
+      if (ifNoneMatch === etag) {
+        return { status: 304 };
+      }
+
       return {
         user: this.profileService.toUserResponse(profile, authUser),
         isProfileComplete: this.profileService.isProfileComplete(profile),
+        etag,
       };
     } catch (error) {
       throw new BadRequestException('Error getting profile');
