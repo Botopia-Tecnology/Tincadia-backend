@@ -149,6 +149,43 @@ export class AppNotificationsService {
         return true;
     }
 
+    /**
+     * Mark all notifications as read for a user
+     */
+    async markAllAsRead(userId: string): Promise<boolean> {
+        try {
+            // Get all active notifications
+            const notifications = await this.getActiveNotifications();
+
+            if (notifications.length === 0) {
+                return true;
+            }
+
+            // Create read entries for all notifications
+            const readEntries = notifications.map(n => ({
+                user_id: userId,
+                notification_id: n.id,
+                read_at: new Date().toISOString(),
+            }));
+
+            const { error } = await this.supabase
+                .from('user_notification_reads')
+                .upsert(readEntries, {
+                    onConflict: 'user_id,notification_id',
+                });
+
+            if (error) {
+                this.logger.error('Error marking all as read:', error);
+                return false;
+            }
+
+            return true;
+        } catch (error) {
+            this.logger.error('Error in markAllAsRead:', error);
+            return false;
+        }
+    }
+
     // Removed duplicate createNotification method
 
 

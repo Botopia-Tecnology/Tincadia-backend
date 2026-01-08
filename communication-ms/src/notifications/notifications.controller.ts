@@ -39,6 +39,12 @@ export class NotificationsController {
         return { success };
     }
 
+    @MessagePattern('mark_all_notifications_read')
+    async markAllAsRead(@Payload() data: { userId: string }) {
+        const success = await this.appNotificationsService.markAllAsRead(data.userId);
+        return { success };
+    }
+
     @MessagePattern('create_app_notification')
     async createNotification(@Payload() dto: CreateAppNotificationDto) {
         return this.appNotificationsService.createNotification(dto);
