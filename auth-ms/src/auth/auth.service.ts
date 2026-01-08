@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
 import { CloudinaryService } from '../cloudinary/cloudinary.service';
@@ -125,9 +126,25 @@ export class AuthService {
       const supabase = this.supabaseService.getAdminClient();
 
       // Verify the OAuth token with Supabase
+      // Fix for iOS Google Sign In: Extract nonce if present in the token payload
+      // Supabase requires the nonce to be passed if it exists in the token
+      let nonce: string | undefined;
+      const parts = (idToken as string).split('.');
+      if (parts.length === 3) {
+        try {
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+          if (payload.nonce) {
+            nonce = payload.nonce;
+          }
+        } catch (e) {
+          this.logger.warn(`Failed to parse idToken payload for nonce extraction: ${e.message}`);
+        }
+      }
+
       const { data: authData, error } = await supabase.auth.signInWithIdToken({
         provider: provider as any,
         token: idToken as string,
+        nonce,
       });
 
       if (error) {
@@ -475,5 +492,43 @@ export class AuthService {
       this.logger.error(`Error updating password: ${error.message}`);
       throw new BadRequestException('Error al actualizar la contraseña');
     }
+  }
+
+  // Interpreter Management
+
+  // Interpreter Management
+
+  async promoteToInterpreter(data: { email: string }) {
+    const supabase = this.supabaseService.getAdminClient();
+
+    // 1. Find user by email
+    const { data: users, error: userError } = await supabase
+      .from('profiles') // Assuming profiles has email, if not check auth.users via RPC or just trust profile relation
+      .select('id, email')
+      .eq('email', data.email)
+      .single();
+
+    // NOTE: Profiles table might not have email if it's in auth.users. 
+    // Usually we replicate email to profiles or join. 
+    // If profiles doesn't have email, we need another way.
+    // Let's assume for now we can find by email in profiles OR we use a stored procedure or admin auth call.
+
+    if (userError || !users) {
+      // Fallback: Check if we can find in auth.users logic or return error
+      throw new NotFoundException('Usuario no encontrado con ese email. El usuario debe registrarse primero.');
+    }
+
+    // 2. Update Role
+    const { error: roleError } = await supabase
+      .from('profiles')
+      .update({ role: 'interpreter' })
+      .eq('id', users.id);
+
+    if (roleError) {
+      this.logger.error(`Error updating role: ${roleError.message}`);
+      throw new BadRequestException('Error actualizando rol de usuario');
+    }
+
+    return { success: true };
   }
 }

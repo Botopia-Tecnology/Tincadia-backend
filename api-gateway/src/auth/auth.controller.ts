@@ -363,5 +363,12 @@ export class AuthController {
     return this.client.send('delete_profile_picture', { userId });
   }
 
+  @Post('promote-interpreter')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Promover usuario a intérprete (Admin)' })
+  @ApiBody({ schema: { type: 'object', properties: { email: { type: 'string' } } } })
+  promoteToInterpreter(@Body() body: { email: string }) {
+    return this.client.send('promote_to_interpreter', body);
+  }
 }
 

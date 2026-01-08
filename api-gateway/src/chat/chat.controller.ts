@@ -2,7 +2,7 @@ import { Controller, Post, Get, Put, Delete, Body, Param, Query, Inject, HttpCod
 import { Response } from 'express';
 import { map } from 'rxjs/operators';
 import { ClientProxy } from '@nestjs/microservices';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { StartConversationDto } from './dto/start-conversation.dto';
@@ -148,6 +148,13 @@ export class ChatController {
     @ApiResponse({ status: 200, description: 'Invitaciones enviadas' })
     inviteInterpreters(@Body() dto: { roomName: string; userId: string; username: string }) {
         return this.client.send('invite_interpreters', dto);
+    }
+
+    @Post('interpreter/status')
+    @ApiOperation({ summary: 'Update interpreter busy status' })
+    @ApiBody({ schema: { type: 'object', properties: { userId: { type: 'string' }, isBusy: { type: 'boolean' } } } })
+    setInterpreterStatus(@Body() body: { userId: string; isBusy: boolean }) {
+        return this.client.send('set_interpreter_status', body);
     }
 
     @Post('correct-text/stream')

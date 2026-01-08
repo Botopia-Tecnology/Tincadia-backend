@@ -103,4 +103,9 @@ export class ChatController {
     inviteInterpreters(@Payload() data: { roomName: string; userId: string; username: string }) {
         return this.chatService.inviteInterpreters(data);
     }
+
+    @MessagePattern('set_interpreter_status')
+    setInterpreterStatus(@Payload() data: { userId: string; isBusy: boolean }) {
+        return this.chatService.setInterpreterStatus(data.userId, data.isBusy);
+    }
 }
