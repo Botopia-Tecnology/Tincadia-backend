@@ -118,8 +118,11 @@ export class ChatController {
     @Get('contacts/:userId')
     @ApiOperation({ summary: 'Obtener lista de contactos' })
     @ApiResponse({ status: 200, description: 'Lista de contactos' })
-    getContacts(@Param('userId') userId: string) {
-        return this.client.send('get_contacts', { ownerId: userId });
+    getContacts(
+        @Param('userId') userId: string,
+        @Query('since') since?: string
+    ) {
+        return this.client.send('get_contacts', { ownerId: userId, since });
     }
 
     @Put('contacts/:contactId')

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID, IsNotEmpty } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsNotEmpty, IsDateString } from 'class-validator';
 
 export class AddContactDto {
     @IsUUID()
@@ -58,4 +58,8 @@ export class GetContactsDto {
     @IsUUID()
     @IsNotEmpty()
     ownerId: string;
+
+    @IsDateString()
+    @IsOptional()
+    since?: string;
 }

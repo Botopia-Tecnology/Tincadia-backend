@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsOptional, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber, IsDateString } from 'class-validator';
 
 export class GetMessagesDto {
     @IsString()
@@ -12,4 +12,8 @@ export class GetMessagesDto {
     @IsNumber()
     @IsOptional()
     offset?: number = 0;
+
+    @IsDateString()
+    @IsOptional()
+    after?: string;
 }

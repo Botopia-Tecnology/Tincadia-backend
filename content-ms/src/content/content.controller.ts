@@ -11,8 +11,8 @@ export class ContentController {
     ) { }
 
     @MessagePattern('findAllCourses')
-    findAll() {
-        return this.contentService.findAll();
+    findAll(@Payload() data?: { after?: string }) {
+        return this.contentService.findAll(data?.after);
     }
 
     @MessagePattern('findAllCategories')

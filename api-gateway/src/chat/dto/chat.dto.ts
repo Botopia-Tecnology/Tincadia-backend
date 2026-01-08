@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsOptional, IsNumber } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsNumber, IsDateString } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
@@ -19,6 +19,11 @@ export class GetMessagesDto {
     @IsOptional()
     @Type(() => Number)
     offset?: number = 0;
+
+    @ApiProperty({ description: 'Filtrar mensajes después de esta fecha (ISO)', required: false })
+    @IsDateString()
+    @IsOptional()
+    after?: string;
 }
 
 export class GetConversationsDto {

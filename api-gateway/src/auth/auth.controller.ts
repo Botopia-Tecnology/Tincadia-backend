@@ -1,7 +1,7 @@
-import { Controller, Post, Body, Get, Param, Put, Delete, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Put, Delete, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException, Res } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientProxy } from '@nestjs/microservices';
-import { Express } from 'express';
+import { Express, Response } from 'express';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { OAuthLoginDto } from './dto/oauth-login.dto';
@@ -167,8 +167,24 @@ export class AuthController {
   })
   @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
   @ApiResponse({ status: 400, description: 'ID inválido' })
-  getProfile(@Param('id') id: string) {
-    return this.client.send('get_profile', { id });
+  @ApiResponse({ status: 304, description: 'Not Modified' })
+  async getProfile(
+    @Param('id') id: string,
+    @Headers('if-none-match') ifNoneMatch: string,
+    @Res({ passthrough: true }) res: Response
+  ) {
+    const result = await this.client.send('get_profile', { id, ifNoneMatch }).toPromise();
+
+    if (result.status === 304) {
+      res.status(HttpStatus.NOT_MODIFIED);
+      return;
+    }
+
+    if (result.etag) {
+      res.set('ETag', result.etag);
+    }
+
+    return result;
   }
 
   @Put('profile/:userId')

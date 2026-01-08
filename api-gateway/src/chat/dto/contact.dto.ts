@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsUUID, IsNotEmpty } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsNotEmpty, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AddContactDto {
@@ -39,8 +39,18 @@ export class UpdateContactDto {
     @IsOptional()
     customFirstName?: string;
 
-    @ApiPropertyOptional({ description: 'Apellido personalizado' })
-    @IsString()
     @IsOptional()
     customLastName?: string;
+}
+
+export class GetContactsDto {
+    @ApiProperty({ description: 'ID del propietario' })
+    @IsUUID()
+    @IsNotEmpty()
+    ownerId: string;
+
+    @ApiProperty({ description: 'Timestamp para delta sync (ISO 8601)', required: false })
+    @IsDateString()
+    @IsOptional()
+    since?: string;
 }

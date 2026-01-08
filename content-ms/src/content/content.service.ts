@@ -1,25 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, MoreThan } from 'typeorm';
+import { Category } from './entities/category.entity';
 import { Course } from './entities/course.entity';
 import { Lesson } from './entities/lesson.entity';
-import { Module as CourseModule } from './entities/module.entity';
-import { Category } from './entities/category.entity';
+import { Module } from './entities/module.entity';
 
 @Injectable()
 export class ContentService {
     constructor(
         @InjectRepository(Course)
         private courseRepository: Repository<Course>,
-        @InjectRepository(Lesson)
-        private lessonRepository: Repository<Lesson>,
-        @InjectRepository(CourseModule)
-        private moduleRepository: Repository<CourseModule>,
         @InjectRepository(Category)
         private categoryRepository: Repository<Category>,
+        @InjectRepository(Module)
+        private moduleRepository: Repository<Module>,
+        @InjectRepository(Lesson)
+        private lessonRepository: Repository<Lesson>,
     ) { }
 
-    async findAll() {
+    async findAll(after?: string) {
+        if (after) {
+            return this.courseRepository.find({
+                where: { updatedAt: MoreThan(new Date(after)) },
+                relations: ['category', 'modules']
+            });
+        }
         return this.courseRepository.find({ relations: ['category', 'modules'] });
     }
 
@@ -68,8 +74,6 @@ export class ContentService {
     }
 
     async updateLessonVideo(lessonId: string, videoUrl: string, durationSeconds?: number) {
-        // Find lesson first to ensure it exists
-        // Note: You'll need to inject LessonRepository in constructor
         const lesson = await this.lessonRepository.findOneBy({ id: lessonId });
         if (lesson) {
             lesson.videoUrl = videoUrl;

@@ -295,12 +295,19 @@ export class ChatService {
             const limit = data.limit || 50;
             const offset = data.offset || 0;
 
-            const { data: messages, error } = await supabase
+            let query = supabase
                 .from('messages')
                 .select('*')
                 .eq('conversation_id', data.conversationId)
                 .is('deleted_at', null)
-                .order('created_at', { ascending: false })
+                .order('created_at', { ascending: false });
+
+            // Delta sync
+            if (data.after) {
+                query = query.gt('created_at', data.after);
+            }
+
+            const { data: messages, error } = await query
                 .range(offset, offset + limit - 1);
 
             if (error) {
