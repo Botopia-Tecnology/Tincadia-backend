@@ -46,6 +46,23 @@ export class FormsController {
     }
   }
 
+  @MessagePattern('delete_submission')
+  async deleteSubmission(@Payload() data: { id: string }) {
+    try {
+      console.log('🗑️ [Forms MS] delete_submission handler called:', data.id);
+      await this.formsService.deleteSubmission(data.id);
+      console.log('✅ [Forms MS] Submission deleted');
+      return { success: true, message: 'Submission deleted successfully' };
+    } catch (error) {
+      console.error('❌ [Forms MS] Error in deleteSubmission:', error);
+      throw new RpcException({
+        status: 500,
+        message: error?.message || 'Failed to delete submission',
+        error: error?.name || 'InternalServerError',
+      });
+    }
+  }
+
   @MessagePattern('find_one_form')
   findOne(@Payload() data: { id: string }) {
     return this.formsService.findOne(data.id);

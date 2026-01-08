@@ -43,6 +43,21 @@ export class FormsController {
     }
   }
 
+  @Delete('submissions/:id')
+  async deleteSubmission(@Param('id') id: string) {
+    try {
+      console.log('🗑️ [API Gateway] Deleting submission:', id);
+      const result = await this.client.send('delete_submission', { id }).toPromise();
+      console.log('✅ [API Gateway] Submission deleted');
+      return result;
+    } catch (error) {
+      console.error('❌ [API Gateway] Error deleting submission:', error);
+      const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
+      const message = error?.message || 'Internal server error deleting submission';
+      throw new HttpException({ status, message }, status);
+    }
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.client.send('find_one_form', { id });

@@ -41,6 +41,14 @@ export class FormsService {
     });
   }
 
+  async deleteSubmission(id: string) {
+    const submission = await this.submissionRepository.findOneBy({ id });
+    if (!submission) {
+      throw new Error(`Submission with ID ${id} not found`);
+    }
+    return await this.submissionRepository.remove(submission);
+  }
+
   async findOne(id: string) {
     const form = await this.formRepository.findOneBy({ id });
     if (!form) {
@@ -101,7 +109,7 @@ export class FormsService {
       }
 
       console.log('📦 Creating submission object...');
-      
+
       // Create submission using direct field assignment to avoid TypeORM relation issues
       const submissionData: any = {
         formId: form.id,
@@ -113,19 +121,19 @@ export class FormsService {
         phone: data['phone'] || data['telefono'] || data['telefonoWhatsapp'] || undefined,
         fullName: data['fullName'] || data['full_name'] || data['nombreCompleto'] || undefined,
       };
-      
+
       // Remove undefined values
       Object.keys(submissionData).forEach(key => {
         if (submissionData[key] === undefined) {
           delete submissionData[key];
         }
       });
-      
+
       const submission = this.submissionRepository.create(submissionData);
-      
+
       // TypeORM create can return array or single object, ensure we have a single object
       const submissionObj = Array.isArray(submission) ? submission[0] : submission;
-      
+
       console.log('📦 Submission created:', {
         formId: (submissionObj as any).formId,
         profileId: (submissionObj as any).profileId,
@@ -167,12 +175,12 @@ export class FormsService {
         userStatus,
         action: userStatus === 'not_registered' ? 'redirect_to_register' : 'none',
       };
-      
-      console.log('✅ Returning response:', { 
+
+      console.log('✅ Returning response:', {
         submissionId: response.submission.id,
-        userStatus: response.userStatus 
+        userStatus: response.userStatus
       });
-      
+
       return response;
     } catch (error) {
       console.error('❌ Error in submit method:', error);
