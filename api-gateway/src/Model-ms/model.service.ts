@@ -5,7 +5,7 @@ import * as path from 'path';
 
 @Injectable()
 export class ModelService {
-    private readonly pythonServiceUrl = 'http://127.0.0.1:8000';
+    private readonly pythonServiceUrl = process.env.MODEL_MS_URL || 'http://127.0.0.1:8000';
     // Asumiendo que api-gateway está en Tincadia-backend/api-gateway
     // y Model-ms está en Tincadia-backend/Model-ms
     private readonly pythonScriptPath = path.resolve(process.cwd(), '..', 'Model-ms');
