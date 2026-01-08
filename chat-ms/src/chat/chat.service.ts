@@ -668,11 +668,12 @@ export class ChatService {
             const supabase = this.supabaseService.getAdminClient();
             this.logger.log(`📞 Inviting interpreters for call ${data.roomName} by ${data.username}`);
 
-            // 1. Find all users with role 'interpreter'
+            // 1. Find all users with role 'interpreter' AND not busy
             const { data: interpreters, error } = await supabase
                 .from('profiles')
                 .select('id, push_token')
-                .eq('role', 'interpreter');
+                .eq('role', 'interpreter')
+                .eq('is_busy', false); // Only available interpreters
 
             if (error) {
                 this.logger.error(`Error fetching interpreters: ${error.message}`);
@@ -727,5 +728,18 @@ export class ChatService {
             this.logger.error(`Error inviting interpreters: ${error.message}`);
             throw new BadRequestException('Error al invitar intérpretes');
         }
+    }
+    async setInterpreterStatus(userId: string, isBusy: boolean) {
+        const supabase = this.supabaseService.getAdminClient();
+        const { error } = await supabase
+            .from('profiles')
+            .update({ is_busy: isBusy })
+            .eq('id', userId);
+
+        if (error) {
+            this.logger.error(`Error updating interpreter status: ${error.message}`);
+            throw new BadRequestException('Error actualizando estado');
+        }
+        return { success: true };
     }
 }

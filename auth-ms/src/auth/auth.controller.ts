@@ -9,6 +9,7 @@ import { OAuthLoginDto } from './dto/oauth-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { CreateInterpreterRequestDto } from './dto/create-interpreter-request.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
 
 @Controller()
@@ -80,6 +81,12 @@ export class AuthController {
   @MessagePattern('delete_profile_picture')
   deleteProfilePicture(@Payload() data: { userId: string }): Promise<any> {
     return this.authService.deleteProfilePicture(data.userId);
+  }
+
+  // Interpreter Management
+  @MessagePattern('promote_to_interpreter')
+  promoteToInterpreter(@Payload() data: { email: string }): Promise<any> {
+    return this.authService.promoteToInterpreter(data);
   }
 
 }
