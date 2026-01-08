@@ -26,6 +26,8 @@ COPY . .
 # Exponer el puerto 8000
 EXPOSE 8000
 
+# Cambiar al directorio donde está el código fuente y los modelos
+WORKDIR /app/app
+
 # Comando para ejecutar la aplicación
-# "app.main:app" porque el código está dentro de la carpeta 'app'
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
