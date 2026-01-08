@@ -129,4 +129,9 @@ export class ChatController {
     updateGroup(@Payload() data: UpdateGroupDto) {
         return this.chatService.updateGroup(data);
     }
+
+    @MessagePattern('get_group_participants')
+    getGroupParticipants(@Payload() data: { conversationId: string }) {
+        return this.chatService.getGroupParticipants(data.conversationId);
+    }
 }

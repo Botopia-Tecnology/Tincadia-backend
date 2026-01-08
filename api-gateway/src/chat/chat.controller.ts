@@ -187,6 +187,12 @@ export class ChatController {
         return this.client.send('update_group', dto);
     }
 
+    @Get('groups/:conversationId/participants')
+    @ApiOperation({ summary: 'Obtener participantes de un grupo' })
+    getParticipants(@Param('conversationId') conversationId: string) {
+        return this.client.send('get_group_participants', { conversationId });
+    }
+
     @Post('correct-text/stream')
     @ApiOperation({ summary: 'Corregir texto usando IA con streaming (SSE)' })
     @ApiResponse({ status: 200, description: 'Stream de texto corregido' })
