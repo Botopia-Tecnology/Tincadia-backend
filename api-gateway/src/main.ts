@@ -30,6 +30,19 @@ async function bootstrap() {
     },
   });
 
+  // Middleware to fix malformed URLs (duplicated API_URL from frontend bug)
+  app.use((req, res, next) => {
+    // Fix URLs like /apihttps://domain.com/api/chat/... -> /chat/...
+    if (req.url && req.url.includes('https://')) {
+      const match = req.url.match(/https?:\/\/[^/]+\/api(\/.*)/);
+      if (match && match[1]) {
+        console.log(`🔧 Fixing malformed URL: ${req.url} -> /api${match[1]}`);
+        req.url = '/api' + match[1];
+      }
+    }
+    next();
+  });
+
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({
