@@ -159,6 +159,10 @@ export class ChatService {
                     content: encryptedContent,
                     type: data.type || 'text',
                     metadata: data.metadata || {},
+                    // Store replyTo in dedicated columns for proper querying
+                    reply_to_id: data.metadata?.replyToId || null,
+                    reply_to_content: data.metadata?.replyToContent || null,
+                    reply_to_sender: data.metadata?.replyToSender || null,
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 })
@@ -348,7 +352,11 @@ export class ChatService {
 
                     return {
                         ...msg,
-                        content: content
+                        content: content,
+                        // Read replyTo from dedicated columns (preferred) or fallback to metadata
+                        replyToId: msg.reply_to_id || msg.metadata?.replyToId || null,
+                        replyToContent: msg.reply_to_content || msg.metadata?.replyToContent || null,
+                        replyToSender: msg.reply_to_sender || msg.metadata?.replyToSender || null,
                     };
                 } catch (e) {
                     this.logger.warn(`Failed to process message ${msg.id}`);
