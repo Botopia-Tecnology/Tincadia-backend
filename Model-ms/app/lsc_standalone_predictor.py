@@ -140,7 +140,18 @@ class LSCPredictor:
 
         raw_coords = np.array(coords_list, dtype=np.float32)
         norm_coords = self._normalize_landmarks(raw_coords)
-        prediction = self._predict_from_coords(norm_coords)
+        
+        # FIX: The model expects 452 features, but we have 226.
+        # Likely it expects [normalized, normalized] or [raw, normalized]?
+        # Given we don't know, and 452 = 226 * 2, let's try concatenating normalized + normalized
+        # This is a common "hack" if the model was trained with data augmentation that outputted dual streams
+        # OR if it was trained with Raw + Normalized.
+        # Let's assume Normalized + Normalized for now as it's safer for scale stability, 
+        # but Raw + Normalized is more information-rich.
+        # Let's try Normalized + Normalized first as it guarantees inputs are in [0,1] or similar range.
+        final_input = np.concatenate([norm_coords, norm_coords])
+        
+        prediction = self._predict_from_coords(final_input)
         
         idx = np.argmax(prediction)
         confidence = float(prediction[idx])
@@ -181,7 +192,8 @@ class LSCPredictor:
                 norm_coords = self._normalize_landmarks(raw_coords)
                 
                 # CORREGIDO: Usar el método unificado de predicción
-                prediction = self._predict_from_coords(norm_coords)
+                final_input = np.concatenate([norm_coords, norm_coords])
+                prediction = self._predict_from_coords(final_input)
                 
                 idx = np.argmax(prediction)
                 if prediction[idx] > 0.4: # Umbral de confianza

@@ -8,13 +8,16 @@ import { Module as CourseModule } from './entities/module.entity'; // Rename to 
 import { Lesson } from './entities/lesson.entity';
 import { ConfigModule } from '@nestjs/config';
 import { CloudinaryService } from './cloudinary.service';
+import { PricingController } from './pricing.controller';
+import { PricingService } from './pricing.service';
+import { PricingPlan } from './entities/pricing-plan.entity';
 
 @Module({
     imports: [
         ConfigModule.forRoot(),
-        TypeOrmModule.forFeature([Course, Category, CourseModule, Lesson])
+        TypeOrmModule.forFeature([Course, Category, CourseModule, Lesson, PricingPlan])
     ],
-    controllers: [ContentController],
-    providers: [ContentService, CloudinaryService],
+    controllers: [ContentController, PricingController],
+    providers: [ContentService, CloudinaryService, PricingService],
 })
 export class ContentModule { }
