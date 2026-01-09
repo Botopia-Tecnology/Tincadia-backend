@@ -35,8 +35,30 @@ export class FormsService {
   }
 
   async findAllSubmissions() {
+    // Optimization: Fetch only necessary fields for the dashboard list
+    // Crucial: EXCLUDE the 'data' column which contains heavy JSON
     return await this.submissionRepository.find({
-      relations: ['form'],
+      select: {
+        id: true,
+        formId: true,
+        profileId: true,
+        submittedBy: true,
+        documentNumber: true,
+        email: true,
+        phone: true,
+        fullName: true,
+        createdAt: true,
+        // If userStatus isn't in entity, I should confirm. In 'submit' method I saw 'userStatus' returned but it was calculated.
+
+        form: {
+          id: true,
+          title: true,
+          type: true
+        }
+      },
+      relations: {
+        form: true
+      },
       order: { createdAt: 'DESC' },
     });
   }

@@ -86,6 +86,29 @@ export class ModelService {
         }
     }
 
+    async predictLandmarks(data: number[]): Promise<any> {
+        try {
+            await this.ensureServiceIsRunning();
+
+            const response = await fetch(`${this.pythonServiceUrl}/predict/landmarks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('[Gateway] Landmarks Error:', error);
+            // Return error object instead of throwing to avoid crashing socket loop
+            return { word: null, confidence: 0, status: 'error', error: error.message };
+        }
+    }
+
     private async ensureServiceIsRunning() {
         if (await this.isServiceReachable()) {
             return;

@@ -130,6 +130,31 @@ class LSCPredictor:
             
         return np.concatenate([pose, rh, lh])
 
+    def predict_landmarks(self, coords_list: List[float]) -> Dict[str, any]:
+        """
+        Predice la seña dada una lista de 226 coordenadas (landmarks planos).
+        Usado por el streaming desde el cliente.
+        """
+        if len(coords_list) != 226:
+            return {"word": None, "confidence": 0.0, "status": "error_shape"}
+
+        raw_coords = np.array(coords_list, dtype=np.float32)
+        norm_coords = self._normalize_landmarks(raw_coords)
+        prediction = self._predict_from_coords(norm_coords)
+        
+        idx = np.argmax(prediction)
+        confidence = float(prediction[idx])
+        
+        label = None
+        if confidence > 0.4:
+            label = self.id_to_label[idx]
+            
+        return {
+            "word": label,
+            "confidence": confidence,
+            "status": "ok"
+        }
+
     def predict_video(self, video_path: str, max_frames: int = 120) -> Optional[str]:
         """
         Procesa un video y devuelve la seña detectada con mayor frecuencia.
@@ -152,6 +177,7 @@ class LSCPredictor:
             
             if results.pose_landmarks or results.right_hand_landmarks or results.left_hand_landmarks:
                 raw_coords = self._extract_coords(results)
+                # Reusing the public method logic (partially) or keeping optimized loop
                 norm_coords = self._normalize_landmarks(raw_coords)
                 
                 # CORREGIDO: Usar el método unificado de predicción
