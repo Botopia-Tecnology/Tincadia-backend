@@ -510,27 +510,28 @@ export class AuthService {
     const supabase = this.supabaseService.getAdminClient();
 
     // 1. Find user by email
-    const { data: users, error: userError } = await supabase
-      .from('profiles') // Assuming profiles has email, if not check auth.users via RPC or just trust profile relation
-      .select('id, email')
-      .eq('email', data.email)
-      .single();
+    // 1. Find user by email in Auth System (since profiles might not have email synced yet)
+    // We list users and find by email. Note: In a large system, this should be an RPC or direct DB query.
+    const { data: authData, error: userError } = await supabase.auth.admin.listUsers();
 
-    // NOTE: Profiles table might not have email if it's in auth.users. 
-    // Usually we replicate email to profiles or join. 
-    // If profiles doesn't have email, we need another way.
-    // Let's assume for now we can find by email in profiles OR we use a stored procedure or admin auth call.
+    if (userError) {
+      this.logger.error(`Error listing users: ${userError.message}`);
+      throw new BadRequestException('Error al buscar usuario en el sistema de autenticación');
+    }
 
-    if (userError || !users) {
-      // Fallback: Check if we can find in auth.users logic or return error
+    const user = authData.users.find(u => u.email === data.email);
+
+    if (!user) {
       throw new NotFoundException('Usuario no encontrado con ese email. El usuario debe registrarse primero.');
     }
+
+    const userId = user.id;
 
     // 2. Update Role
     const { error: roleError } = await supabase
       .from('profiles')
       .update({ role: 'interpreter' })
-      .eq('id', users.id);
+      .eq('id', userId);
 
     if (roleError) {
       this.logger.error(`Error updating role: ${roleError.message}`);
