@@ -18,6 +18,7 @@ async function bootstrap() {
         'https://tincadia.vercel.app',
         'https://tincadia-frontend.vercel.app',
         'https://www.tincadia.com',
+        'https://tincadia.com',
         /\.devtunnels\.ms$/,
       ],
       credentials: true,
