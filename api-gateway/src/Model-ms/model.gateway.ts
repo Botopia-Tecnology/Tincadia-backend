@@ -25,17 +25,20 @@ export class ModelGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     constructor(private readonly modelService: ModelService) { }
 
-    handleConnection(client: Socket) {
+    async handleConnection(client: Socket) {
         console.log(`[ModelGateway] Client connected: ${client.id}`);
         client.emit('status', 'connected');
+        // Initialize Python session for this client
+        await this.modelService.connectToPython(client);
     }
 
     handleDisconnect(client: Socket) {
         console.log(`[ModelGateway] Client disconnected: ${client.id}`);
+        this.modelService.disconnectFromPython(client.id);
     }
 
     @SubscribeMessage('landmarks')
-    async handleLandmarks(
+    handleLandmarks(
         @MessageBody() payload: { data: number[] },
         @ConnectedSocket() client: Socket,
     ) {
@@ -44,17 +47,12 @@ export class ModelGateway implements OnGatewayConnection, OnGatewayDisconnect {
             return;
         }
 
-        // Call Python service via HTTP
-        const result = await this.modelService.predictLandmarks(payload.data);
-
-        // Emit result back to specific client
-        client.emit('prediction', result);
+        // Just forward to Python via ModelService proxy
+        this.modelService.sendLandmarks(client.id, payload.data);
     }
 
     @SubscribeMessage('reset')
     handleReset(@ConnectedSocket() client: Socket) {
-        // Optional: clear any buffer if we implemented stateful RNN
-        // For now successful confirmation can just be ack
-        client.emit('reset_ack');
+        this.modelService.resetSession(client.id);
     }
 }

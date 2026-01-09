@@ -2,6 +2,8 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import io, { Socket as ClientSocket } from 'socket.io-client';
+import { Socket as ServerSocket } from 'socket.io'; // Import server socket type for type safety
 
 @Injectable()
 export class ModelService {
@@ -10,6 +12,9 @@ export class ModelService {
     // Asumiendo que api-gateway está en Tincadia-backend/api-gateway
     // y Model-ms está en Tincadia-backend/Model-ms
     private readonly pythonScriptPath = path.resolve(process.cwd(), '..', 'Model-ms');
+
+    // Store Python sockets mapped by Frontend Client ID
+    private pythonSessions: Map<string, ClientSocket> = new Map();
 
     async videoToText(file?: Express.Multer.File, url?: string) {
         if (!file) {
@@ -86,30 +91,73 @@ export class ModelService {
         }
     }
 
-    async predictLandmarks(data: number[]): Promise<any> {
-        try {
-            await this.ensureServiceIsRunning();
+    async connectToPython(frontendClient: ServerSocket) {
+        await this.ensureServiceIsRunning();
 
-            const response = await fetch(`${this.pythonServiceUrl}/predict/landmarks`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data }),
-            });
+        const clientId = frontendClient.id;
+        if (this.pythonSessions.has(clientId)) {
+            return;
+        }
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText);
-            }
+        if (this.logsEnabled) {
+            console.log(`[Gateway] Creating Python session for client ${clientId}`);
+        }
 
-            return await response.json();
-        } catch (error) {
-            console.error('[Gateway] Landmarks Error:', error);
-            // Return error object instead of throwing to avoid crashing socket loop
-            return { word: null, confidence: 0, status: 'error', error: error.message };
+        // Connect to Python Socket.IO
+        const pythonSocket = io(this.pythonServiceUrl, {
+            transports: ['websocket'],
+            reconnection: true
+        });
+
+        this.pythonSessions.set(clientId, pythonSocket);
+
+        // Forward Python events to Frontend
+        pythonSocket.on('connect', () => {
+            if (this.logsEnabled) console.log(`[Gateway] Connected to Python for ${clientId}`);
+        });
+
+        pythonSocket.on('prediction', (data) => {
+            frontendClient.emit('prediction', data);
+        });
+
+        pythonSocket.on('reset_ack', (data) => {
+            frontendClient.emit('reset_ack', data);
+        });
+
+        pythonSocket.on('disconnect', () => {
+            if (this.logsEnabled) console.log(`[Gateway] Disconnected from Python for ${clientId}`);
+        });
+
+        pythonSocket.on('connect_error', (err) => {
+            console.error(`[Gateway] Python Connection Error for ${clientId}:`, err.message);
+        });
+    }
+
+    disconnectFromPython(clientId: string) {
+        const pythonSocket = this.pythonSessions.get(clientId);
+        if (pythonSocket) {
+            pythonSocket.disconnect();
+            this.pythonSessions.delete(clientId);
+            if (this.logsEnabled) console.log(`[Gateway] Closed Python session for ${clientId}`);
+        }
+    }
+
+    sendLandmarks(clientId: string, landmarks: number[]) {
+        const pythonSocket = this.pythonSessions.get(clientId);
+        if (pythonSocket) {
+            pythonSocket.emit('landmarks', { data: landmarks });
+        }
+    }
+
+    resetSession(clientId: string) {
+        const pythonSocket = this.pythonSessions.get(clientId);
+        if (pythonSocket) {
+            pythonSocket.emit('reset');
         }
     }
 
     private async ensureServiceIsRunning() {
+
         if (await this.isServiceReachable()) {
             return;
         }

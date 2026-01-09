@@ -145,116 +145,90 @@ async def predict_audio(request: Request, file: UploadFile = File(...)):
             except:
                 pass
 
-# ==================== WebSocket para Streaming ====================
+# ==================== Socket.IO para Streaming ====================
 
-# Diccionario para gestionar sesiones de streaming (conexión -> predictor)
-active_sessions = {}
+import socketio
+import time
+
+# Crear servidor Socket.IO asíncrono
+# cors_allowed_origins='*' para permitir conexiones desde cualquier lugar (dev)
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+
+# Envolver la app FastAPI con Socket.IO
+socket_app = socketio.ASGIApp(sio, app)
+
+# Diccionario para gestionar predictores por SID
+active_predictors = {}
 
 MODEL_PATH = "lsc_model_full_repaired.h5"
 LABELS_PATH = "lsc_labels.json"
 
-@app.websocket("/ws/predict")
-async def websocket_predict(websocket: WebSocket):
-    """
-    WebSocket endpoint para predicciones en tiempo real.
-    
-    Protocolo de mensajes:
-    Cliente envía: { "type": "landmarks", "data": [226 números] }
-    Servidor responde: { "type": "prediction", "word": "Letra_A", "confidence": 0.85, "status": "predicting" }
-    Cliente envía: { "type": "reset" } para limpiar el buffer
-    Cliente envía: { "type": "close" } para cerrar conexión
-    """
-    await websocket.accept()
-    session_id = id(websocket)
-    
-    log(f"[WS] Cliente conectado. Session ID: {session_id}")
+@sio.event
+async def connect(sid, environ):
+    log(f"[Socket.IO] Cliente conectado: {sid}")
+    try:
+        # Inicializar predictor para este cliente
+        predictor = LSCStreamingPredictor(MODEL_PATH, LABELS_PATH, buffer_size=45)
+        active_predictors[sid] = predictor
+        await sio.emit('status', {'message': 'Connected to Python LSC Model'}, to=sid)
+    except Exception as e:
+        log(f"[Socket.IO] Error initializing predictor for {sid}: {e}")
+        return False # Rechazar conexión
+
+@sio.event
+async def disconnect(sid):
+    log(f"[Socket.IO] Cliente desconectado: {sid}")
+    if sid in active_predictors:
+        del active_predictors[sid]
+
+@sio.on('landmarks')
+async def handle_landmarks(sid, data):
+    # data esperaba ser { "data": [numbers...] } o directamente la lista
+    # Desde Gateway (Node socket.io-client) enviaremos un objeto probablemente.
     
     try:
-        # Crear predictor para esta sesión
-        predictor = LSCStreamingPredictor(MODEL_PATH, LABELS_PATH, buffer_size=45)
-        active_sessions[session_id] = predictor
+        predictor = active_predictors.get(sid)
+        if not predictor:
+            return
+
+        # Si data es dict: data['data'], si es lista directa...
+        landmarks_data = data.get('data') if isinstance(data, dict) else data
         
-        # Enviar confirmación de conexión
-        await websocket.send_json({
-            "type": "connected",
-            "message": "Streaming session started",
-            "session_id": session_id
-        })
+        if not landmarks_data or len(landmarks_data) != 226:
+            # Ignorar datos corruptos silenciosamente o loggear
+            return
+
+        landmarks = np.array(landmarks_data, dtype=np.float32)
         
-        while True:
-            # Recibir mensaje del cliente
-            message = await websocket.receive_json()
-            msg_type = message.get("type")
+        # Predecir
+        result = predictor.add_landmarks(landmarks)
+        
+        if result:
+             # Emitir evento 'prediction' de vuelta al Gateway
+             # Gateway luego lo retransmitirá al frontend
+            await sio.emit('prediction', {
+                "word": result['word'],
+                "confidence": float(result['confidence']),
+                "buffer_fill": float(result['buffer_fill']),
+                "status": result['status']
+            }, to=sid)
             
-            if msg_type == "landmarks":
-                # Procesar landmarks
-                landmarks_data = message.get("data")
-                
-                if not landmarks_data or len(landmarks_data) != 226:
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Invalid landmarks: expected 226 values, got {len(landmarks_data) if landmarks_data else 0}"
-                    })
-                    continue
-                
-                # Convertir a numpy array
-                landmarks = np.array(landmarks_data, dtype=np.float32)
-                
-                # Predecir
-                result = predictor.add_landmarks(landmarks)
-                
-                if result:
-                    # Enviar predicción al cliente
-                    response = {
-                        "type": "prediction",
-                        "word": result['word'],
-                        "confidence": float(result['confidence']),
-                        "buffer_fill": float(result['buffer_fill']),
-                        "status": result['status']
-                    }
-                    await websocket.send_json(response)
-                    
-                    if LOGS_ENABLED and result['word']:
-                        log(f"[WS] Prediction: {result['word']} ({result['confidence']:.2f})")
-            
-            elif msg_type == "reset":
-                # Resetear buffer
-                predictor.reset_buffer()
-                await websocket.send_json({
-                    "type": "reset_confirmed",
-                    "message": "Buffer cleared"
-                })
-                log(f"[WS] Session {session_id} buffer reset")
-            
-            elif msg_type == "close":
-                # Cliente solicita cerrar conexión
-                log(f"[WS] Cliente solicitó cerrar sesión {session_id}")
-                break
-            
-            else:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"Unknown message type: {msg_type}"
-                })
-    
-    except WebSocketDisconnect:
-        log(f"[WS] Cliente desconectado. Session ID: {session_id}")
+            if LOGS_ENABLED and result['word']:
+                log(f"[Socket.IO] Prediction for {sid}: {result['word']}")
+
     except Exception as e:
-        log(f"[WS ERROR] Session {session_id}: {str(e)}")
-        traceback.print_exc()
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "message": str(e)
-            })
-        except:
-            pass
-    finally:
-        # Limpiar sesión
-        if session_id in active_sessions:
-            del active_sessions[session_id]
-            log(f"[WS] Session {session_id} cleaned up. Active sessions: {len(active_sessions)}")
+        log(f"[Socket.IO] Error processing landmarks: {e}")
+
+@sio.on('reset')
+async def handle_reset(sid):
+    if sid in active_predictors:
+        active_predictors[sid].reset_buffer()
+        await sio.emit('reset_ack', {'message': 'Buffer cleared'}, to=sid)
+        log(f"[Socket.IO] Buffer reset for {sid}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # Importante: Correr socket_app, no app
+    # Host 0.0.0.0 es necesario para Docker/Railway
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(socket_app, host="0.0.0.0", port=port)
