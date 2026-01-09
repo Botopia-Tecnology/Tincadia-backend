@@ -6,6 +6,7 @@ import * as path from 'path';
 @Injectable()
 export class ModelService {
     private readonly pythonServiceUrl = process.env.MODEL_MS_URL || 'http://127.0.0.1:8000';
+    private readonly logsEnabled = process.env.LOGS_ENABLED?.toLowerCase() !== 'false';
     // Asumiendo que api-gateway está en Tincadia-backend/api-gateway
     // y Model-ms está en Tincadia-backend/Model-ms
     private readonly pythonScriptPath = path.resolve(process.cwd(), '..', 'Model-ms');
@@ -25,7 +26,9 @@ export class ModelService {
             const blob = new Blob([file.buffer as any], { type: file.mimetype });
             formData.append('file', blob, file.originalname);
 
-            console.log(`[Gateway] Enviando archivo a ${this.pythonServiceUrl}/predict...`);
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Enviando archivo a ${this.pythonServiceUrl}/predict...`);
+            }
 
             const response = await fetch(`${this.pythonServiceUrl}/predict`, {
                 method: 'POST',
@@ -58,7 +61,9 @@ export class ModelService {
             const blob = new Blob([file.buffer as any], { type: file.mimetype });
             formData.append('file', blob, file.originalname);
 
-            console.log(`[Gateway] Enviando archivo a ${this.pythonServiceUrl}/predict/audio...`);
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Enviando archivo a ${this.pythonServiceUrl}/predict/audio...`);
+            }
 
             const response = await fetch(`${this.pythonServiceUrl}/predict/audio`, {
                 method: 'POST',
@@ -70,11 +75,13 @@ export class ModelService {
                 throw new Error(`Microservice responded with ${response.status}: ${errorText}`);
             }
 
-            // Devolvemos el ArrayBuffer (o Stream)
-            return await response.arrayBuffer();
+            const data = await response.json();
+            return data;
 
         } catch (error) {
-            console.error('[Gateway] Audio Error:', error);
+            if (this.logsEnabled) {
+                console.error('[Gateway] Audio Error:', error);
+            }
             throw new BadRequestException(`Error generando audio: ${error.message || error}`);
         }
     }
@@ -107,7 +114,9 @@ export class ModelService {
             return;
         }
 
-        console.log('[Gateway] El microservicio no responde. Iniciando uvicorn...');
+        if (this.logsEnabled) {
+            console.log('[Gateway] El microservicio no responde. Iniciando uvicorn...');
+        }
 
         // Iniciar uvicorn en segundo plano
         // Usamos 'python -m uvicorn' para asegurar que usa el python del entorno
@@ -123,7 +132,9 @@ export class ModelService {
         for (let i = 0; i < 20; i++) { // 20 intentos de 1s = 20s timeout
             await new Promise(resolve => setTimeout(resolve, 1000));
             if (await this.isServiceReachable()) {
-                console.log('[Gateway] Microservicio iniciado correctamente.');
+                if (this.logsEnabled) {
+                    console.log('[Gateway] Microservicio iniciado correctamente.');
+                }
                 return;
             }
         }
@@ -147,6 +158,51 @@ export class ModelService {
             return response.ok || response.status === 405; // 405 en /predict GET también indicaría vida
         } catch (e) {
             return false;
+        }
+    }
+
+    async confirmWord(word: string, userId?: string, timestamp?: Date): Promise<any> {
+        /**
+         * Guarda una palabra confirmada por el usuario.
+         * Por ahora usamos un archivo JSON simple. Para producción, se debería migrar a base de datos.
+         */
+        try {
+            const dataDir = path.resolve(process.cwd(), 'data');
+            if (!fs.existsSync(dataDir)) {
+                fs.mkdirSync(dataDir);
+            }
+            const confirmedWordsPath = path.join(dataDir, 'confirmed_words.json');
+
+            let confirmedWords: Array<{ word: string; userId: string; timestamp: string | Date }> = [];
+
+            // Leer archivo existente si existe
+            if (fs.existsSync(confirmedWordsPath)) {
+                const content = fs.readFileSync(confirmedWordsPath, 'utf-8');
+                confirmedWords = JSON.parse(content);
+            }
+
+            // Añadir nueva palabra
+            confirmedWords.push({
+                word,
+                userId: userId || 'anonymous',
+                timestamp: timestamp || new Date().toISOString(),
+            });
+
+            // Guardar
+            fs.writeFileSync(confirmedWordsPath, JSON.stringify(confirmedWords, null, 2));
+
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Palabra confirmada: ${word} (Total: ${confirmedWords.length})`);
+            }
+
+            return {
+                success: true,
+                message: 'Word confirmed and saved',
+                totalConfirmed: confirmedWords.length,
+            };
+        } catch (error) {
+            console.error('[Gateway] Error saving confirmed word:', error);
+            throw new BadRequestException(`Error guardando palabra: ${error.message || error}`);
         }
     }
 }
