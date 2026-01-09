@@ -55,6 +55,9 @@ async def _process_video_file(file: UploadFile) -> str:
             except:
                 pass
 
+class LandmarksRequest(BaseModel):
+    data: list
+
 @app.post("/predict")
 async def predict_video(request: Request, file: UploadFile = File(...)):
     print("\n[DEBUG] --- /predict Request ---")
@@ -64,6 +67,20 @@ async def predict_video(request: Request, file: UploadFile = File(...)):
         "success": True,
         "text": text
     }
+
+@app.post("/predict/landmarks")
+async def predict_landmarks(body: LandmarksRequest):
+    # body.data should be the list of 226 floats
+    try:
+        predictor = LSCEngine.get_predictor()
+        if not predictor:
+            raise HTTPException(status_code=500, detail="Modelo no cargado")
+            
+        result = predictor.predict_landmarks(body.data)
+        return result
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict/audio")
 async def predict_audio(request: Request, file: UploadFile = File(...)):

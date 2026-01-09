@@ -197,6 +197,7 @@ export class ChatService {
             if (conversation) {
                 // Determine recipients
                 let recipientIds: string[] = [];
+                let allParticipantIds: string[] = []; // Track ALL participants for interpreter check
                 let groupTitle = null;
 
                 if (conversation.type === 'group') {
@@ -207,14 +208,35 @@ export class ChatService {
                         .eq('conversation_id', conversation.id);
 
                     if (participants) {
-                        recipientIds = participants
-                            .map(p => p.user_id)
-                            .filter(id => id !== data.senderId);
+                        allParticipantIds = participants.map(p => p.user_id);
+                        recipientIds = allParticipantIds.filter(id => id !== data.senderId);
                     }
                 } else {
                     // Direct chat
+                    allParticipantIds = [conversation.user1_id, conversation.user2_id];
                     recipientIds = [conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id];
                 }
+
+                // --- AUTO-FREE INTERPRETERS ON CALL END ---
+                if (data.type === 'call_ended') {
+                    // We don't need to await this critically, but we want to log errors.
+                    // Using a separate async operation or just awaiting it here safely.
+                    const { error: updateError, count } = await supabase
+                        .from('profiles')
+                        .update({ is_busy: false })
+                        .in('id', allParticipantIds)
+                        .eq('role', 'interpreter')
+                        .eq('is_busy', true); // Only update if currently busy
+
+                    if (updateError) {
+                        this.logger.error(`Error freeing interpreters: ${updateError.message}`);
+                    } else {
+                        // Optional: Log success if count > 0
+                        // (count is null unless count option is used, but update usually returns it or data)
+                        this.logger.log(`Call ended: Released interpreters checks completed.`);
+                    }
+                }
+                // ------------------------------------------
 
                 // Fetch sender profile once
                 const { data: senderProfile } = await supabase
