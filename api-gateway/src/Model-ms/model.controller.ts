@@ -20,12 +20,17 @@ export class ModelController {
     // POST /model/video-to-audio
     @Post('video-to-audio')
     @UseInterceptors(FileInterceptor('file'))
-    @Header('Content-Type', 'audio/mpeg')
-    @Header('Content-Disposition', 'attachment; filename="translation.mp3"')
     async videoToAudio(
         @UploadedFile() file?: Express.Multer.File
-    ): Promise<StreamableFile> {
-        const buffer = await this.modelService.videoToAudio(file);
-        return new StreamableFile(Buffer.from(buffer));
+    ) {
+        return this.modelService.videoToAudio(file);
+    }
+
+    // POST /model/confirm-word
+    @Post('confirm-word')
+    async confirmWord(
+        @Body() body: { word: string; userId?: string; timestamp?: Date }
+    ) {
+        return this.modelService.confirmWord(body.word, body.userId, body.timestamp);
     }
 }
