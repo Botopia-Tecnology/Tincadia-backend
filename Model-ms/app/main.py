@@ -163,14 +163,38 @@ active_predictors = {}
 MODEL_PATH = "lsc_model_full_repaired.h5"
 LABELS_PATH = "lsc_labels.json"
 
+# ========== PRELOAD MODEL AT STARTUP ==========
+# Load TensorFlow model ONCE to avoid 200MB reload on every connection
+print("[*] Precargando modelo TensorFlow al iniciar servidor...")
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')  # Force CPU
+_shared_model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+with open(LABELS_PATH, 'r', encoding='utf-8') as f:
+    _shared_labels = json.load(f)
+print("[*] Modelo precargado exitosamente!")
+
 @sio.event
 async def connect(sid, environ):
     log(f"[Socket.IO] Cliente conectado: {sid}")
     try:
-        # Inicializar predictor para este cliente
-        predictor = LSCStreamingPredictor(MODEL_PATH, LABELS_PATH, buffer_size=45)
+        # Use shared preloaded model instead of loading each time
+        from lsc_streaming_predictor import LSCStreamingPredictor
+        predictor = LSCStreamingPredictor.__new__(LSCStreamingPredictor)
+        predictor.model = _shared_model
+        predictor.use_tflite = False
+        predictor.interpreter = None
+        predictor.labels = _shared_labels
+        predictor.id_to_label = {int(k): v for k, v in _shared_labels.items()}
+        predictor.buffer_size = 30  # Reduced from 45 for faster response
+        from collections import deque
+        predictor.landmarks_buffer = deque(maxlen=30)
+        predictor.prediction_buffer = deque(maxlen=5)  # Reduced from 10
+        predictor.frame_count = 0
+        predictor.last_prediction = None
+        
         active_predictors[sid] = predictor
         await sio.emit('status', {'message': 'Connected to Python LSC Model'}, to=sid)
+        log(f"[Socket.IO] Predictor listo para {sid}")
     except Exception as e:
         log(f"[Socket.IO] Error initializing predictor for {sid}: {e}")
         return False # Rechazar conexión
