@@ -19,36 +19,47 @@ class LSCPredictor:
     - numpy
     """
 
-    def __init__(self, model_path: str, labels_path: str):
+    def __init__(self, model_path: str, labels_path: str, shared_model=None, shared_labels=None):
         """
         Inicializa el predictor cargando el modelo y las etiquetas.
         
         Args:
             model_path: Ruta al archivo .tflite o .h5
             labels_path: Ruta al archivo .json (etiquetas)
+            shared_model: Modelo pre-cargado (opcional)
+            shared_labels: Etiquetas pre-cargadas (opcional)
         """
-        print(f"[*] Cargando modelo desde: {model_path}")
-        
-        # CORREGIDO: Soporte para TFLite y TensorFlow
-        if model_path.endswith('.tflite'):
+        if shared_model:
+            print("[*] LSCPredictor: Usando modelo compartido")
+            self.model = shared_model
+            self.use_tflite = False
+            self.interpreter = None
+        elif model_path.endswith('.tflite'):
+            print(f"[*] Cargando modelo desde: {model_path}")
             self.interpreter = tf.lite.Interpreter(model_path=model_path)
             self.interpreter.allocate_tensors()
             self.input_details = self.interpreter.get_input_details()
             self.output_details = self.interpreter.get_output_details()
             self.use_tflite = True
-            self.model = None  # No se usa con TFLite
+            self.model = None
             print("✅ Usando modelo TensorFlow Lite")
         else:
-            # Forzar CPU para evitar conflictos de GPU
-            tf.config.set_visible_devices([], 'GPU')
+            print(f"[*] Cargando modelo desde: {model_path}")
+            # Forzar CPU 
+            if not tf.config.get_visible_devices('GPU'):
+                tf.config.set_visible_devices([], 'GPU')
             self.model = tf.keras.models.load_model(model_path, compile=False)
             self.use_tflite = False
-            self.interpreter = None  # No se usa con TensorFlow normal
+            self.interpreter = None
             print("✅ Usando modelo TensorFlow (CPU)")
         
-        print(f"[*] Cargando etiquetas desde: {labels_path}")
-        with open(labels_path, 'r', encoding='utf-8') as f:
-            self.labels = json.load(f)
+        if shared_labels:
+            print("[*] LSCPredictor: Usando etiquetas compartidas")
+            self.labels = shared_labels
+        else:
+            print(f"[*] Cargando etiquetas desde: {labels_path}")
+            with open(labels_path, 'r', encoding='utf-8') as f:
+                self.labels = json.load(f)
         
         # Convertir llaves a int para búsqueda rápida
         self.id_to_label = {int(k): v for k, v in self.labels.items()}
@@ -61,12 +72,15 @@ class LSCPredictor:
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
+        
+        # Para predict_landmarks (standalone frame prediction)
+        self.last_norm_coords = None
 
     def _normalize_landmarks(self, coords: np.ndarray) -> np.ndarray:
         """
         Aplica la misma normalización usada durante el entrenamiento:
         Centrado en hombros y escalado por distancia entre ellos.
-        Respeta estructura 25x4 (pose) + 42x3 (manos) = 226 valores.
+        MANTIENE CEROS para evitar falsas detecciones (letra O).
         """
         try:
             # 1. Descomponer
@@ -77,16 +91,25 @@ class LSCPredictor:
             RIGHT_SHOULDER = 12
             
             # 2. Calcular centro y escala (x, y, z)
-            center = (pose_coords[LEFT_SHOULDER, :3] + pose_coords[RIGHT_SHOULDER, :3]) / 2
-            shoulder_dist = np.linalg.norm(pose_coords[LEFT_SHOULDER, :3] - pose_coords[RIGHT_SHOULDER, :3])
+            ls = pose_coords[LEFT_SHOULDER, :3]
+            rs = pose_coords[RIGHT_SHOULDER, :3]
             
-            # 3. Normalizar (x, y, z)
-            pose_coords[:, :3] -= center
-            hands_coords -= center
+            if np.all(ls == 0) or np.all(rs == 0):
+                return coords.flatten()
+
+            center = (ls + rs) / 2
+            shoulder_dist = np.linalg.norm(ls - rs)
+            
+            # 3. Normalizar (x, y, z) SOLO a puntos que NO sean cero
+            pose_mask = np.any(pose_coords[:, :3] != 0, axis=1)
+            pose_coords[pose_mask, :3] -= center
+            
+            hands_mask = np.any(hands_coords != 0, axis=1)
+            hands_coords[hands_mask] -= center
             
             if shoulder_dist > 1e-6:
-                pose_coords[:, :3] /= shoulder_dist
-                hands_coords /= shoulder_dist
+                pose_coords[pose_mask, :3] /= shoulder_dist
+                hands_coords[hands_mask] /= shoulder_dist
             
             # 4. Recomponer
             return np.concatenate([pose_coords.flatten(), hands_coords.flatten()])
@@ -102,9 +125,9 @@ class LSCPredictor:
             self.interpreter.invoke()
             prediction = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
         else:
-            # TensorFlow normal
+            # TensorFlow normal - USANDO LLAMADA DIRECTA PARA MÍNIMA LATENCIA
             input_data = np.expand_dims(coords, axis=0)
-            prediction = self.model.predict(input_data, verbose=0)[0]
+            prediction = self.model(input_data, training=False).numpy()[0]
         
         return prediction
 
@@ -141,17 +164,18 @@ class LSCPredictor:
         raw_coords = np.array(coords_list, dtype=np.float32)
         norm_coords = self._normalize_landmarks(raw_coords)
         
-        # FIX: The model expects 452 features, but we have 226.
-        # Likely it expects [normalized, normalized] or [raw, normalized]?
-        # Given we don't know, and 452 = 226 * 2, let's try concatenating normalized + normalized
-        # This is a common "hack" if the model was trained with data augmentation that outputted dual streams
-        # OR if it was trained with Raw + Normalized.
-        # Let's assume Normalized + Normalized for now as it's safer for scale stability, 
-        # but Raw + Normalized is more information-rich.
-        # Let's try Normalized + Normalized first as it guarantees inputs are in [0,1] or similar range.
-        final_input = np.concatenate([norm_coords, norm_coords])
+        # Calcular Delta (V4-452 compatible)
+        if self.last_norm_coords is None:
+            delta = np.zeros_like(norm_coords)
+        else:
+            delta = norm_coords - self.last_norm_coords
         
-        prediction = self._predict_from_coords(final_input)
+        self.last_norm_coords = norm_coords
+        
+        # Combinar Features (452)
+        combined_features = np.concatenate([norm_coords, delta])
+        
+        prediction = self._predict_from_coords(combined_features)
         
         idx = np.argmax(prediction)
         confidence = float(prediction[idx])
@@ -177,6 +201,8 @@ class LSCPredictor:
 
         predictions = []
         
+        prev_norm = None
+        
         while cap.isOpened() and len(predictions) < max_frames:
             ret, frame = cap.read()
             if not ret:
@@ -188,12 +214,20 @@ class LSCPredictor:
             
             if results.pose_landmarks or results.right_hand_landmarks or results.left_hand_landmarks:
                 raw_coords = self._extract_coords(results)
-                # Reusing the public method logic (partially) or keeping optimized loop
                 norm_coords = self._normalize_landmarks(raw_coords)
                 
-                # CORREGIDO: Usar el método unificado de predicción
-                final_input = np.concatenate([norm_coords, norm_coords])
-                prediction = self._predict_from_coords(final_input)
+                # Calcular Delta (V4-452)
+                if prev_norm is None:
+                    delta = np.zeros_like(norm_coords)
+                else:
+                    delta = norm_coords - prev_norm
+                
+                # Combinar Features (452)
+                combined_features = np.concatenate([norm_coords, delta])
+                prev_norm = norm_coords
+                
+                # Predicción
+                prediction = self._predict_from_coords(combined_features)
                 
                 idx = np.argmax(prediction)
                 if prediction[idx] > 0.4: # Umbral de confianza
@@ -219,8 +253,14 @@ def main():
         print("[ERROR] No se encuentran los archivos del modelo/etiquetas.")
         print("Asegúrate de haber entrenado el modelo o de tener los archivos .tflite y .json en la carpeta.")
         return
+    
+    # Usar Engine si está disponible para evitar recargar modelo si se llama desde otros scripts
+    try:
+        from lsc_engine import LSCEngine
+        predictor = LSCEngine.get_predictor()
+    except ImportError:
+        predictor = LSCPredictor(args.model, args.labels)
 
-    predictor = LSCPredictor(args.model, args.labels)
     result = predictor.predict_video(args.video)
     
     if result:
