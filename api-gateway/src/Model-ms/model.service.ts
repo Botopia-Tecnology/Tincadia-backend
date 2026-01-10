@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import io, { Socket as ClientSocket } from 'socket.io-client';
+import { io, Socket as ClientSocket } from 'socket.io-client';
 import { Socket as ServerSocket } from 'socket.io'; // Import server socket type for type safety
 
 @Injectable()
