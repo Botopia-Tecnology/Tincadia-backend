@@ -170,7 +170,6 @@ export class ModelService {
         // Usamos 'python -m uvicorn' para asegurar que usa el python del entorno
         const child = spawn('python', ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], {
             cwd: this.pythonScriptPath,
-            shell: true,
             detached: true,
             stdio: 'ignore'
         });
