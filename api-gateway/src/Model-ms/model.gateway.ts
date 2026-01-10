@@ -11,13 +11,14 @@ import { Server, Socket } from 'socket.io';
 import { ModelService } from './model.service';
 
 @WebSocketGateway({
-    namespace: 'model-stream',
     cors: {
-        origin: '*',
+        origin: (requestOrigin, callback) => {
+            callback(null, true);
+        },
         methods: ['GET', 'POST'],
         credentials: true
     },
-    transports: ['websocket', 'polling']
+    transports: ['websocket']
 })
 export class ModelGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
