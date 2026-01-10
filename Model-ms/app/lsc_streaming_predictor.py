@@ -17,7 +17,7 @@ class LSCStreamingPredictor:
     Mantiene un buffer circular de landmarks y predice sobre ventanas deslizantes.
     """
 
-    def __init__(self, model_path: str, labels_path: str, buffer_size: int = 45):
+    def __init__(self, model_path: str, labels_path: str, buffer_size: int = 45, shared_model=None, shared_labels=None):
         """
         Inicializa el predictor de streaming.
         
@@ -25,11 +25,16 @@ class LSCStreamingPredictor:
             model_path: Ruta al modelo .h5 o .tflite
             labels_path: Ruta al archivo JSON de etiquetas
             buffer_size: Tamaño del buffer (número de frames a mantener)
+            shared_model: Modelo pre-cargado (opcional)
+            shared_labels: Etiquetas pre-cargadas (opcional)
         """
-        print(f"[*] Cargando modelo de streaming desde: {model_path}")
-        
-        # Cargar modelo
-        if model_path.endswith('.tflite'):
+        if shared_model:
+            print("[*] LSCStreamingPredictor: Usando modelo compartido")
+            self.model = shared_model
+            self.use_tflite = False
+            self.interpreter = None
+        elif model_path.endswith('.tflite'):
+            print(f"[*] Cargando modelo de streaming desde: {model_path}")
             self.interpreter = tf.lite.Interpreter(model_path=model_path)
             self.interpreter.allocate_tensors()
             self.input_details = self.interpreter.get_input_details()
@@ -38,17 +43,22 @@ class LSCStreamingPredictor:
             self.model = None
             print("Usando modelo TensorFlow Lite")
         else:
-            # Forzar CPU
-            tf.config.set_visible_devices([], 'GPU')
+            print(f"[*] Cargando modelo de streaming desde: {model_path}")
+            # Forzar CPU si no está configurado
+            if not tf.config.get_visible_devices('GPU'):
+                tf.config.set_visible_devices([], 'GPU')
             self.model = tf.keras.models.load_model(model_path, compile=False)
             self.use_tflite = False
             self.interpreter = None
             print("Usando modelo TensorFlow (CPU)")
         
-        # Cargar etiquetas
-        print(f"[*] Cargando etiquetas desde: {labels_path}")
-        with open(labels_path, 'r', encoding='utf-8') as f:
-            self.labels = json.load(f)
+        if shared_labels:
+            print("[*] LSCStreamingPredictor: Usando etiquetas compartidas")
+            self.labels = shared_labels
+        else:
+            print(f"[*] Cargando etiquetas desde: {labels_path}")
+            with open(labels_path, 'r', encoding='utf-8') as f:
+                self.labels = json.load(f)
         
         self.id_to_label = {int(k): v for k, v in self.labels.items()}
         
@@ -197,8 +207,9 @@ class LSCStreamingPredictor:
             self.interpreter.invoke()
             prediction = self.interpreter.get_tensor(self.output_details[0]['index'])[0]
         else:
+            # TensorFlow normal - LLAMADA DIRECTA (-) OVERHEAD
             input_data = np.expand_dims(coords, axis=0)
-            prediction = self.model.predict(input_data, verbose=0)[0]
+            prediction = self.model(input_data, training=False).numpy()[0]
         
         return prediction
 
