@@ -163,7 +163,19 @@ export class ModelService {
         }
 
         if (this.logsEnabled) {
-            console.log('[Gateway] El microservicio no responde. Iniciando uvicorn...');
+            console.log(`[Gateway] El microservicio en ${this.pythonServiceUrl} no responde.`);
+        }
+
+        // Check if we are in production (remote URL)
+        const isLocal = this.pythonServiceUrl.includes('localhost') || this.pythonServiceUrl.includes('127.0.0.1');
+
+        if (!isLocal) {
+            // In production/Railway, we cannot spawn python.
+            throw new Error(`Cloud Model Service at ${this.pythonServiceUrl} is not reachable. Please ensure the 'Model-ms' service is running and accessible.`);
+        }
+
+        if (this.logsEnabled) {
+            console.log('[Gateway] Local environment detected. Attempting to spawn uvicorn...');
         }
 
         // Iniciar uvicorn en segundo plano
@@ -180,20 +192,20 @@ export class ModelService {
             await new Promise(resolve => setTimeout(resolve, 1000));
             if (await this.isServiceReachable()) {
                 if (this.logsEnabled) {
-                    console.log('[Gateway] Microservicio iniciado correctamente.');
+                    console.log('[Gateway] Microservicio local iniciado correctamente.');
                 }
                 return;
             }
         }
 
-        throw new Error('No se pudo iniciar el microservicio de Python después de varios intentos.');
+        throw new Error('No se pudo iniciar el microservicio de Python local después de varios intentos.');
     }
 
     private async isServiceReachable(): Promise<boolean> {
         try {
             // Usamos un timeout corto para chequear
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1000);
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
 
             // Hacemos GET /docs o similar para ver si responde, 
             // como main.py no tiene root, probamos /docs que FastAPI genera por defecto
