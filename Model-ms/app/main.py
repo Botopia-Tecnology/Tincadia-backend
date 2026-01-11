@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Request, WebSocket
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from lsc_engine import LSCEngine
-from lsc_streaming_predictor import LSCStreamingPredictor
+from lsc_streaming_exacto import LSCStreamingPredictor
 from gtts import gTTS # Fixed capitalization
 import numpy as np
 

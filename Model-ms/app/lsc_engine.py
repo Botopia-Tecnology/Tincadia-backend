@@ -1,39 +1,63 @@
 import os
 import json
+import sys
+import numpy as np
 import tensorflow as tf
-from lsc_standalone_predictor import LSCPredictor
 
-# Configuración de archivos
-MODEL_PATH = "lsc_model_full_repaired.h5"
+# Configuración de archivos - Nuevo Modelo ABC-1101
+MODEL_PATH = "weights.hdf5"
+CONFIG_PATH = "model_config.json"
 LABELS_PATH = "lsc_labels.json"
 
 class LSCEngine:
     """
     Singleton para manejar la carga del modelo y compartirlo entre predictores.
-    Evita redundancia de memoria (200MB+) y reduce latencia de conexión.
+    Usa el predictor exacto ABC-1101 para compatibilidad 100%
     """
     _model = None
     _labels = None
-    _standalone_predictor = None
+    _exacto_predictor = None
 
     @classmethod
     def _load_resources(cls):
         """Carga el modelo y etiquetas si no están en memoria."""
         if cls._model is None:
-            if os.path.exists(MODEL_PATH) and os.path.exists(LABELS_PATH):
+            if os.path.exists(MODEL_PATH) and os.path.exists(CONFIG_PATH) and os.path.exists(LABELS_PATH):
                 print(f"[*] LSCEngine: Cargando recursos desde {MODEL_PATH}...")
+                
+                # Cargar configuración del modelo
+                with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
                 
                 # Cargar Etiquetas
                 with open(LABELS_PATH, 'r', encoding='utf-8') as f:
                     cls._labels = json.load(f)
                 
-                # Cargar Modelo (Forzar CPU para evitar conflictos)
-                if not tf.config.get_visible_devices('GPU'):
-                    tf.config.set_visible_devices([], 'GPU')
-                cls._model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-                print("✅ LSCEngine: Recursos cargados con éxito.")
+                # Importar arquitectura del nuevo modelo
+                sys.path.insert(0, "dependencies")
+                from coordenates_models import get_model_coord_dense_5
+                
+                # Forzar CPU para evitar conflictos con DirectML
+                os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+                tf.config.set_visible_devices([], 'GPU')
+                
+                # Construir modelo con arquitectura del nuevo modelo
+                cls._model = get_model_coord_dense_5(
+                    (config["model_info"]["input_shape"][0],), 
+                    config["model_info"]["num_classes"]
+                )
+                
+                # Cargar pesos
+                cls._model.load_weights(MODEL_PATH)
+                
+                # Crear predictor exacto
+                from exacto_predictor_abc1101 import ExactoPredictorABC1101
+                cls._exacto_predictor = ExactoPredictorABC1101(MODEL_PATH, CONFIG_PATH)
+                
+                print(f"✅ LSCEngine: Modelo {config['model_info']['name']} cargado con éxito.")
+                print(f"📊 Precisión: {config['model_info']['val_accuracy']:.2%}")
             else:
-                print(f"[WARNING] LSCEngine: Archivos no encontrados en {MODEL_PATH}")
+                print(f"[WARNING] LSCEngine: Archivos no encontrados")
 
     @classmethod
     def get_model(cls):
@@ -52,17 +76,9 @@ class LSCEngine:
 
     @classmethod
     def get_predictor(cls):
-        """Retorna el predictor standalone (para videos)."""
-        if cls._standalone_predictor is None:
-            model = cls.get_model()
-            labels = cls.get_labels()
-            if model and labels:
-                cls._standalone_predictor = LSCPredictor(
-                    MODEL_PATH, LABELS_PATH, 
-                    shared_model=model, 
-                    shared_labels=labels
-                )
-        return cls._standalone_predictor
+        """Retorna el predictor exacto ABC-1101 (para videos y landmarks)."""
+        cls._load_resources()
+        return cls._exacto_predictor
 
-# Instancia global
+    # Instancia global
 engine = LSCEngine()
