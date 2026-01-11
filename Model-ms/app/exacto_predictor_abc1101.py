@@ -37,8 +37,8 @@ class ExactoPredictorABC1101:
         )
         self.model.load_weights(model_path)
         
-        print(f"✅ Modelo {self.config['model_info']['name']} cargado")
-        print(f"📊 Precisión: {self.config['model_info']['val_accuracy']:.2%}")
+        print(f"Modelo {self.config['model_info']['name']} cargado")
+        print(f"Precisión: {self.config['model_info']['val_accuracy']:.2%}")
     
     def normalize_landmarks_exacto(self, coords: np.ndarray) -> np.ndarray:
         """
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     dummy_coords = np.random.random(226).astype(np.float32)
     result = predictor.predict_from_coords(dummy_coords.tolist())
     
-    print(f"\n🔮 Prueba de predicción exacta:")
+    print(f"\nPrueba de predicción exacta:")
     print(f"   Señal: {result['word']}")
     print(f"   Confianza: {result['confidence']:.2%}")
     print(f"   Estado: {result['status']}")

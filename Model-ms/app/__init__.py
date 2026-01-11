@@ -1,5 +1,5 @@
 """
-Módulo principal para compatibilidad con uvicorn
+Módulo principal para compatibilidad con uvicorn-main
 """
 from .main import app
 

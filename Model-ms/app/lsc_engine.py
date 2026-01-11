@@ -54,8 +54,8 @@ class LSCEngine:
                 from exacto_predictor_abc1101 import ExactoPredictorABC1101
                 cls._exacto_predictor = ExactoPredictorABC1101(MODEL_PATH, CONFIG_PATH)
                 
-                print(f"✅ LSCEngine: Modelo {config['model_info']['name']} cargado con éxito.")
-                print(f"📊 Precisión: {config['model_info']['val_accuracy']:.2%}")
+                print(f"LSCEngine: Modelo {config['model_info']['name']} cargado con éxito.")
+                print(f"Precisión: {config['model_info']['val_accuracy']:.2%}")
             else:
                 print(f"[WARNING] LSCEngine: Archivos no encontrados")
 
