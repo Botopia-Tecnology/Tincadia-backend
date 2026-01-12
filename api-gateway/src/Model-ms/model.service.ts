@@ -11,14 +11,13 @@ export class ModelService {
     private readonly logsEnabled = process.env.LOGS_ENABLED?.toLowerCase() !== 'false';
     // Asumiendo que api-gateway está en Tincadia-backend/api-gateway
     // y Model-ms está en Tincadia-backend/Model-ms
-    private readonly pythonScriptPath = path.resolve(process.cwd(), '..', 'Model-ms');
+    private readonly pythonScriptPath = path.resolve(process.cwd(), '..', 'Model-ms', 'app');
 
     // Store Python sockets mapped by Frontend Client ID
     private pythonSessions: Map<string, ClientSocket> = new Map();
 
-    async videoToText(file?: Express.Multer.File, url?: string) {
+    async videoToText(file?: Express.Multer.File): Promise<any> {
         if (!file) {
-            // Por ahora priorizamos soporte de archivo ya que main.py espera multipart
             throw new BadRequestException('Por favor sube un archivo de video (url support pending)');
         }
 
@@ -26,15 +25,14 @@ export class ModelService {
             await this.ensureServiceIsRunning();
 
             const formData = new FormData();
-            // Convertir buffer a Blob para enviarlo vía fetch
-            // Casting a 'any' para evitar conflicto de tipos entre Buffer de Node y BlobPart del estándar Web
             const blob = new Blob([file.buffer as any], { type: file.mimetype });
             formData.append('file', blob, file.originalname);
 
             if (this.logsEnabled) {
-                console.log(`[Gateway] Enviando archivo a ${this.pythonServiceUrl}/predict...`);
+                console.log(`[Gateway] Enviando video completo a ${this.pythonServiceUrl}/predict...`);
             }
 
+            // Enviar video completo al endpoint /predict
             const response = await fetch(`${this.pythonServiceUrl}/predict`, {
                 method: 'POST',
                 body: formData,
@@ -46,6 +44,9 @@ export class ModelService {
             }
 
             const data = await response.json();
+
+            // Adaptar respuesta para mantener compatibilidad si es necesario
+            // El endpoint /predict devuelve { success: true, text: "Letra" }
             return data;
 
         } catch (error) {
@@ -218,6 +219,106 @@ export class ModelService {
         } catch (e) {
             return false;
         }
+    }
+
+    private async _saveTempVideo(file: Express.Multer.File): Promise<string> {
+        const tempDir = path.resolve(process.cwd(), 'temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir);
+        }
+        const tempPath = path.join(tempDir, file.originalname);
+        fs.writeFileSync(tempPath, file.buffer);
+        return tempPath;
+    }
+
+    private async _extractCoordinatesFromVideo(videoPath: string): Promise<number[]> {
+        // Crear script temporal en lugar de inline
+        const scriptPath = path.join(this.pythonScriptPath, 'extract_coords.py');
+        const scriptContent = `import sys
+import os
+import json
+import numpy as np
+sys.path.append(r"${this.pythonScriptPath}")
+from exacto_predictor_abc1101 import ExactoPredictorABC1101
+import cv2
+import mediapipe as mp
+
+def extract_coords():
+    predictor = ExactoPredictorABC1101()
+    
+    # Usar la ruta directamente sin comillas para evitar problemas
+    video_path = r"${videoPath}"
+    cap = cv2.VideoCapture(video_path)
+    
+    mp_holistic = mp.solutions.holistic
+    holistic = mp_holistic.Holistic(
+        static_image_mode=False,
+        model_complexity=1,
+        min_detection_confidence=0.5,
+        min_tracking_confidence=0.5
+    )
+    
+    coords_list = []
+    try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+                
+            image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = holistic.process(image_rgb)
+            
+            if results.pose_landmarks or results.right_hand_landmarks or results.left_hand_landmarks:
+                coords = predictor._extract_coords(results)
+                coords = np.nan_to_num(coords)
+                coords_list.extend(coords.tolist())
+                break
+
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        cap.release()
+    
+    print(','.join(map(str, coords_list)))
+if __name__ == "__main__":
+    extract_coords()
+`;
+
+        // Escribir script temporal
+        fs.writeFileSync(scriptPath, scriptContent);
+
+        return new Promise((resolve, reject) => {
+            const child = spawn('python', [scriptPath], {
+                cwd: this.pythonScriptPath,
+                stdio: ['pipe', 'pipe']
+            });
+
+            let output = '';
+            child.stdout.on('data', (data) => {
+                output += data.toString();
+            });
+
+            child.stderr.on('data', (data) => {
+                console.error('Python Error:', data.toString());
+            });
+
+            child.on('close', (code) => {
+                // Limpiar script temporal
+                try {
+                    fs.unlinkSync(scriptPath);
+                } catch (e) {
+                    // Ignorar error de limpieza
+                }
+
+                if (code !== 0) {
+                    reject(new Error('Error extrayendo coordenadas'));
+                } else {
+                    const coords = output.trim().split(',').map(Number);
+                    resolve(coords);
+                }
+            });
+        });
     }
 
     async confirmWord(word: string, userId?: string, timestamp?: Date): Promise<any> {

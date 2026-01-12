@@ -11,6 +11,11 @@ import json
 import time
 from collections import Counter
 
+# Add the app directory to Python path and change to app directory
+APP_DIR = os.path.join(os.path.dirname(__file__), '..', 'app')
+sys.path.append(APP_DIR)
+os.chdir(APP_DIR)  # Change working directory to app for model file access
+
 # Importar desde el backend actual
 from lsc_engine import LSCEngine
 import mediapipe as mp
@@ -182,6 +187,10 @@ class EvaluadorIntegrado:
                         coords = self._extract_coords(results)
                         norm_coords = self._normalize_landmarks(coords)
                         
+                        # DEBUG: Comparar coordenadas
+                        print(f"[EVALUADOR] Coords originales (primeras 10): {coords[:10]}")
+                        print(f"[EVALUADOR] Coords normalizadas (primeras 10): {norm_coords[:10]}")
+                        
                         # Usar el predictor del backend
                         result = self.predictor.predict_from_coords(norm_coords.tolist())
                         prediction_result = result
@@ -274,7 +283,7 @@ class EvaluadorIntegrado:
             return
         
         # Importar predictor de streaming
-        from lsc_streaming_predictor import LSCStreamingPredictor
+        from lsc_streaming_exacto import LSCStreamingPredictor
         from lsc_engine import LSCEngine
         
         # Obtener modelo y etiquetas compartidos
