@@ -20,7 +20,7 @@ class LSCStreamingExactoPredictor:
     para garantizar compatibilidad 100% con el entrenamiento
     """
 
-    def __init__(self, model_path: str, config_path: str, labels_path: str, buffer_size: int = 45, shared_model=None, shared_labels=None):
+    def __init__(self, model_path: str, labels_path: str, config_path: str = "model_config.json", buffer_size: int = 45, shared_model=None, shared_labels=None):
         """
         Inicializa el predictor de streaming exacto.
         """
