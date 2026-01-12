@@ -91,6 +91,58 @@ class ExactoPredictorABC1101:
             print(f"[ERROR] Normalización exacta falló: {e}")
             return coords
     
+    def _normalize_landmarks_evaluador(self, coords: np.ndarray) -> np.ndarray:
+        """
+        Aplica la misma normalización usada por el evaluador:
+        Normalización min-max al rango [0,1] para cada eje (x, y, z)
+        """
+        try:
+            # 1. Descomponer coordenadas
+            pose_coords = coords[:100].reshape(25, 4).copy()
+            hands_coords = coords[100:].reshape(42, 3).copy()
+            
+            # Extraer solo x, y, z para normalización
+            pose_xyz = pose_coords[:, :3]  # (25, 3)
+            hands_xyz = hands_coords  # (42, 3)
+            
+            # 2. Normalización min-max para pose (solo puntos no cero)
+            pose_mask = np.any(pose_xyz != 0, axis=1)
+            if np.any(pose_mask):
+                pose_valid = pose_xyz[pose_mask]
+                pose_min = pose_valid.min(axis=0)
+                pose_max = pose_valid.max(axis=0)
+                pose_range = pose_max - pose_min
+                
+                # Evitar división por cero
+                pose_range[pose_range == 0] = 1
+                
+                # Normalizar solo puntos válidos
+                pose_xyz[pose_mask] = (pose_xyz[pose_mask] - pose_min) / pose_range
+            
+            # 3. Normalización min-max para manos (solo puntos no cero)
+            hands_mask = np.any(hands_xyz != 0, axis=1)
+            if np.any(hands_mask):
+                hands_valid = hands_xyz[hands_mask]
+                hands_min = hands_valid.min(axis=0)
+                hands_max = hands_valid.max(axis=0)
+                hands_range = hands_max - hands_min
+                
+                # Evitar división por cero
+                hands_range[hands_range == 0] = 1
+                
+                # Normalizar solo puntos válidos
+                hands_xyz[hands_mask] = (hands_xyz[hands_mask] - hands_min) / hands_range
+            
+            # 4. Recomponer con visibility intacta
+            pose_coords[:, :3] = pose_xyz
+            hands_coords[:, :] = hands_xyz
+            
+            return np.concatenate([pose_coords.flatten(), hands_coords.flatten()])
+            
+        except Exception as e:
+            print(f"[ERROR] Normalización evaluador falló: {e}")
+            return coords
+    
     def predict_from_coords(self, coords_list: list) -> dict:
         """
         Predice desde lista de coordenadas con normalización exacta
@@ -105,8 +157,14 @@ class ExactoPredictorABC1101:
             
             coords = np.array(coords_list, dtype=np.float32)
             
-            # Normalizar con método exacto
+            # DEBUG: Guardar coordenadas originales
+            print(f"[DEBUG] Coordenadas originales (primeras 10): {coords[:10]}")
+            
+            # Usar la normalización interna del modelo (para coordenadas crudas)
             norm_coords = self.normalize_landmarks_exacto(coords)
+            
+            # DEBUG: Guardar coordenadas normalizadas
+            print(f"[DEBUG] Coordenadas normalizadas (primeras 10): {norm_coords[:10]}")
             
             # Predecir con el modelo
             coords_reshaped = np.expand_dims(norm_coords, axis=0)
@@ -167,20 +225,35 @@ class ExactoPredictorABC1101:
         )
         
         try:
+            frames_processed = 0
+            frames_with_hands = 0
+            mirror_triggers = 0
+            
             while cap.isOpened():
                 ret, frame = cap.read()
                 if not ret:
                     break
                     
+                frames_processed += 1
+                
                 # Procesar frame
                 image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 results = holistic.process(image_rgb)
                 
+                # Lógica de Espejo: Si detecta mano derecha pero no izquierda, invertir frame
+                # Esto es crítico para igualar el comportamiento del evaluador
+                if results.right_hand_landmarks and not results.left_hand_landmarks:
+                    frame = cv2.flip(frame, 1)
+                    image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    results = holistic.process(image_rgb)
+                    mirror_triggers += 1
+                
                 if results.pose_landmarks or results.right_hand_landmarks or results.left_hand_landmarks:
+                    frames_with_hands += 1
                     # Extraer coordenadas
                     coords = self._extract_coords(results)
                     
-                    # Predecir con normalización exacta
+                    # Predecir directamente (predict_from_coords ya normaliza)
                     result = self.predict_from_coords(coords.tolist())
                     
                     if result['status'] == 'ok' and result['confidence'] > 0.3:
@@ -188,12 +261,19 @@ class ExactoPredictorABC1101:
         
         finally:
             cap.release()
+            
+        print(f"[DEBUG_PREDICTOR] Video processed: {frames_processed} frames")
+        print(f"[DEBUG_PREDICTOR] Hands detected in: {frames_with_hands} frames")
+        print(f"[DEBUG_PREDICTOR] Mirror Logic triggered: {mirror_triggers} times")
         
         if not predictions:
+            print("[DEBUG_PREDICTOR] No confident predictions found.")
             return None
             
         # Voto por mayoría
-        return Counter(predictions).most_common(1)[0][0]
+        counts = Counter(predictions)
+        print(f"[DEBUG_PREDICTOR] Prediction Stats: {counts}")
+        return counts.most_common(1)[0][0]
     
     def _extract_coords(self, results) -> np.ndarray:
         """Extrae coordenadas en el formato exacto del modelo (226 valores)"""

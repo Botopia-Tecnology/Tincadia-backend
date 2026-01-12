@@ -93,8 +93,10 @@ async def predict_landmarks(body: LandmarksRequest):
         predictor = LSCEngine.get_predictor()
         if not predictor:
             raise HTTPException(status_code=500, detail="Modelo no cargado")
-            
-        result = predictor.predict_landmarks(body.data)
+        
+        # Aplicar la misma normalización que usa el evaluador
+        coords = np.array(body.data, dtype=np.float32)
+        result = predictor.predict_from_coords(coords.tolist())
         return result
     except Exception as e:
         traceback.print_exc()
