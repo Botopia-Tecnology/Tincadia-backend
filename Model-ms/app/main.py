@@ -161,7 +161,7 @@ socket_app = socketio.ASGIApp(sio, app)
 # Diccionario para gestionar predictores por SID
 active_predictors = {}
 
-MODEL_PATH = "lsc_model_full_repaired.h5"
+MODEL_PATH = "weights.hdf5"
 LABELS_PATH = "lsc_labels.json"
 
 @sio.event
