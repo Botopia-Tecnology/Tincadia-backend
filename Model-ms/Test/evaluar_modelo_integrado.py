@@ -291,7 +291,7 @@ class EvaluadorIntegrado:
         
         # Crear predictor de streaming
         streaming_predictor = LSCStreamingPredictor(
-            "weights.hdf5", "model_config.json", "lsc_labels.json",
+            "weights.hdf5", "lsc_labels.json", "model_config.json",
             buffer_size=30,
             shared_model=model,
             shared_labels=labels
@@ -317,10 +317,8 @@ class EvaluadorIntegrado:
                 if results.pose_landmarks or results.right_hand_landmarks or results.left_hand_landmarks:
                     try:
                         coords = self._extract_coords(results)
-                        norm_coords = self._normalize_landmarks(coords)
-                        
-                        # Usar predictor de streaming (como lo hace el frontend)
-                        result = streaming_predictor.add_landmarks(norm_coords)
+                        # Usar predictor de streaming (como lo hace el frontend - raw coords)
+                        result = streaming_predictor.add_landmarks(coords)
                         
                         if result['word']:
                             cv2.rectangle(frame, (0, 0), (400, 80), (245, 117, 16), -1)
