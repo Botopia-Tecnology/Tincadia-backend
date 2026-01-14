@@ -9,7 +9,7 @@ import cloudinary.uploader
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from lsc_engine import LSCEngine
+from lsc_engine import LSCEngine, MODEL_PATH, CONFIG_PATH
 from lsc_streaming_exacto import LSCStreamingPredictor
 from gtts import gTTS # Fixed capitalization
 import numpy as np
@@ -164,36 +164,33 @@ socket_app = socketio.ASGIApp(sio, app)
 # Diccionario para gestionar predictores por SID
 active_predictors = {}
 
-MODEL_PATH = "weights.hdf5"
-LABELS_PATH = "lsc_labels.json"
-
 @sio.event
 async def connect(sid, environ):
-    log(f"[Socket.IO] Cliente conectado: {sid}")
+    log(f"[Socket.IO] Cliente intentando conectar: {sid}")
     try:
-        # Obtener recursos compartidos del LSCEngine (Singleton precargado)
+        # Forzar carga para debug si es necesario
         model, labels = LSCEngine.get_model_and_labels()
         
         if model is None:
-            log(f"[Socket.IO Error] El modelo no pudo ser cargado para {sid}")
+            print(f"❌ [Socket.IO Error] El modelo NO está cargado. Rechazando {sid}")
             return False
 
-        # Inicializar predictor de streaming optimizado
+        # Inicializar predictor de streaming
+        log(f"[*] Inicializando predictor para {sid}...")
         predictor = LSCStreamingPredictor(
-            MODEL_PATH, LABELS_PATH, 
-            buffer_size=30, # Optimizado para rapidez
+            MODEL_PATH, None, CONFIG_PATH,
+            buffer_size=30,
             shared_model=model,
             shared_labels=labels
         )
         
         active_predictors[sid] = predictor
-        await sio.emit('status', {'message': 'Connected to Python LSC Model (Optimized)'}, to=sid)
-        log(f"[Socket.IO] Predictor listo para {sid}")
+        await sio.emit('status', {'message': 'Connected to Python LSC Model'}, to=sid)
+        log(f"✅ [Socket.IO] Conexión aceptada para {sid}")
     except Exception as e:
-        log(f"[Socket.IO] Error initializing predictor for {sid}: {e}")
-        if LOGS_ENABLED:
-            traceback.print_exc()
-        return False # Rechazar conexión
+        print(f"❌ [Socket.IO Error] Excepción en connect para {sid}: {e}")
+        traceback.print_exc()
+        return False
 
 @sio.event
 async def disconnect(sid):
