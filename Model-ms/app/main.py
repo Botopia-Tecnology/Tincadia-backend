@@ -181,31 +181,32 @@ active_predictors = {}
 
 @sio.event
 async def connect(sid, environ):
-    print(f"🔌 [Socket.IO] Intento de conexión: {sid}")
+    log(f"🔌 [Socket.IO] Intento de conexión: {sid}")
     try:
         # Obtener predictor compartido (ya cargado en startup)
         base_predictor = LSCEngine.get_predictor()
         
         if base_predictor is None:
-            print(f"❌ [Socket.IO Error] El predictor NO está listo. Intentando cargar...")
+            log(f"❌ [Socket.IO Error] El predictor NO está listo. Intentando cargar...")
             base_predictor = LSCEngine.get_predictor() # Reintento carga
             if base_predictor is None:
-                print(f"❌ [Socket.IO Error] Fallo crítico: modelo inaccesible. Rechazando {sid}")
+                log(f"❌ [Socket.IO Error] Fallo crítico: modelo inaccesible. Rechazando {sid}")
                 return False
 
         # Inicializar predictor de streaming usando el predictor base compartido
-        print(f"[*] Inicializando sesión de streaming para {sid}...")
+        log(f"[*] Inicializando sesión de streaming para {sid}...")
         predictor = LSCStreamingPredictor(
             base_predictor=base_predictor,
-            buffer_size=35
+            buffer_size=25  # Reducido de 35 a 25 para mayor agilidad
         )
         
         active_predictors[sid] = predictor
         await sio.emit('status', {'message': 'Connected to Python LSC Model (Optimal)'}, to=sid)
-        print(f"✅ [Socket.IO] Conexión aceptada para {sid}")
+        log(f"✅ [Socket.IO] Conexión aceptada para {sid}")
     except Exception as e:
-        print(f"❌ [Socket.IO Error] Excepción fatal en connect para {sid}: {e}")
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            print(f"❌ [Socket.IO Error] Excepción fatal en connect para {sid}: {e}")
+            traceback.print_exc()
         return False
 
 @sio.event

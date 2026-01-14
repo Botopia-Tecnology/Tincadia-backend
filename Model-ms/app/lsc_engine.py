@@ -72,13 +72,15 @@ class LSCEngine:
                     
                     log(f"✅ LSCEngine: Modelo {config['model_info']['name']} cargado con éxito.")
                 except Exception as e:
-                    print(f"❌ [LSCEngine Error] Falló la carga del modelo: {e}")
-                    traceback.print_exc()
+                    if LOGS_ENABLED:
+                        print(f"❌ [LSCEngine Error] Falló la carga del modelo: {e}")
+                        traceback.print_exc()
                     cls._model = None
             else:
-                print(f"❌ [LSCEngine Error] Archivos no encontrados!")
-                print(f"   MODEL_PATH exists ({m_exists}): {MODEL_PATH}")
-                print(f"   CONFIG_PATH exists ({c_exists}): {CONFIG_PATH}")
+                if LOGS_ENABLED:
+                    print(f"❌ [LSCEngine Error] Archivos no encontrados!")
+                    log(f"   MODEL_PATH exists ({m_exists}): {MODEL_PATH}")
+                    log(f"   CONFIG_PATH exists ({c_exists}): {CONFIG_PATH}")
 
     @classmethod
     def get_model(cls):

@@ -102,17 +102,25 @@ class LSCStreamingExactoPredictor:
             
             # Suavizado (Smoothing) con Voto Mayoritario
             final_word = None
-            if len(self.prediction_buffer) >= 3:
+            if len(self.prediction_buffer) >= 2:  # Reducido de 3 a 2 para mayor rapidez
                 # Obtener la palabra más común en las últimas N predicciones
                 counts = Counter(self.prediction_buffer)
                 most_common = counts.most_common(1)[0]
                 
-                # Si la más común aparece al menos el 50% de las veces en el buffer
-                if most_common[1] >= len(self.prediction_buffer) / 2:
+                # Si la más común es suficientemente dominante
+                if most_common[1] >= len(self.prediction_buffer) * 0.4:
                     final_word = most_common[0]
             
+            # Determinar estatus
+            if final_word:
+                status = 'predicting'
+            elif buffer_fill > 0.05:
+                status = 'processing'
+            else:
+                status = 'uncertain'
+
             return {
-                'status': 'predicting' if final_word else 'uncertain',
+                'status': status,
                 'word': final_word,
                 'confidence': confidence,
                 'buffer_fill': buffer_fill
