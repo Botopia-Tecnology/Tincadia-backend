@@ -19,6 +19,21 @@ app = FastAPI()
 # Configuration
 LOGS_ENABLED = os.getenv("LOGS_ENABLED", "true").lower() == "true"
 
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 [Startup] Iniciando microservicio Model-ms...")
+    try:
+        print("[Startup] Pre-cargando modelo COL-NUM-WORD-1101-2...")
+        # Forzar carga del singleton
+        model, labels = LSCEngine.get_model_and_labels()
+        if model is not None:
+            print(f"✅ [Startup] Modelo precargado exitosamente. Clases: {len(labels)}")
+        else:
+            print("❌ [Startup] Error: El modelo no se pudo precargar (es None)")
+    except Exception as e:
+        print(f"❌ [Startup Error] Fallo crítico cargando modelo: {e}")
+        traceback.print_exc()
+
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
     api_key=os.getenv("CLOUDINARY_API_KEY"),
@@ -166,29 +181,30 @@ active_predictors = {}
 
 @sio.event
 async def connect(sid, environ):
-    log(f"[Socket.IO] Cliente intentando conectar: {sid}")
+    print(f"🔌 [Socket.IO] Intento de conexión: {sid}")
     try:
-        # Forzar carga para debug si es necesario
-        model, labels = LSCEngine.get_model_and_labels()
+        # Obtener predictor compartido (ya cargado en startup)
+        base_predictor = LSCEngine.get_predictor()
         
-        if model is None:
-            print(f"❌ [Socket.IO Error] El modelo NO está cargado. Rechazando {sid}")
-            return False
+        if base_predictor is None:
+            print(f"❌ [Socket.IO Error] El predictor NO está listo. Intentando cargar...")
+            base_predictor = LSCEngine.get_predictor() # Reintento carga
+            if base_predictor is None:
+                print(f"❌ [Socket.IO Error] Fallo crítico: modelo inaccesible. Rechazando {sid}")
+                return False
 
-        # Inicializar predictor de streaming
-        log(f"[*] Inicializando predictor para {sid}...")
+        # Inicializar predictor de streaming usando el predictor base compartido
+        print(f"[*] Inicializando sesión de streaming para {sid}...")
         predictor = LSCStreamingPredictor(
-            MODEL_PATH, None, CONFIG_PATH,
-            buffer_size=30,
-            shared_model=model,
-            shared_labels=labels
+            base_predictor=base_predictor,
+            buffer_size=35
         )
         
         active_predictors[sid] = predictor
-        await sio.emit('status', {'message': 'Connected to Python LSC Model'}, to=sid)
-        log(f"✅ [Socket.IO] Conexión aceptada para {sid}")
+        await sio.emit('status', {'message': 'Connected to Python LSC Model (Optimal)'}, to=sid)
+        print(f"✅ [Socket.IO] Conexión aceptada para {sid}")
     except Exception as e:
-        print(f"❌ [Socket.IO Error] Excepción en connect para {sid}: {e}")
+        print(f"❌ [Socket.IO Error] Excepción fatal en connect para {sid}: {e}")
         traceback.print_exc()
         return False
 

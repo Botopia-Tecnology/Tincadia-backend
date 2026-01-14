@@ -28,12 +28,18 @@ class LSCStreamingExactoPredictor:
     para garantizar compatibilidad 100% con el entrenamiento
     """
 
-    def __init__(self, model_path: str, labels_path: str, config_path: str = "model_config.json", buffer_size: int = 45, shared_model=None, shared_labels=None):
+    def __init__(self, model_path: str = None, labels_path: str = None, config_path: str = "model_config.json", buffer_size: int = 45, shared_model=None, shared_labels=None, base_predictor=None):
         """
         Inicializa el predictor de streaming exacto.
+        Puede recibir un base_predictor ya cargado para ahorrar memoria y tiempo.
         """
-        # Crear predictor exacto
-        self.exacto_predictor = ExactoPredictorCOLNUMWORD(model_path, config_path)
+        if base_predictor:
+            self.exacto_predictor = base_predictor
+            log("✅ Usando predictor base compartido para streaming")
+        else:
+            # Crear predictor exacto (solo si no se pasó uno compartido)
+            self.exacto_predictor = ExactoPredictorCOLNUMWORD(model_path, config_path)
+            log(f"✅ Nuevo predictor interno creado para streaming")
         
         # Buffer circular para landmarks
         self.buffer_size = buffer_size
@@ -46,7 +52,7 @@ class LSCStreamingExactoPredictor:
         self.frame_count = 0
         self.last_prediction = None
         
-        log(f"✅ Predictor de streaming exacto listo (buffer: {buffer_size} frames)")
+        log(f"✅ Predictor de streaming listo (buffer: {buffer_size})")
 
     def add_landmarks(self, landmarks: np.ndarray) -> Optional[Dict]:
         """
