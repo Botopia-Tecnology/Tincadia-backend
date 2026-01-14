@@ -23,18 +23,23 @@ import { ModelService } from './model.service';
 export class ModelGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
     server: Server;
+    private readonly logsEnabled = process.env.LOGS_ENABLED?.toLowerCase() !== 'false';
 
     constructor(private readonly modelService: ModelService) { }
 
     async handleConnection(client: Socket) {
-        console.log(`[ModelGateway] Client connected: ${client.id}`);
+        if (this.logsEnabled) {
+            console.log(`[ModelGateway] Client connected: ${client.id}`);
+        }
         client.emit('status', 'connected');
         // Initialize Python session for this client
         await this.modelService.connectToPython(client);
     }
 
     handleDisconnect(client: Socket) {
-        console.log(`[ModelGateway] Client disconnected: ${client.id}`);
+        if (this.logsEnabled) {
+            console.log(`[ModelGateway] Client disconnected: ${client.id}`);
+        }
         this.modelService.disconnectFromPython(client.id);
     }
 

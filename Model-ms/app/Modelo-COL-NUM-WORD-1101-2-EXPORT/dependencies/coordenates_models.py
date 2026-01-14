@@ -67,5 +67,4 @@ def get_model_coord_dense_5(input_shape, num_classes):
             tf.keras.layers.Dense(num_classes, activation="softmax"),
         ]
     )
-    print(f"DEBUG: Created Sequential model with {len(MODEL_COORD_DENSE.layers)} total layers.")
     return MODEL_COORD_DENSE

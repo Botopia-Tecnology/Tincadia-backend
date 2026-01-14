@@ -50,7 +50,9 @@ export class ModelService {
             return data;
 
         } catch (error) {
-            console.error('[Gateway] Error:', error);
+            if (this.logsEnabled) {
+                console.error('[Gateway] Error:', error);
+            }
             throw new BadRequestException(`Error procesando video: ${error.message || error}`);
         }
     }
@@ -130,7 +132,9 @@ export class ModelService {
         });
 
         pythonSocket.on('connect_error', (err) => {
-            console.error(`[Gateway] Python Connection Error for ${clientId}:`, err.message);
+            if (this.logsEnabled) {
+                console.error(`[Gateway] Python Connection Error for ${clientId}:`, err.message);
+            }
         });
     }
 
@@ -239,12 +243,15 @@ import os
 import json
 import numpy as np
 sys.path.append(r"${this.pythonScriptPath}")
-from exacto_predictor_abc1101 import ExactoPredictorABC1101
+from exacto_predictor_colnumword import ExactoPredictorCOLNUMWORD
 import cv2
 import mediapipe as mp
 
 def extract_coords():
-    predictor = ExactoPredictorABC1101()
+    predictor = ExactoPredictorCOLNUMWORD(
+        r"${this.pythonScriptPath}\\Modelo-COL-NUM-WORD-1101-2-EXPORT\\weights.hdf5",
+        r"${this.pythonScriptPath}\\Modelo-COL-NUM-WORD-1101-2-EXPORT\\model_config.json"
+    )
     
     # Usar la ruta directamente sin comillas para evitar problemas
     video_path = r"${videoPath}"
@@ -300,7 +307,9 @@ if __name__ == "__main__":
             });
 
             child.stderr.on('data', (data) => {
-                console.error('Python Error:', data.toString());
+                if (this.logsEnabled) {
+                    console.error('Python Error:', data.toString());
+                }
             });
 
             child.on('close', (code) => {
@@ -361,7 +370,9 @@ if __name__ == "__main__":
                 totalConfirmed: confirmedWords.length,
             };
         } catch (error) {
-            console.error('[Gateway] Error saving confirmed word:', error);
+            if (this.logsEnabled) {
+                console.error('[Gateway] Error saving confirmed word:', error);
+            }
             throw new BadRequestException(`Error guardando palabra: ${error.message || error}`);
         }
     }

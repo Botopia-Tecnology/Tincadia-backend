@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
 """
-Streaming Predictor compatible con el modelo exacto ABC-1101
+Streaming Predictor compatible con el modelo exacto COL-NUM-WORD-1101-2
 Usa el predictor exacto para normalización y predicción
 """
 import numpy as np
 import tensorflow as tf
 import json
+import os
 from collections import Counter, deque
 from typing import Optional, Dict, Tuple
-import os
 import sys
 
+# Logging configuration
+LOGS_ENABLED = os.getenv("LOGS_ENABLED", "true").lower() == "true"
+
+def log(*args, **kwargs):
+    """Conditional logging based on LOGS_ENABLED environment variable"""
+    if LOGS_ENABLED:
+        print(*args, **kwargs)
+
 # Importar predictor exacto
-from exacto_predictor_abc1101 import ExactoPredictorABC1101
+from exacto_predictor_colnumword import ExactoPredictorCOLNUMWORD
 
 class LSCStreamingExactoPredictor:
     """
-    Predictor de streaming que usa el predictor exacto ABC-1101
+    Predictor de streaming que usa el predictor exacto COL-NUM-WORD-1101-2
     para garantizar compatibilidad 100% con el entrenamiento
     """
 
@@ -25,7 +33,7 @@ class LSCStreamingExactoPredictor:
         Inicializa el predictor de streaming exacto.
         """
         # Crear predictor exacto
-        self.exacto_predictor = ExactoPredictorABC1101(model_path, config_path)
+        self.exacto_predictor = ExactoPredictorCOLNUMWORD(model_path, config_path)
         
         # Buffer circular para landmarks
         self.buffer_size = buffer_size
@@ -38,7 +46,7 @@ class LSCStreamingExactoPredictor:
         self.frame_count = 0
         self.last_prediction = None
         
-        print(f"Predictor de streaming exacto listo (buffer: {buffer_size} frames)")
+        log(f"✅ Predictor de streaming exacto listo (buffer: {buffer_size} frames)")
 
     def add_landmarks(self, landmarks: np.ndarray) -> Optional[Dict]:
         """
@@ -105,7 +113,7 @@ class LSCStreamingExactoPredictor:
             }
             
         except Exception as e:
-            print(f"[ERROR] Prediction failed: {e}")
+            log(f"[ERROR] Prediction failed: {e}")
             return {'status': 'error', 'word': None, 'confidence': 0}
 
     def reset_buffer(self):
@@ -114,7 +122,7 @@ class LSCStreamingExactoPredictor:
         self.prediction_buffer.clear()
         self.frame_count = 0
         self.last_prediction = None
-        print("[*] Buffer reseteado")
+        log("[*] Buffer reseteado")
 
     def get_stats(self) -> Dict:
         """Retorna estadísticas del predictor."""

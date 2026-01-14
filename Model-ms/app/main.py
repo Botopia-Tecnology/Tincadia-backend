@@ -58,13 +58,14 @@ async def _process_video_file(file: UploadFile) -> str:
         if not result:
             raise HTTPException(status_code=422, detail="No se pudo reconocer ninguna seña")
 
-        # "Letra_L" -> "L"
-        return result.replace("Letra_", "")
+        # Return the label as-is (COL-NUM-WORD model includes letters, numbers, colors, words)
+        return result
 
     except HTTPException:
         raise
     except Exception as e:
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
     finally:
         if video_path and os.path.exists(video_path):
@@ -99,7 +100,8 @@ async def predict_landmarks(body: LandmarksRequest):
         result = predictor.predict_from_coords(coords.tolist())
         return result
     except Exception as e:
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict/audio")
@@ -137,7 +139,8 @@ async def predict_audio(request: Request, file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generating or uploading audio: {str(e)}")
     finally:
         if audio_path and os.path.exists(audio_path):
@@ -188,7 +191,8 @@ async def connect(sid, environ):
         log(f"[Socket.IO] Predictor listo para {sid}")
     except Exception as e:
         log(f"[Socket.IO] Error initializing predictor for {sid}: {e}")
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            traceback.print_exc()
         return False # Rechazar conexión
 
 @sio.event
