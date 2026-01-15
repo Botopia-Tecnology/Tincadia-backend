@@ -48,8 +48,12 @@ export class ContentService {
         return this.findOne(id);
     }
 
-    async findOne(id: string) {
-        return this.courseRepository.findOne({
+    async findOneWithAccess(id: string, hasAccess: boolean) {
+        return this.findOne(id, { hasAccess });
+    }
+
+    async findOne(id: string, opts?: { includePaid?: boolean; hasAccess?: boolean }) {
+        const course = await this.courseRepository.findOne({
             where: { id },
             relations: ['category', 'modules', 'modules.lessons'],
             order: {
@@ -61,6 +65,15 @@ export class ContentService {
                 }
             }
         });
+
+        if (!course) return null;
+
+        // If includePaid/hasAccess true, return without masking
+        if (opts?.includePaid || opts?.hasAccess) {
+            return course;
+        }
+
+        return this.maskPaidContent(course, !!opts?.hasAccess);
     }
 
     async createModule(data: any) {
@@ -122,6 +135,54 @@ export class ContentService {
     }
 
     // --- Helpers for Cloudinary Hierarchy ---
+
+    private maskPaidContent(course: Course, hasAccess: boolean) {
+        if (hasAccess) return course;
+
+        const accessScope = (course as any).accessScope || 'course';
+        const courseIsPaid = (course as any).isPaid || false;
+        const previewLimit = typeof (course as any).previewLimit === 'number' ? (course as any).previewLimit : 0;
+        let previewsRemaining = previewLimit;
+
+        const sortByOrder = <T extends { order?: number }>(arr: T[] = []) =>
+            [...arr].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+        const maskedCourse = {
+            ...course,
+            modules: sortByOrder(course.modules || []).map((m: any) => {
+                const moduleIsPaid = !!m.isPaid;
+                const lessons = sortByOrder(m.lessons || []).map((l: any) => {
+                    const lessonIsPaid = !!l.isPaid;
+                    let isPreview = !!l.isFreePreview;
+
+                    // Assign preview slots for course-level paywall if not already preview
+                    if (!isPreview && accessScope === 'course' && courseIsPaid && previewsRemaining > 0) {
+                        isPreview = true;
+                        previewsRemaining -= 1;
+                    }
+
+                    let locked = false;
+                    if (accessScope === 'course' && courseIsPaid) {
+                        locked = !isPreview;
+                    } else if (accessScope === 'module' && moduleIsPaid) {
+                        locked = !isPreview;
+                    } else if (accessScope === 'lesson' && lessonIsPaid) {
+                        locked = !isPreview;
+                    }
+
+                    return {
+                        ...l,
+                        isFreePreview: isPreview,
+                        videoUrl: locked ? null : l.videoUrl,
+                        locked,
+                    };
+                });
+                return { ...m, lessons };
+            }),
+        };
+
+        return maskedCourse;
+    }
 
     async getLessonHierarchy(lessonId: string) {
         const lesson = await this.lessonRepository.findOne({

@@ -36,8 +36,11 @@ export class ContentController {
     }
 
     @MessagePattern('findOneCourse')
-    findOne(@Payload() id: string) {
-        return this.contentService.findOne(id);
+    findOne(@Payload() data: any) {
+        // Accept legacy payload as string id or object { id, hasAccess }
+        const id = typeof data === 'string' ? data : data?.id;
+        const hasAccess = typeof data === 'object' ? !!data?.hasAccess : false;
+        return this.contentService.findOneWithAccess(id, hasAccess);
     }
 
     @MessagePattern('createModule')

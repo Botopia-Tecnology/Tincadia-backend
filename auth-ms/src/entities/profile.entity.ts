@@ -50,4 +50,7 @@ export class Profile {
 
     @Column({ default: 'User', length: 50 })
     role: string;
+
+    @Column({ name: 'is_busy', default: false })
+    isBusy: boolean;
 }

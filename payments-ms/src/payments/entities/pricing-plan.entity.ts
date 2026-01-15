@@ -1,5 +1,10 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
+/**
+ * Read-only entity for obtaining plan prices
+ * The pricing_plans table is managed by content-ms
+ * DO NOT use synchronize with this entity - read only
+ */
 @Entity('pricing_plans')
 export class PricingPlan {
     @PrimaryGeneratedColumn('uuid')
@@ -11,29 +16,29 @@ export class PricingPlan {
     @Column({ nullable: true })
     type: string; // 'personal' | 'empresa'
 
+    @Column({ name: 'plan_type', nullable: true })
+    planType: string; // PaymentPlan enum value
+
     @Column({ name: 'price_monthly', nullable: true })
-    price_monthly: string;
+    priceMonthly: string;
 
     @Column({ name: 'price_annual', nullable: true })
-    price_annual: string;
+    priceAnnual: string;
 
     @Column({ name: 'price_monthly_cents', type: 'bigint', nullable: true })
-    price_monthly_cents: number;
+    priceMonthlyInCents: number;
 
     @Column({ name: 'price_annual_cents', type: 'bigint', nullable: true })
-    price_annual_cents: number;
+    priceAnnualInCents: number;
 
-    @Column({ name: 'plan_type', nullable: true })
-    plan_type: string;
-
-    @Column({ name: 'is_free', default: false })
-    is_free: boolean;
+    @Column({ name: 'is_free', nullable: true, default: false })
+    isFree: boolean;
 
     @Column({ type: 'text', nullable: true })
     description: string;
 
     @Column({ name: 'button_text', nullable: true })
-    button_text: string;
+    buttonText: string;
 
     @Column('jsonb', { default: [] })
     includes: string[];
@@ -42,7 +47,7 @@ export class PricingPlan {
     excludes: string[];
 
     @Column({ name: 'is_active', default: true })
-    is_active: boolean;
+    isActive: boolean;
 
     @Column({ default: 0 })
     order: number;

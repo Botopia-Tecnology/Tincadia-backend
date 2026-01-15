@@ -11,7 +11,7 @@ export class NotificationCategory {
     @Column()
     label: string; // Display name (e.g., 'Aviso Urgente')
 
-    @Column()
+    @Column({ default: '#3b82f6' })
     color: string; // UI Color (hex or tailwind class)
 
     @Column({ default: 'Bell' })

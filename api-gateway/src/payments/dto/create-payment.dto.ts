@@ -1,31 +1,70 @@
-import { IsNotEmpty, IsNumber, IsString, IsEnum, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsEnum, IsEmail, IsIn } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-export enum PaymentMethod {
-  CARD = 'card',
-  BANK_TRANSFER = 'bank_transfer',
-  CASH = 'cash',
+export enum PaymentPlan {
+    PERSONAL_FREE = 'personal_free',
+    PERSONAL_PREMIUM = 'personal_premium',
+    PERSONAL_CORPORATE = 'personal_corporate',
+    EMPRESA_FREE = 'empresa_free',
+    EMPRESA_BUSINESS = 'empresa_business',
+    EMPRESA_CORPORATE = 'empresa_corporate',
+    COURSE_ACCESS = 'course_access',
 }
 
-export class CreatePaymentDto {
-  @IsNumber()
-  @IsNotEmpty()
-  @Min(0.01)
-  amount: number;
+/**
+ * DTO para iniciar un pago
+ * 
+ * SEGURIDAD: El precio NO viene del frontend.
+ * Se determina en el backend basándose en planId y billingCycle.
+ */
+export class InitiatePaymentDto {
+    @ApiProperty({ description: 'ID del plan en la base de datos' })
+    @IsString()
+    @IsNotEmpty()
+    planId: string;
 
-  @IsString()
-  @IsNotEmpty()
-  currency: string;
+    @ApiProperty({ description: 'Tipo de plan', enum: PaymentPlan })
+    @IsEnum(PaymentPlan)
+    @IsNotEmpty()
+    planType: PaymentPlan;
 
-  @IsEnum(PaymentMethod)
-  @IsNotEmpty()
-  paymentMethod: PaymentMethod;
+    @ApiProperty({ description: 'Ciclo de facturación', enum: ['mensual', 'anual'] })
+    @IsIn(['mensual', 'anual'])
+    @IsNotEmpty()
+    billingCycle: 'mensual' | 'anual';
 
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
+    @ApiPropertyOptional({ description: 'Customer email' })
+    @IsEmail()
+    @IsOptional()
+    customerEmail?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  description: string;
+    @ApiPropertyOptional({ description: 'Customer full name' })
+    @IsString()
+    @IsOptional()
+    customerName?: string;
+
+    @ApiPropertyOptional({ description: 'Customer phone number' })
+    @IsString()
+    @IsOptional()
+    customerPhone?: string;
+
+    @ApiPropertyOptional({ description: 'Customer phone prefix', default: '+57' })
+    @IsString()
+    @IsOptional()
+    customerPhonePrefix?: string;
+
+    @ApiPropertyOptional({ description: 'Customer legal ID (CC, NIT, etc.)' })
+    @IsString()
+    @IsOptional()
+    customerLegalId?: string;
+
+    @ApiPropertyOptional({ description: 'Customer legal ID type (CC, CE, NIT, PP, TI, DNI, RG, OTHER)' })
+    @IsString()
+    @IsOptional()
+    customerLegalIdType?: string;
+
+    @ApiPropertyOptional({ description: 'Redirect URL after payment' })
+    @IsString()
+    @IsOptional()
+    redirectUrl?: string;
 }
-

@@ -63,8 +63,9 @@ export class ContentController {
 
     @Get('courses/:id')
     @ApiOperation({ summary: 'Get course by id' })
-    async findOne(@Param('id') id: string) {
-        return this.client.send('findOneCourse', id);
+    async findOne(@Param('id') id: string, @Query('hasAccess') hasAccess?: string) {
+        const paidAccess = hasAccess === 'true';
+        return this.client.send('findOneCourse', { id, hasAccess: paidAccess });
     }
 
     // --- Module ---
@@ -157,10 +158,10 @@ export class ContentController {
     }
     @Post('chat/media/url')
     @ApiOperation({ summary: 'Generate signed URL for private media' })
-    async generateSignedUrl(@Body() data: { publicId: string }) {
+    async generateSignedUrl(@Body() data: { publicId: string; resourceType?: 'image' | 'video' | 'raw' }) {
         return this.client.send('generateSignedUrl', {
             publicId: data.publicId,
-            resourceType: 'image' // Default to image, can be extended if needed
+            resourceType: data.resourceType || 'image'
         });
     }
 

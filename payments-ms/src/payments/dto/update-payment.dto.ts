@@ -1,5 +1,5 @@
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { PaymentStatus } from './create-payment.dto';
+import { PaymentStatus } from '../entities/payment.entity';
 
 export class UpdatePaymentDto {
   @IsEnum(PaymentStatus)

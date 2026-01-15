@@ -519,6 +519,14 @@ export class ChatService {
                 }
             }
 
+            // Filter out conversations that have no messages
+            // This prevents User B from seeing a conversation until User A sends a message
+            const conversationsWithMessages = allConversations.filter(conv =>
+                lastMessageMap.has(conv.id)
+            );
+
+            this.logger.log(`📋 Filtered to ${conversationsWithMessages.length} conversations with messages`);
+
             const { data: unreadCounts } = await supabase
                 .from('messages')
                 .select('conversation_id')
@@ -532,7 +540,7 @@ export class ChatService {
             }
 
             // 5. Build Final Result
-            const conversationsWithOther = allConversations.map(conv => {
+            const conversationsWithOther = conversationsWithMessages.map(conv => {
                 const isGroup = conv.type === 'group';
                 let otherUser = null;
 

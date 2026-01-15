@@ -5,6 +5,7 @@ import {
     ManyToOne,
     JoinColumn,
     CreateDateColumn,
+    UpdateDateColumn,
 } from 'typeorm';
 import { DocumentType } from './document-type.entity';
 
@@ -35,9 +36,21 @@ export class Profile {
     @Column({ name: 'push_token', nullable: true })
     pushToken: string;
 
+    @Column({ name: 'read_receipts_enabled', default: true })
+    readReceiptsEnabled: boolean;
+
+    @Column({ name: 'avatar_url', type: 'text', nullable: true })
+    avatarUrl: string;
+
+    @Column({ default: 'User' })
+    role: string;
+
+    @Column({ name: 'is_busy', default: false })
+    isBusy: boolean;
+
     @CreateDateColumn({ name: 'created_at', type: 'timestamp without time zone' })
     createdAt: Date;
 
-    @Column({ name: 'updated_at', type: 'timestamp without time zone', default: () => 'CURRENT_TIMESTAMP' })
+    @UpdateDateColumn({ name: 'updated_at', type: 'timestamp without time zone' })
     updatedAt: Date;
 }

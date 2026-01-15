@@ -21,7 +21,7 @@ import { LandingConfigModule } from './landing-config/landing-config.module';
           password: configService.get<string>('DB_PASSWORD'),
           database: configService.get<string>('DB_NAME'),
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
-          synchronize: true, // Auto-schema sync (careful in prod, good for dev)
+          synchronize: false, // Disabled - use SQL migrations in Supabase
           ssl: configService.get<string>('DB_HOST')?.includes('railway') ||
             configService.get<string>('DB_HOST')?.includes('supabase') ||
             configService.get<string>('DB_HOST')?.includes('supabase.co')

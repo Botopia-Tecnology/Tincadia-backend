@@ -1,38 +1,65 @@
-import { IsNotEmpty, IsNumber, IsString, IsEnum, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsEnum, IsEmail, IsIn } from 'class-validator';
 
-export enum PaymentMethod {
-  CARD = 'card',
-  BANK_TRANSFER = 'bank_transfer',
-  CASH = 'cash',
+export enum PaymentPlan {
+    PERSONAL_FREE = 'personal_free',
+    PERSONAL_PREMIUM = 'personal_premium',
+    PERSONAL_CORPORATE = 'personal_corporate',
+    EMPRESA_FREE = 'empresa_free',
+    EMPRESA_BUSINESS = 'empresa_business',
+    EMPRESA_CORPORATE = 'empresa_corporate',
+    COURSE_ACCESS = 'course_access',
 }
 
-export enum PaymentStatus {
-  PENDING = 'pending',
-  COMPLETED = 'completed',
-  FAILED = 'failed',
-  REFUNDED = 'refunded',
-}
+export type BillingCycle = 'mensual' | 'anual';
 
+/**
+ * DTO para iniciar un pago
+ * 
+ * SEGURIDAD: El precio NO viene del frontend.
+ * Se determina en el backend basándose en planId/planType y billingCycle.
+ */
 export class CreatePaymentDto {
-  @IsNumber()
-  @IsNotEmpty()
-  @Min(0.01)
-  amount: number;
+    @IsString()
+    @IsNotEmpty()
+    planId: string; // ID del plan en la tabla pricing_plans
 
-  @IsString()
-  @IsNotEmpty()
-  currency: string;
+    @IsEnum(PaymentPlan)
+    @IsNotEmpty()
+    planType: PaymentPlan;
 
-  @IsEnum(PaymentMethod)
-  @IsNotEmpty()
-  paymentMethod: PaymentMethod;
+    @IsIn(['mensual', 'anual'])
+    @IsNotEmpty()
+    billingCycle: BillingCycle;
 
-  @IsString()
-  @IsNotEmpty()
-  userId: string;
+    @IsString()
+    @IsOptional()
+    userId?: string; // Se obtiene del token JWT en el API Gateway
 
-  @IsString()
-  @IsNotEmpty()
-  description: string;
+    @IsEmail()
+    @IsOptional()
+    customerEmail?: string;
+
+    @IsString()
+    @IsOptional()
+    customerName?: string;
+
+    @IsString()
+    @IsOptional()
+    customerPhone?: string;
+
+    @IsString()
+    @IsOptional()
+    customerPhonePrefix?: string;
+
+    @IsString()
+    @IsOptional()
+    customerLegalId?: string;
+
+    @IsString()
+    @IsOptional()
+    customerLegalIdType?: string;
+
+    @IsString()
+    @IsOptional()
+    redirectUrl?: string;
 }
-

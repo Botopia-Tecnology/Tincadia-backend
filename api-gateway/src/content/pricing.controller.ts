@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Body, Param, Query, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Inject } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
@@ -31,5 +31,11 @@ export class PricingController {
     @ApiOperation({ summary: 'Update a pricing plan (Admin)' })
     async update(@Param('id') id: string, @Body() data: any) {
         return this.client.send('pricing.update', { id, data });
+    }
+
+    @Delete('plans/:id')
+    @ApiOperation({ summary: 'Delete a pricing plan (Admin)' })
+    async delete(@Param('id') id: string) {
+        return this.client.send('pricing.delete', id);
     }
 }
