@@ -9,8 +9,8 @@ import cloudinary.uploader
 from fastapi import FastAPI, HTTPException, UploadFile, File, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from lsc_engine import LSCEngine
-from lsc_streaming_predictor import LSCStreamingPredictor
+from lsc_engine import LSCEngine, MODEL_PATH, CONFIG_PATH
+from lsc_streaming_exacto import LSCStreamingPredictor
 from gtts import gTTS # Fixed capitalization
 import numpy as np
 
@@ -18,6 +18,21 @@ app = FastAPI()
 
 # Configuration
 LOGS_ENABLED = os.getenv("LOGS_ENABLED", "true").lower() == "true"
+
+@app.on_event("startup")
+async def startup_event():
+    print("🚀 [Startup] Iniciando microservicio Model-ms...")
+    try:
+        print("[Startup] Pre-cargando modelo COL-NUM-WORD-1101-2...")
+        # Forzar carga del singleton
+        model, labels = LSCEngine.get_model_and_labels()
+        if model is not None:
+            print(f"✅ [Startup] Modelo precargado exitosamente. Clases: {len(labels)}")
+        else:
+            print("❌ [Startup] Error: El modelo no se pudo precargar (es None)")
+    except Exception as e:
+        print(f"❌ [Startup Error] Fallo crítico cargando modelo: {e}")
+        traceback.print_exc()
 
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
@@ -58,13 +73,14 @@ async def _process_video_file(file: UploadFile) -> str:
         if not result:
             raise HTTPException(status_code=422, detail="No se pudo reconocer ninguna seña")
 
-        # "Letra_L" -> "L"
-        return result.replace("Letra_", "")
+        # Return the label as-is (COL-NUM-WORD model includes letters, numbers, colors, words)
+        return result
 
     except HTTPException:
         raise
     except Exception as e:
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
     finally:
         if video_path and os.path.exists(video_path):
@@ -93,11 +109,14 @@ async def predict_landmarks(body: LandmarksRequest):
         predictor = LSCEngine.get_predictor()
         if not predictor:
             raise HTTPException(status_code=500, detail="Modelo no cargado")
-            
-        result = predictor.predict_landmarks(body.data)
+        
+        # Aplicar la misma normalización que usa el evaluador
+        coords = np.array(body.data, dtype=np.float32)
+        result = predictor.predict_from_coords(coords.tolist())
         return result
     except Exception as e:
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/predict/audio")
@@ -135,7 +154,8 @@ async def predict_audio(request: Request, file: UploadFile = File(...)):
         }
 
     except Exception as e:
-        traceback.print_exc()
+        if LOGS_ENABLED:
+            traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error generating or uploading audio: {str(e)}")
     finally:
         if audio_path and os.path.exists(audio_path):
@@ -151,7 +171,6 @@ import socketio
 import time
 
 # Crear servidor Socket.IO asíncrono
-# cors_allowed_origins='*' para permitir conexiones desde cualquier lugar (dev)
 sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
 
 # Envolver la app FastAPI con Socket.IO
@@ -160,44 +179,35 @@ socket_app = socketio.ASGIApp(sio, app)
 # Diccionario para gestionar predictores por SID
 active_predictors = {}
 
-MODEL_PATH = "lsc_model_full_repaired.h5"
-LABELS_PATH = "lsc_labels.json"
-
-# ========== PRELOAD MODEL AT STARTUP ==========
-# Load TensorFlow model ONCE to avoid 200MB reload on every connection
-print("[*] Precargando modelo TensorFlow al iniciar servidor...")
-import tensorflow as tf
-tf.config.set_visible_devices([], 'GPU')  # Force CPU
-_shared_model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-with open(LABELS_PATH, 'r', encoding='utf-8') as f:
-    _shared_labels = json.load(f)
-print("[*] Modelo precargado exitosamente!")
-
 @sio.event
 async def connect(sid, environ):
-    log(f"[Socket.IO] Cliente conectado: {sid}")
+    log(f"🔌 [Socket.IO] Intento de conexión: {sid}")
     try:
-        # Use shared preloaded model instead of loading each time
-        from lsc_streaming_predictor import LSCStreamingPredictor
-        predictor = LSCStreamingPredictor.__new__(LSCStreamingPredictor)
-        predictor.model = _shared_model
-        predictor.use_tflite = False
-        predictor.interpreter = None
-        predictor.labels = _shared_labels
-        predictor.id_to_label = {int(k): v for k, v in _shared_labels.items()}
-        predictor.buffer_size = 30  # Reduced from 45 for faster response
-        from collections import deque
-        predictor.landmarks_buffer = deque(maxlen=30)
-        predictor.prediction_buffer = deque(maxlen=5)  # Reduced from 10
-        predictor.frame_count = 0
-        predictor.last_prediction = None
+        # Obtener predictor compartido (ya cargado en startup)
+        base_predictor = LSCEngine.get_predictor()
+        
+        if base_predictor is None:
+            log(f"❌ [Socket.IO Error] El predictor NO está listo. Intentando cargar...")
+            base_predictor = LSCEngine.get_predictor() # Reintento carga
+            if base_predictor is None:
+                log(f"❌ [Socket.IO Error] Fallo crítico: modelo inaccesible. Rechazando {sid}")
+                return False
+
+        # Inicializar predictor de streaming usando el predictor base compartido
+        log(f"[*] Inicializando sesión de streaming para {sid}...")
+        predictor = LSCStreamingPredictor(
+            base_predictor=base_predictor,
+            buffer_size=25  # Reducido de 35 a 25 para mayor agilidad
+        )
         
         active_predictors[sid] = predictor
-        await sio.emit('status', {'message': 'Connected to Python LSC Model'}, to=sid)
-        log(f"[Socket.IO] Predictor listo para {sid}")
+        await sio.emit('status', {'message': 'Connected to Python LSC Model (Optimal)'}, to=sid)
+        log(f"✅ [Socket.IO] Conexión aceptada para {sid}")
     except Exception as e:
-        log(f"[Socket.IO] Error initializing predictor for {sid}: {e}")
-        return False # Rechazar conexión
+        if LOGS_ENABLED:
+            print(f"❌ [Socket.IO Error] Excepción fatal en connect para {sid}: {e}")
+            traceback.print_exc()
+        return False
 
 @sio.event
 async def disconnect(sid):
@@ -207,29 +217,23 @@ async def disconnect(sid):
 
 @sio.on('landmarks')
 async def handle_landmarks(sid, data):
-    # data esperaba ser { "data": [numbers...] } o directamente la lista
-    # Desde Gateway (Node socket.io-client) enviaremos un objeto probablemente.
-    
     try:
         predictor = active_predictors.get(sid)
         if not predictor:
             return
 
-        # Si data es dict: data['data'], si es lista directa...
+        # Extraer datos de landmarks
         landmarks_data = data.get('data') if isinstance(data, dict) else data
         
         if not landmarks_data or len(landmarks_data) != 226:
-            # Ignorar datos corruptos silenciosamente o loggear
             return
 
         landmarks = np.array(landmarks_data, dtype=np.float32)
         
-        # Predecir
+        # Predecir usando buffer de streaming (452 features)
         result = predictor.add_landmarks(landmarks)
         
         if result:
-             # Emitir evento 'prediction' de vuelta al Gateway
-             # Gateway luego lo retransmitirá al frontend
             await sio.emit('prediction', {
                 "word": result['word'],
                 "confidence": float(result['confidence']),
@@ -241,7 +245,7 @@ async def handle_landmarks(sid, data):
                 log(f"[Socket.IO] Prediction for {sid}: {result['word']}")
 
     except Exception as e:
-        log(f"[Socket.IO] Error processing landmarks: {e}")
+        log(f"[Socket.IO Error] Processing landmarks: {e}")
 
 @sio.on('reset')
 async def handle_reset(sid):
@@ -252,7 +256,6 @@ async def handle_reset(sid):
 
 if __name__ == "__main__":
     import uvicorn
-    # Importante: Correr socket_app, no app
-    # Host 0.0.0.0 es necesario para Docker/Railway
     port = int(os.getenv("PORT", 8000))
+    # Importante: Correr socket_app, no app
     uvicorn.run(socket_app, host="0.0.0.0", port=port)
