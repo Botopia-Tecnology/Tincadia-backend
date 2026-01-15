@@ -25,6 +25,9 @@ export class Payment {
     @Column({ length: 50 })
     plan: string;
 
+    @Column({ name: 'plan_id', type: 'uuid', nullable: true })
+    planId: string;
+
     @Column({ length: 20, default: PaymentStatus.PENDING })
     status: PaymentStatus;
 
