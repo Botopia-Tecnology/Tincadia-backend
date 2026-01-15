@@ -29,6 +29,26 @@ export class Course {
     @Column({ default: false })
     isPublished: boolean;
 
+    @Column({
+        name: 'access_scope',
+        type: 'varchar',
+        length: 20,
+        default: 'free',
+        comment: 'Defines access control scope: course | module | lesson'
+    })
+    accessScope: string;
+
+    @Column({ name: 'is_paid', default: false, comment: 'If true and accessScope=course, entire course is paywalled' })
+    isPaid: boolean;
+
+    @Column({
+        name: 'preview_limit',
+        type: 'int',
+        nullable: true,
+        comment: 'How many lessons can be free previews (e.g., 3-4). Optional.'
+    })
+    previewLimit: number | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

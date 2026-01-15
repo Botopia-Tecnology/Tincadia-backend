@@ -1,5 +1,6 @@
-import { IsOptional, IsString, IsEnum } from 'class-validator';
-import { PaymentStatus } from './create-payment.dto';
+import { IsOptional, IsString, IsEnum, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
+import { PaymentStatus } from '../entities/payment.entity';
 
 export class PaymentQueryDto {
   @IsString()
@@ -17,5 +18,15 @@ export class PaymentQueryDto {
   @IsString()
   @IsOptional()
   endDate?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  limit?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  page?: number;
 }
 

@@ -26,6 +26,9 @@ export class Module {
     @Column({ default: 0 })
     order: number;
 
+@Column({ name: 'is_paid', default: false, comment: 'Marks whole module as paid when course accessScope=module' })
+isPaid: boolean;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

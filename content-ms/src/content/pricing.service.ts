@@ -35,6 +35,12 @@ export class PricingService {
         return this.pricingRepo.save(plan);
     }
 
+    async delete(id: string) {
+        const plan = await this.findOne(id);
+        await this.pricingRepo.remove(plan);
+        return { deleted: true, id };
+    }
+
     async seedDefaults() {
         const count = await this.pricingRepo.count();
         if (count > 0) return;

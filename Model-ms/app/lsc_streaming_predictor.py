@@ -93,12 +93,13 @@ class LSCStreamingPredictor:
         # Añadir al buffer (guardamos solo el normalizado base para el cálculo de delta del siguiente frame)
         self.landmarks_buffer.append(norm_coords)
         
-        # Si el buffer está llenándose (opcional, para evitar ruido muy inicial)
+        # Si el buffer está llenándose, regresamos un estado ligero pero no bloqueamos
+        # Enviar un estado de bootstrap ayuda al frontend sin frenar la primera predicción.
         buffer_fill = len(self.landmarks_buffer) / self.buffer_size
-        if buffer_fill < 0.1: # Muy bajo para ser responsivo rápido
+        if len(self.landmarks_buffer) < 2:
             return {
-                'status': 'filling_buffer', 
-                'word': None, 
+                'status': 'bootstrapping',
+                'word': None,
                 'confidence': 0,
                 'buffer_fill': buffer_fill
             }
@@ -120,6 +121,7 @@ class LSCStreamingPredictor:
             
             # 6. Suavizado (Smoothing) con Voto Mayoritario
             final_word = None
+            stabilized = False
             if len(self.prediction_buffer) >= 3:
                 # Obtener la palabra más común en las últimas N predicciones
                 counts = Counter(self.prediction_buffer)
@@ -128,12 +130,18 @@ class LSCStreamingPredictor:
                 # Si la más común aparece al menos el 50% de las veces en el buffer
                 if most_common[1] >= len(self.prediction_buffer) / 2:
                     final_word = most_common[0]
+                    stabilized = True
+            
+            # 7. Para reducir latencia, usa la predicción provisional aunque no esté estabilizada
+            if not final_word and predicted_word:
+                final_word = predicted_word
             
             return {
-                'status': 'predicting' if final_word else 'uncertain',
+                'status': 'predicting' if stabilized else ('provisional' if final_word else 'uncertain'),
                 'word': final_word,
                 'confidence': confidence,
-                'buffer_fill': buffer_fill
+                'buffer_fill': buffer_fill,
+                'raw_word': predicted_word
             }
             
         except Exception as e:

@@ -28,6 +28,12 @@ export class Lesson {
     @Column({ default: 0 })
     order: number;
 
+@Column({ name: 'is_paid', default: false, comment: 'If true (and accessScope=lesson), user must pay to view video/content' })
+isPaid: boolean;
+
+@Column({ name: 'is_free_preview', default: false, comment: 'If true, lesson remains free even when course is paid' })
+isFreePreview: boolean;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

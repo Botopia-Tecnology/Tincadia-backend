@@ -28,4 +28,9 @@ export class PricingController {
     async update(@Payload() payload: { id: string, data: Partial<PricingPlan> }) {
         return this.pricingService.update(payload.id, payload.data);
     }
+
+    @MessagePattern('pricing.delete')
+    async delete(@Payload() id: string) {
+        return this.pricingService.delete(id);
+    }
 }

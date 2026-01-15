@@ -10,7 +10,7 @@ import { PaymentsService } from './payments.service';
         name: 'PAYMENTS_SERVICE',
         transport: Transport.TCP,
         options: {
-          host: process.env.paymentsHost || 'localhost',
+          host: process.env.paymentsHost || '127.0.0.1',
           port: parseInt(process.env.paymentsPort || '3003'),
         },
       },
