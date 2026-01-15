@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './entities/payment.entity';
 import { PricingPlan } from './entities/pricing-plan.entity';
+import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { PaymentQueryDto } from './dto/payment-query.dto';
@@ -19,9 +20,11 @@ export class PaymentsService {
         private readonly paymentRepository: Repository<Payment>,
         @InjectRepository(PricingPlan)
         private readonly pricingPlanRepository: Repository<PricingPlan>,
+        @InjectRepository(Subscription)
+        private readonly subscriptionRepository: Repository<Subscription>,
         private readonly wompiService: WompiService,
         private readonly configService: ConfigService,
-    ) {}
+    ) { }
 
     /**
      * Inicia un nuevo pago y devuelve la configuración del widget de Wompi
@@ -70,6 +73,7 @@ export class PaymentsService {
             amountInCents,
             currency: 'COP',
             plan: data.planType,
+            planId: data.planId, // Store plan ID for subscription creation
             status: PaymentStatus.PENDING,
             reference,
             customerEmail: data.customerEmail,
@@ -149,7 +153,7 @@ export class PaymentsService {
         payment.wompiTransactionId = transaction.id;
         payment.status = transaction.status as PaymentStatus;
         payment.paymentMethodType = transaction.payment_method_type || '';
-        
+
         // Actualizar datos del cliente si vienen de Wompi
         if (transaction.customer_email) {
             payment.customerEmail = transaction.customer_email;
@@ -160,7 +164,7 @@ export class PaymentsService {
             payment.customerLegalId = transaction.customer_data.legal_id || payment.customerLegalId;
             payment.customerLegalIdType = transaction.customer_data.legal_id_type || payment.customerLegalIdType;
         }
-        
+
         // Marcar como finalizado
         if (['APPROVED', 'DECLINED', 'VOIDED', 'ERROR'].includes(transaction.status)) {
             payment.finalizedAt = transaction.finalized_at ? new Date(transaction.finalized_at) : new Date();
@@ -170,7 +174,76 @@ export class PaymentsService {
 
         this.logger.log(`Payment ${payment.reference} updated to status: ${payment.status}`);
 
+        // If payment is APPROVED and uses CARD, create subscription for recurring payments
+        if (transaction.status === 'APPROVED' && transaction.payment_method_type === 'CARD') {
+            await this.createSubscriptionFromPayment(payment, transaction);
+        }
+
         return { received: true };
+    }
+
+    /**
+     * Create subscription after successful card payment
+     */
+    private async createSubscriptionFromPayment(payment: Payment, transaction: any) {
+        try {
+            // Check if user already has active subscription
+            const existing = await this.subscriptionRepository.findOne({
+                where: { userId: payment.userId, status: 'active' }
+            });
+
+            if (existing) {
+                // Update existing subscription with new payment source
+                existing.paymentSourceId = transaction.payment_source_id;
+                existing.lastPaymentReference = payment.reference;
+                existing.failedChargeAttempts = 0;
+                await this.subscriptionRepository.save(existing);
+                this.logger.log(`Updated existing subscription ${existing.id} with new payment source`);
+                return;
+            }
+
+            // Get billing interval from plan configuration
+            let billingIntervalMonths = 1; // Default to monthly
+            if (payment.planId) {
+                const plan = await this.pricingPlanRepository.findOne({ where: { id: payment.planId } });
+                if (plan?.billingIntervalMonths) {
+                    billingIntervalMonths = plan.billingIntervalMonths;
+                }
+            }
+
+            // Calculate period dates based on plan's billing interval
+            const now = new Date();
+            const periodEnd = new Date(now);
+            periodEnd.setMonth(periodEnd.getMonth() + billingIntervalMonths);
+
+            // Determine billing cycle label
+            const billingCycle = billingIntervalMonths >= 12 ? 'annual' : 'monthly';
+
+            // Extract card info if available
+            const cardLastFour = transaction.payment_method?.extra?.last_four;
+            const cardBrand = transaction.payment_method?.extra?.brand;
+
+            const subscription = this.subscriptionRepository.create({
+                userId: payment.userId,
+                planId: payment.planId,
+                paymentSourceId: transaction.payment_source_id,
+                cardLastFour,
+                cardBrand,
+                status: 'active',
+                billingCycle,
+                amountCents: payment.amountInCents,
+                currentPeriodStart: now,
+                currentPeriodEnd: periodEnd,
+                nextChargeAt: periodEnd,
+                lastPaymentReference: payment.reference,
+            });
+
+            await this.subscriptionRepository.save(subscription);
+            this.logger.log(`✅ Created subscription ${subscription.id} for user ${payment.userId} with ${billingIntervalMonths} month interval`);
+        } catch (error) {
+            this.logger.error(`Failed to create subscription for payment ${payment.reference}:`, error);
+            // Don't throw - payment was successful, subscription creation is secondary
+        }
     }
 
     /**
@@ -178,10 +251,10 @@ export class PaymentsService {
      */
     async verifyPaymentStatus(transactionId: string) {
         const wompiTransaction = await this.wompiService.getTransaction(transactionId);
-        
+
         if (wompiTransaction?.data) {
             const txData = wompiTransaction.data;
-            
+
             // Actualizar en nuestra BD
             const payment = await this.paymentRepository.findOne({
                 where: { reference: txData.reference }
@@ -192,7 +265,7 @@ export class PaymentsService {
                 payment.wompiTransactionId = txData.id;
                 payment.status = txData.status as PaymentStatus;
                 payment.paymentMethodType = txData.payment_method_type || '';
-                
+
                 // Actualizar datos del cliente si vienen de Wompi
                 if (txData.customer_email) {
                     payment.customerEmail = txData.customer_email;
@@ -203,7 +276,7 @@ export class PaymentsService {
                     payment.customerLegalId = txData.customer_data.legal_id || payment.customerLegalId;
                     payment.customerLegalIdType = txData.customer_data.legal_id_type || payment.customerLegalIdType;
                 }
-                
+
                 // Marcar como finalizado
                 if (['APPROVED', 'DECLINED', 'VOIDED', 'ERROR'].includes(txData.status)) {
                     payment.finalizedAt = txData.finalized_at ? new Date(txData.finalized_at) : new Date();

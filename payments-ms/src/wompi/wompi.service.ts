@@ -49,8 +49,8 @@ export class WompiService {
         this.publicKey = this.configService.get<string>('WOMPI_PUBLIC_KEY', '');
         this.integritySecret = this.configService.get<string>('WOMPI_INTEGRITY_SECRET', '');
         this.eventsSecret = this.configService.get<string>('WOMPI_EVENTS_SECRET', '');
-        
-        this.baseUrl = this.isSandbox 
+
+        this.baseUrl = this.isSandbox
             ? 'https://sandbox.wompi.co/v1'
             : 'https://production.wompi.co/v1';
     }
@@ -66,15 +66,15 @@ export class WompiService {
         expirationTime?: string
     ): string {
         let concatenated = `${reference}${amountInCents}${currency}`;
-        
+
         if (expirationTime) {
             concatenated += expirationTime;
         }
-        
+
         concatenated += this.integritySecret;
 
         const signature = crypto.createHash('sha256').update(concatenated).digest('hex');
-        
+
         this.logger.log(`🔐 Generating signature:`);
         this.logger.log(`   Reference: ${reference}`);
         this.logger.log(`   Amount: ${amountInCents}`);
@@ -142,7 +142,7 @@ export class WompiService {
     ): boolean {
         // Concatenar los valores de las propiedades en orden
         let concatenated = '';
-        
+
         for (const prop of properties) {
             const keys = prop.split('.');
             let value = eventData;
@@ -209,4 +209,95 @@ export class WompiService {
     getPublicKey(): string {
         return this.publicKey;
     }
+
+    /**
+     * Get private key for server-side operations
+     */
+    private getPrivateKey(): string {
+        return this.configService.get<string>('WOMPI_PRIVATE_KEY', '');
+    }
+
+    /**
+     * Create a payment source (tokenize a card) for recurring payments
+     * This requires a card token from the frontend widget
+     */
+    async createPaymentSource(
+        cardToken: string,
+        customerEmail: string,
+        acceptanceToken: string
+    ): Promise<any> {
+        try {
+            const response = await fetch(`${this.baseUrl}/payment_sources`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.getPrivateKey()}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    type: 'CARD',
+                    token: cardToken,
+                    customer_email: customerEmail,
+                    acceptance_token: acceptanceToken,
+                })
+            });
+
+            const data = await response.json();
+            this.logger.log(`💳 Payment source created: ${data.data?.id}`);
+            return data;
+        } catch (error) {
+            this.logger.error('Error creating payment source:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Charge a stored payment source (recurring payment)
+     */
+    async chargeWithPaymentSource(
+        paymentSourceId: string,
+        amountInCents: number,
+        reference: string,
+        customerEmail: string
+    ): Promise<any> {
+        try {
+            this.logger.log(`💳 Charging payment source ${paymentSourceId} for ${amountInCents} cents`);
+
+            const response = await fetch(`${this.baseUrl}/transactions`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${this.getPrivateKey()}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    amount_in_cents: amountInCents,
+                    currency: 'COP',
+                    customer_email: customerEmail,
+                    payment_source_id: paymentSourceId,
+                    reference: reference,
+                })
+            });
+
+            const data = await response.json();
+            this.logger.log(`💳 Charge result: ${data.data?.status}`);
+            return data;
+        } catch (error) {
+            this.logger.error('Error charging payment source:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Get acceptance token for terms and conditions
+     */
+    async getAcceptanceToken(): Promise<string> {
+        try {
+            const response = await fetch(`${this.baseUrl}/merchants/${this.publicKey}`);
+            const data = await response.json();
+            return data.data?.presigned_acceptance?.acceptance_token || '';
+        } catch (error) {
+            this.logger.error('Error getting acceptance token:', error);
+            throw error;
+        }
+    }
 }
+

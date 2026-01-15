@@ -44,6 +44,10 @@ export class PricingPlan {
     @Column({ name: 'is_active', default: true })
     is_active: boolean;
 
+    // Billing interval in months: 1=monthly, 2=bimonthly, 3=quarterly, 6=semiannual, 12=annual
+    @Column({ name: 'billing_interval_months', type: 'int', default: 1 })
+    billing_interval_months: number;
+
     @Column({ default: 0 })
     order: number;
 }
