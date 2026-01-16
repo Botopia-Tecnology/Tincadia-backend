@@ -238,7 +238,9 @@ async def handle_landmarks(sid, data):
                 "word": result['word'],
                 "confidence": float(result['confidence']),
                 "buffer_fill": float(result['buffer_fill']),
-                "status": result['status']
+                "status": result['status'],
+                "context": result.get('current_context'),
+                "context_changed": result.get('context_changed', False)
             }, to=sid)
             
             if LOGS_ENABLED and result['word']:
@@ -253,6 +255,21 @@ async def handle_reset(sid):
         active_predictors[sid].reset_buffer()
         await sio.emit('reset_ack', {'message': 'Buffer cleared'}, to=sid)
         log(f"[Socket.IO] Buffer reset for {sid}")
+
+@sio.on('set_context')
+async def handle_set_context(sid, data):
+    try:
+        predictor = active_predictors.get(sid)
+        if not predictor:
+            return
+            
+        context = data.get('context') if isinstance(data, dict) else data
+        predictor.set_context(context)
+        
+        await sio.emit('context_ack', {'status': 'ok', 'current_context': context}, to=sid)
+        log(f"[Socket.IO] Context set to {context} for {sid}")
+    except Exception as e:
+        log(f"[Socket.IO Error] Setting context: {e}")
 
 if __name__ == "__main__":
     import uvicorn

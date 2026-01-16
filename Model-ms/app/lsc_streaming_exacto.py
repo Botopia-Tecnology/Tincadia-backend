@@ -48,11 +48,76 @@ class LSCStreamingExactoPredictor:
         # Buffer para predicciones (suavizado)
         self.prediction_buffer = deque(maxlen=10)  # Últimas 10 predicciones
         
-        # Estado
-        self.frame_count = 0
-        self.last_prediction = None
+        # Contexto y pesos
+        self.current_context = None
+        self.context_weights = {
+            "Colores": ["Amarillo", "Azul", "Blanco", "Café", "Gris", "Morado", "Naranja", "Negro", "Rojo", "Rosado", "Verde"],
+            "Numeros": ["Uno", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+            "Letras": [f"Letra_{c}" for c in "ABCDEFGHIJKLMNÑOPQRSTUVWXY"],
+            "Saludos": ["Hola", "Chao", "BIENVENIDO", "Buenas-noches", "Buenas-tardes", "Buenos-dias", "COMO-ESTA", "CON-GUSTO", "Gracias", "De-nada", "PERMISO", "Perdon", "Por-favor"]
+        }
+        
+        # Historial para inferencia automática
+        self.word_history = deque(maxlen=5)
+        self.auto_context_enabled = True
         
         log(f"✅ Predictor de streaming listo (buffer: {buffer_size})")
+
+    def set_context(self, context_name: Optional[str], manual: bool = True):
+        """Establece el contexto actual. Si es manual, desactiva la inferencia automática temporalmente."""
+        if manual and context_name is not None:
+            self.auto_context_enabled = False
+        elif manual and context_name is None:
+            self.auto_context_enabled = True
+
+        if context_name in self.context_weights or context_name is None:
+            self.current_context = context_name
+            log(f"🎯 Contexto {'(MANUAL)' if manual else '(AUTO)'} cambiado a: {context_name}")
+        else:
+            log(f"⚠️ Contexto desconocido: {context_name}")
+
+    def _infer_context_automatic(self, last_word: str):
+        """Infiere el contexto basado en la última palabra y el historial."""
+        if not self.auto_context_enabled:
+            return
+
+        # 1. Búsqueda directa por categoría
+        new_context = None
+        for ctx, words in self.context_weights.items():
+            if last_word in words:
+                new_context = ctx
+                break
+        
+        # 2. Si se encontró una categoría clara, cambiar
+        if new_context and new_context != self.current_context:
+            self.set_context(new_context, manual=False)
+            return True
+        
+        return False
+
+    def _apply_context_boost(self, probabilities: list) -> Tuple[int, float]:
+        """Aplica un refuerzo a las probabilidades según el contexto actual."""
+        if not self.current_context:
+            idx = np.argmax(probabilities)
+            return idx, probabilities[idx]
+
+        boosted_probs = np.array(probabilities).copy()
+        target_labels = self.context_weights.get(self.current_context, [])
+        
+        # Obtener mapeo de etiquetas del predictor
+        classes_map = self.exacto_predictor.config["classes"]
+        
+        for idx_str, label in classes_map.items():
+            idx = int(idx_str)
+            if label in target_labels:
+                # Boost por un factor (ej. 1.5) para favorecer el contexto
+                boosted_probs[idx] *= 1.8
+        
+        # Volver a normalizar para que sumen 1 (opcional, pero util para confianza real)
+        boosted_probs = boosted_probs / np.sum(boosted_probs)
+        
+        new_idx = np.argmax(boosted_probs)
+        return new_idx, boosted_probs[new_idx]
 
     def add_landmarks(self, landmarks: np.ndarray) -> Optional[Dict]:
         """
@@ -80,10 +145,10 @@ class LSCStreamingExactoPredictor:
                 'buffer_fill': buffer_fill
             }
 
-        # Predecir usando landmarks actuales (sin delta para ABC-1101)
+        # Predecir usando landmarks actuales (con probabilidades para contexto)
         try:
-            # Usar predictor exacto directamente
-            result = self.exacto_predictor.predict_from_coords(landmarks.tolist())
+            # Usar predictor exacto pidiendo todas las probabilidades
+            result = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
             
             if result['status'] != 'ok':
                 return {
@@ -93,8 +158,13 @@ class LSCStreamingExactoPredictor:
                     'buffer_fill': buffer_fill
                 }
             
-            confidence = result['confidence']
-            predicted_word = result['word']
+            # Aplicar lógica de contexto si existe
+            if self.current_context:
+                predicted_idx, confidence = self._apply_context_boost(result['probabilities'])
+                predicted_word = self.exacto_predictor.config["classes"].get(str(predicted_idx), f"Clase_{predicted_idx}")
+            else:
+                confidence = result['confidence']
+                predicted_word = result['word']
             
             # Filtrar por confianza
             if confidence >= 0.4:
@@ -112,8 +182,13 @@ class LSCStreamingExactoPredictor:
                     final_word = most_common[0]
             
             # Determinar estatus
+            context_changed = False
             if final_word:
                 status = 'predicting'
+                # Inferencia automática cuando la palabra se estabiliza y es nueva
+                if not self.word_history or self.word_history[-1] != final_word:
+                    self.word_history.append(final_word)
+                    context_changed = self._infer_context_automatic(final_word)
             elif buffer_fill > 0.05:
                 status = 'processing'
             else:
@@ -123,7 +198,9 @@ class LSCStreamingExactoPredictor:
                 'status': status,
                 'word': final_word,
                 'confidence': confidence,
-                'buffer_fill': buffer_fill
+                'buffer_fill': buffer_fill,
+                'current_context': self.current_context,
+                'context_changed': context_changed
             }
             
         except Exception as e:
