@@ -161,6 +161,13 @@ export class ModelService {
         }
     }
 
+    setContext(clientId: string, context: string | null) {
+        const pythonSocket = this.pythonSessions.get(clientId);
+        if (pythonSocket) {
+            pythonSocket.emit('set_context', { context });
+        }
+    }
+
     private async ensureServiceIsRunning() {
 
         if (await this.isServiceReachable()) {

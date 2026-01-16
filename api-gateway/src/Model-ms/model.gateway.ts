@@ -61,4 +61,12 @@ export class ModelGateway implements OnGatewayConnection, OnGatewayDisconnect {
     handleReset(@ConnectedSocket() client: Socket) {
         this.modelService.resetSession(client.id);
     }
+
+    @SubscribeMessage('set_context')
+    handleSetContext(
+        @MessageBody() data: { context: string | null },
+        @ConnectedSocket() client: Socket,
+    ) {
+        this.modelService.setContext(client.id, data.context);
+    }
 }
