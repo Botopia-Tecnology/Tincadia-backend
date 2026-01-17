@@ -157,16 +157,55 @@ export class AuthService {
 
       // Check if profile exists, if not create one
       let profile = await this.profileService.findById(authData.user.id);
+      const metadata = authData.user.user_metadata || {};
+
+      // Helper to extract names
+      const extractNames = (meta: any) => {
+        let first = '';
+        let last = '';
+        if (meta.given_name) {
+          first = meta.given_name;
+          last = meta.family_name || '';
+        } else if (meta.full_name) {
+          const parts = meta.full_name.split(' ');
+          first = parts[0] || '';
+          last = parts.slice(1).join(' ') || '';
+        } else if (meta.name) {
+          const parts = meta.name.split(' ');
+          first = parts[0] || '';
+          last = parts.slice(1).join(' ') || '';
+        }
+        // Fallback to email part if still empty
+        if (!first && !last && authData.user.email) {
+          first = authData.user.email.split('@')[0];
+        }
+        return { firstName: first, lastName: last };
+      };
 
       if (!profile) {
-        const metadata = authData.user.user_metadata || {};
+        const { firstName, lastName } = extractNames(metadata);
         profile = await this.profileService.create({
           id: authData.user.id,
-          firstName: metadata.full_name?.split(' ')[0] || metadata.name?.split(' ')[0] || '',
-          lastName: metadata.full_name?.split(' ').slice(1).join(' ') || metadata.name?.split(' ').slice(1).join(' ') || '',
+          firstName,
+          lastName,
           documentNumber: '',
           phone: '',
         });
+      } else {
+        // Self-healing: If profile exists but names are empty, try to update them
+        if (!profile.firstName || !profile.lastName) {
+          const { firstName, lastName } = extractNames(metadata);
+          if (firstName || lastName) {
+            const updateData: any = {};
+            if (!profile.firstName && firstName) updateData.firstName = firstName;
+            if (!profile.lastName && lastName) updateData.lastName = lastName;
+
+            if (Object.keys(updateData).length > 0) {
+              profile = await this.profileService.update(profile.id, updateData);
+              this.logger.log(`Self-healed missing names for user ${profile.id}`);
+            }
+          }
+        }
       }
 
       const token = this.tokenService.generateToken({ id: authData.user.id, email: authData.user.email });
@@ -539,5 +578,22 @@ export class AuthService {
     }
 
     return { success: true };
+  }
+
+  async updateRole(userId: string, role: string) {
+    const supabase = this.supabaseService.getAdminClient();
+
+    // Update Role in profiles table
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role })
+      .eq('id', userId);
+
+    if (error) {
+      this.logger.error(`Error updating role for user ${userId}: ${error.message}`);
+      throw new BadRequestException('Error actualizando rol de usuario');
+    }
+
+    return { success: true, userId, role };
   }
 }

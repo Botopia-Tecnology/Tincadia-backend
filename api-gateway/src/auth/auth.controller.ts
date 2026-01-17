@@ -386,5 +386,14 @@ export class AuthController {
   promoteToInterpreter(@Body() body: { email: string }) {
     return this.client.send('promote_to_interpreter', body);
   }
+
+  @Post('users/:userId/role')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Actualizar rol de usuario (Admin)' })
+  @ApiBody({ schema: { type: 'object', properties: { role: { type: 'string', enum: ['User', 'Admin', 'Interpreter'] } } } })
+  @ApiResponse({ status: 200, description: 'Rol actualizado exitosamente' })
+  updateUserRole(@Param('userId') userId: string, @Body() body: { role: string }) {
+    return this.client.send('update_role', { userId, role: body.role });
+  }
 }
 

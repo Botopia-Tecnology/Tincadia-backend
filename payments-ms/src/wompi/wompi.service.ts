@@ -174,9 +174,18 @@ export class WompiService {
      */
     async getTransaction(transactionId: string): Promise<any> {
         try {
-            const response = await fetch(`${this.baseUrl}/transactions/${transactionId}`);
+            const url = `${this.baseUrl}/transactions/${transactionId}`;
+            this.logger.log(`Fetching transaction from: ${url}`);
+
+            const response = await fetch(url);
+
+            if (response.status === 404) {
+                this.logger.warn(`Transaction ${transactionId} not found in Wompi (${this.baseUrl})`);
+                return null;
+            }
+
             if (!response.ok) {
-                throw new Error(`Failed to fetch transaction: ${response.statusText}`);
+                throw new Error(`Failed to fetch transaction: ${response.status} ${response.statusText}`);
             }
             return await response.json();
         } catch (error) {
@@ -227,6 +236,7 @@ export class WompiService {
         acceptanceToken: string
     ): Promise<any> {
         try {
+            this.logger.log(`Creating Payment Source with Token: ${cardToken.substring(0, 10)}...`);
             const response = await fetch(`${this.baseUrl}/payment_sources`, {
                 method: 'POST',
                 headers: {
@@ -242,12 +252,58 @@ export class WompiService {
             });
 
             const data = await response.json();
-            this.logger.log(`💳 Payment source created: ${data.data?.id}`);
+
+            if (!response.ok || data.error) {
+                this.logger.error(`❌ Error creating payment source: ${JSON.stringify(data, null, 2)}`);
+            } else {
+                this.logger.log(`💳 Payment source created: ${data.data?.id}`);
+            }
             return data;
         } catch (error) {
             this.logger.error('Error creating payment source:', error);
             throw error;
         }
+    }
+
+    /**
+     * Poll `GET /v1/payment_sources/{id}` until status is 'AVAILABLE'.
+     * Max retries: 5, Interval: 1s.
+     */
+    async waitForPaymentSourceAvailable(paymentSourceId: string): Promise<void> {
+        let attempts = 0;
+        const maxAttempts = 10;
+        const intervalInMs = 1500;
+
+        while (attempts < maxAttempts) {
+            attempts++;
+            try {
+                this.logger.log(`Polling payment source ${paymentSourceId} status (Attempt ${attempts}/${maxAttempts})...`);
+                const response = await fetch(`${this.baseUrl}/payment_sources/${paymentSourceId}`, {
+                    headers: { 'Authorization': `Bearer ${this.getPrivateKey()}` }
+                });
+                const data = await response.json();
+
+                const status = data.data?.status;
+                this.logger.log(`Payment source ${paymentSourceId} status: ${status}`);
+
+                if (status === 'AVAILABLE') {
+                    return;
+                }
+
+                if (status === 'VOIDED' || status === 'ERROR') {
+                    throw new Error(`Payment source creation failed with status: ${status}`);
+                }
+
+                // If PROCESSING, wait and retry
+                await new Promise(resolve => setTimeout(resolve, intervalInMs));
+
+            } catch (error) {
+                this.logger.error(`Error checking payment source status: ${error}`);
+                if (attempts >= maxAttempts) throw error;
+            }
+        }
+
+        throw new Error(`Payment source ${paymentSourceId} did not become AVAILABLE after ${maxAttempts} attempts`);
     }
 
     /**
@@ -257,10 +313,18 @@ export class WompiService {
         paymentSourceId: string,
         amountInCents: number,
         reference: string,
-        customerEmail: string
+        customerEmail: string,
+        installments: number = 1
     ): Promise<any> {
         try {
-            this.logger.log(`💳 Charging payment source ${paymentSourceId} for ${amountInCents} cents`);
+            this.logger.log(`💳 Charging payment source ${paymentSourceId} for ${amountInCents} cents (${installments} cuotas)`);
+
+            // Generate signature for the transaction
+            const signature = this.generateIntegritySignature(
+                reference,
+                Number(amountInCents),
+                'COP' // Currency is hardcoded to COP in the body as well
+            );
 
             const response = await fetch(`${this.baseUrl}/transactions`, {
                 method: 'POST',
@@ -269,16 +333,25 @@ export class WompiService {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    amount_in_cents: amountInCents,
+                    amount_in_cents: Number(amountInCents),
                     currency: 'COP',
                     customer_email: customerEmail,
                     payment_source_id: paymentSourceId,
                     reference: reference,
+                    payment_method: {
+                        installments: Number(installments)
+                    },
+                    signature // Added integrity signature
                 })
             });
 
             const data = await response.json();
-            this.logger.log(`💳 Charge result: ${data.data?.status}`);
+
+            if (!response.ok || data.error) {
+                this.logger.error(`❌ Error charging source: ${JSON.stringify(data, null, 2)}`);
+            } else {
+                this.logger.log(`💳 Charge result: ${data.data?.status}`);
+            }
             return data;
         } catch (error) {
             this.logger.error('Error charging payment source:', error);

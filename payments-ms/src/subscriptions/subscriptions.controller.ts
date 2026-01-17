@@ -1,61 +1,66 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
+import { MessagePattern, Payload } from '@nestjs/microservices';
 import { SubscriptionsService } from './subscriptions.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 
-@Controller('subscriptions')
+@Controller()
 export class SubscriptionsController {
     constructor(private readonly subscriptionsService: SubscriptionsService) { }
 
-    @Post()
-    create(@Body() dto: CreateSubscriptionDto) {
+    @MessagePattern('subscriptions.create')
+    create(@Payload() dto: CreateSubscriptionDto) {
         return this.subscriptionsService.create(dto);
     }
 
-    @Get('user/:userId')
-    findByUser(@Param('userId') userId: string) {
-        return this.subscriptionsService.findByUserId(userId);
+    @MessagePattern('subscriptions.findAll')
+    findAll(@Payload() query: any) {
+        return this.subscriptionsService.findAll(query || {});
     }
 
-    @Get('user/:userId/status')
-    getStatus(@Param('userId') userId: string) {
-        return this.subscriptionsService.getStatus(userId);
+    @MessagePattern('subscriptions.findByUser')
+    findByUser(@Payload() userId: string) {
+        // Handle case where payload might be an object { userId: '...' } or just string
+        const id = typeof userId === 'object' ? (userId as any).userId : userId;
+        return this.subscriptionsService.findByUserId(id);
     }
 
-    @Get(':id')
-    findOne(@Param('id') id: string) {
-        return this.subscriptionsService.findOne(id);
+    @MessagePattern('subscriptions.getStatus')
+    getStatus(@Payload() userId: string) {
+        const id = typeof userId === 'object' ? (userId as any).userId : userId;
+        return this.subscriptionsService.getStatus(id);
     }
 
-    @Patch(':id')
-    update(@Param('id') id: string, @Body() dto: UpdateSubscriptionDto) {
-        return this.subscriptionsService.update(id, dto);
+    @MessagePattern('subscriptions.findOne')
+    findOne(@Payload() id: string) {
+        const subId = typeof id === 'object' ? (id as any).id : id;
+        return this.subscriptionsService.findOne(subId);
     }
 
-    @Post(':id/cancel')
-    cancel(
-        @Param('id') id: string,
-        @Query('immediate') immediate?: string
-    ) {
-        return this.subscriptionsService.cancel(id, immediate === 'true');
+    @MessagePattern('subscriptions.update')
+    update(@Payload() data: { id: string, dto: UpdateSubscriptionDto }) {
+        return this.subscriptionsService.update(data.id, data.dto);
     }
 
-    @Patch(':id/payment-source')
-    updatePaymentSource(
-        @Param('id') id: string,
-        @Body() body: { paymentSourceId: string; cardLastFour?: string; cardBrand?: string }
-    ) {
+    @MessagePattern('subscriptions.cancel')
+    cancel(@Payload() data: { id: string, immediate: boolean }) {
+        return this.subscriptionsService.cancel(data.id, data.immediate);
+    }
+
+    @MessagePattern('subscriptions.updatePaymentSource')
+    updatePaymentSource(@Payload() data: { id: string, paymentSourceId: string, cardLastFour?: string, cardBrand?: string }) {
         return this.subscriptionsService.updatePaymentSource(
-            id,
-            body.paymentSourceId,
-            body.cardLastFour,
-            body.cardBrand
+            data.id,
+            data.paymentSourceId,
+            data.cardLastFour,
+            data.cardBrand
         );
     }
 
-    @Post(':id/renew')
-    async processRenewal(@Param('id') id: string) {
-        const subscription = await this.subscriptionsService.findOne(id);
+    @MessagePattern('subscriptions.renew')
+    async processRenewal(@Payload() id: string) {
+        const subId = typeof id === 'object' ? (id as any).id : id;
+        const subscription = await this.subscriptionsService.findOne(subId);
         const success = await this.subscriptionsService.processRenewal(subscription);
         return { success };
     }

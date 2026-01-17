@@ -19,7 +19,8 @@ async function bootstrap() {
         'https://tincadia-frontend.vercel.app',
         'https://www.tincadia.com',
         'https://tincadia.com',
-        /\.devtunnels\.ms$/,
+        'https://poliomyelitic-plumier-geneva.ngrok-free.dev',
+        /\.devtunnels\.ms$ /,
       ],
       credentials: true,
       allowedHeaders: [
