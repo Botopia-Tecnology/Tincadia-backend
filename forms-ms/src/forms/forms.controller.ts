@@ -46,6 +46,23 @@ export class FormsController {
     }
   }
 
+  @MessagePattern('find_submissions_by_user')
+  async findByUser(@Payload() data: { userId?: string; email?: string; documentNumber?: string }) {
+    try {
+      console.log('📥 [Forms MS] find_submissions_by_user handler called:', data);
+      const submissions = await this.formsService.findByUser(data.userId, data.email, data.documentNumber);
+      console.log(`✅ [Forms MS] Found ${submissions?.length || 0} submissions for user`);
+      return submissions;
+    } catch (error) {
+      console.error('❌ [Forms MS] Error in findByUser:', error);
+      throw new RpcException({
+        status: 500,
+        message: error?.message || 'Failed to fetch user submissions',
+        error: error?.name || 'InternalServerError',
+      });
+    }
+  }
+
   @MessagePattern('delete_submission')
   async deleteSubmission(@Payload() data: { id: string }) {
     try {
@@ -156,5 +173,19 @@ export class FormsController {
   async uploadFile(@Payload() data: { fileBase64: string; fileName: string; mimeType: string }) {
     const fileBuffer = Buffer.from(data.fileBase64, 'base64');
     return this.uploadService.uploadFile(fileBuffer, data.fileName, data.mimeType);
+  }
+  @MessagePattern('update_submission')
+  async updateSubmission(@Payload() data: { id: string; updateData: any }) {
+    try {
+      console.log('📝 [Forms MS] update_submission handler called:', data.id);
+      return await this.formsService.updateSubmission(data.id, data.updateData);
+    } catch (error) {
+      console.error('❌ [Forms MS] Error in updateSubmission:', error);
+      throw new RpcException({
+        status: 500,
+        message: error?.message || 'Failed to update submission',
+        error: error?.name || 'InternalServerError',
+      });
+    }
   }
 }

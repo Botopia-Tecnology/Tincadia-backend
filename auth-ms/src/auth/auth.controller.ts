@@ -89,4 +89,9 @@ export class AuthController {
     return this.authService.promoteToInterpreter(data);
   }
 
+  @MessagePattern('update_role')
+  updateRole(@Payload() data: { userId: string; role: string }): Promise<any> {
+    return this.authService.updateRole(data.userId, data.role);
+  }
+
 }

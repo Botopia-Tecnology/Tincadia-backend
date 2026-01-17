@@ -48,6 +48,7 @@ export class FormsService {
         phone: true,
         fullName: true,
         createdAt: true,
+        data: true,
         // If userStatus isn't in entity, I should confirm. In 'submit' method I saw 'userStatus' returned but it was calculated.
 
         form: {
@@ -214,5 +215,49 @@ export class FormsService {
       throw error;
     }
   }
-}
 
+  async findByUser(userId?: string, email?: string, documentNumber?: string) {
+    console.log('🔍 [Forms Service] Finding submissions for:', { userId, email, documentNumber });
+
+    const conditions: any[] = [];
+    if (userId) conditions.push({ submittedBy: userId });
+    if (email) conditions.push({ email });
+    if (documentNumber) conditions.push({ documentNumber });
+
+    if (conditions.length === 0) {
+      return [];
+    }
+
+    return await this.submissionRepository.find({
+      where: conditions,
+      relations: { form: true },
+      order: { createdAt: 'DESC' },
+    });
+  }
+  async updateSubmission(id: string, updateData: any) {
+    console.log('📝 [Forms Service] Updating submission:', id);
+    const submission = await this.submissionRepository.findOneBy({ id });
+    if (!submission) {
+      throw new NotFoundException(`Submission with ID ${id} not found`);
+    }
+
+    // Merge data - we want to update top-level fields in the JSONB column
+    // For deep merge we might need lodash, but for now object spread on data is enough 
+    // if we assume updateData.data contains the fields to update.
+    if (updateData.data) {
+      submission.data = {
+        ...submission.data,
+        ...updateData.data
+      };
+
+      // Also update flat columns if they are present in the new data
+      const data = submission.data;
+      if (data['email'] || data['correoElectronico']) submission.email = data['email'] || data['correoElectronico'];
+      if (data['phone'] || data['telefono'] || data['telefonoWhatsapp']) submission.phone = data['phone'] || data['telefono'] || data['telefonoWhatsapp'];
+      if (data['fullName'] || data['nombreCompleto']) submission.fullName = data['fullName'] || data['nombreCompleto'];
+      if (data['documentNumber'] || data['documentoIdentidad']) submission.documentNumber = data['documentNumber'] || data['documentoIdentidad'];
+    }
+
+    return await this.submissionRepository.save(submission);
+  }
+}

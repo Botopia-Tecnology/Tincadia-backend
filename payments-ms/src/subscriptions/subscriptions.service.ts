@@ -45,12 +45,35 @@ export class SubscriptionsService {
     }
 
     /**
+     * Find all subscriptions (paginated)
+     */
+    async findAll(query: { page?: number; limit?: number; status?: string; planId?: string }): Promise<{ items: Subscription[]; total: number }> {
+        const { page = 1, limit = 50, status, planId } = query;
+        const skip = (page - 1) * limit;
+
+        const where: any = {};
+        if (status) where.status = status;
+        if (planId) where.planId = planId;
+
+        const [items, total] = await this.subscriptionRepo.findAndCount({
+            where,
+            order: { createdAt: 'DESC' },
+            take: limit,
+            skip,
+            relations: ['plan']
+        });
+
+        return { items, total };
+    }
+
+    /**
      * Find subscription by user ID
      */
     async findByUserId(userId: string): Promise<Subscription | null> {
         return this.subscriptionRepo.findOne({
             where: { userId, status: In(['active', 'trialing', 'past_due']) },
-            order: { createdAt: 'DESC' }
+            order: { createdAt: 'DESC' },
+            relations: ['plan']
         });
     }
 

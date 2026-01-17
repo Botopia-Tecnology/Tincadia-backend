@@ -33,6 +33,11 @@ export class InitiatePaymentDto {
     @IsNotEmpty()
     billingCycle: 'mensual' | 'anual';
 
+    @ApiPropertyOptional({ description: 'User ID from Auth' })
+    @IsString()
+    @IsOptional()
+    userId?: string;
+
     @ApiPropertyOptional({ description: 'Customer email' })
     @IsEmail()
     @IsOptional()

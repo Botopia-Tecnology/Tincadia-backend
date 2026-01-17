@@ -27,8 +27,56 @@ export class PaymentsService {
     ) { }
 
     /**
-     * Inicia un nuevo pago y devuelve la configuración del widget de Wompi
-     * 
+     * Process a direct card payment using a token from the frontend.
+     * Use this when using a custom credit card form instead of the widget.
+     */
+    async processCardPayment(data: import('./dto/charge-card.dto').ChargeCardDto) {
+        const payment = await this.findByReference(data.reference);
+        if (!payment) throw new NotFoundException('Payment not found');
+
+        this.logger.log(`Processing direct card payment for reference: ${data.reference}`);
+
+        try {
+            // 1. Create Payment Source (Vault) for recurring billing
+            // This exchanges the single-use token for a reusable source ID
+            const source = await this.wompiService.createPaymentSource(
+                data.cardToken,
+                data.email,
+                data.acceptanceToken
+            );
+
+            if (!source.data?.id) {
+                this.logger.error('Failed to create payment source:', source);
+                throw new BadRequestException('No se pudo tokenizar la tarjeta para pagos recurrentes');
+            }
+
+            const paymentSourceId = source.data.id;
+            this.logger.log(`Payment source created: ${paymentSourceId}`);
+
+            // Wait until source is AVAILABLE (Wompi async processing)
+            await this.wompiService.waitForPaymentSourceAvailable(paymentSourceId);
+
+            // 2. Charge using the new source (Initial Payment)
+            const charge = await this.wompiService.chargeWithPaymentSource(
+                paymentSourceId,
+                payment.amountInCents,
+                payment.reference,
+                data.email,
+                data.installments
+            );
+
+            // Note: We don't need to manually create the subscription here because
+            // the charge will trigger a "transaction.updated" webhook with status APPROVED
+            // and payment_source_id. Our handleWompiEvent method already handles 
+            // creating subscriptions from webhook events.
+
+            return charge;
+        } catch (error) {
+            this.logger.error('Error processing card payment:', error);
+            throw new BadRequestException('Error procesando el pago con tarjeta: ' + (error.message || error));
+        }
+    }
+    /**
      * SEGURIDAD: El precio se obtiene de la base de datos, NO del frontend
      */
     async initiatePayment(data: CreatePaymentDto) {
@@ -284,6 +332,11 @@ export class PaymentsService {
 
                 await this.paymentRepository.save(payment);
                 this.logger.log(`Payment ${payment.reference} verified and updated: ${payment.status}`);
+
+                // If payment is APPROVED and uses CARD, create subscription for recurring payments
+                if (txData.status === 'APPROVED' && txData.payment_method_type === 'CARD') {
+                    await this.createSubscriptionFromPayment(payment, txData);
+                }
             }
 
             return wompiTransaction.data;

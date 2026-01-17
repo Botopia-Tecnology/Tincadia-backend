@@ -10,7 +10,7 @@ import { WompiEventDto } from './dto/wompi-event.dto';
 export class PaymentsController {
     private readonly logger = new Logger(PaymentsController.name);
 
-    constructor(private readonly paymentsService: PaymentsService) {}
+    constructor(private readonly paymentsService: PaymentsService) { }
 
     @MessagePattern('payments.initiate')
     async initiatePayment(@Payload() data: CreatePaymentDto) {
@@ -63,5 +63,11 @@ export class PaymentsController {
     @MessagePattern('payments.remove')
     remove(@Payload() data: { id: string }) {
         return this.paymentsService.remove(data.id);
+    }
+
+    @MessagePattern('payments.charge-card')
+    chargeCard(@Payload() data: import('./dto/charge-card.dto').ChargeCardDto) {
+        this.logger.log(`Processing card charge for reference: ${data.reference}`);
+        return this.paymentsService.processCardPayment(data);
     }
 }

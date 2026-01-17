@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseInterceptors, UploadedFile, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseInterceptors, UploadedFile, HttpException, HttpStatus, Query } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { Inject } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -43,6 +43,28 @@ export class FormsController {
     }
   }
 
+  @Get('my-applications')
+  async findMyApplications(
+    @Query('userId') userId?: string,
+    @Query('email') email?: string,
+    @Query('documentNumber') documentNumber?: string
+  ) {
+    try {
+      console.log('📝 [API Gateway] Fetching my applications for:', { userId, email, documentNumber });
+      if (!userId && !email && !documentNumber) {
+        throw new HttpException('At least one of userId, email, or documentNumber is required', HttpStatus.BAD_REQUEST);
+      }
+      const result = await this.client.send('find_submissions_by_user', { userId, email, documentNumber }).toPromise();
+      console.log(`✅ [API Gateway] Received ${Array.isArray(result) ? result.length : 'invalid'} applications for user`);
+      return result;
+    } catch (error) {
+      console.error('❌ [API Gateway] Error fetching user applications:', error);
+      const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
+      const message = error?.message || 'Internal server error fetching user applications';
+      throw new HttpException({ status, message }, status);
+    }
+  }
+
   @Delete('submissions/:id')
   async deleteSubmission(@Param('id') id: string) {
     try {
@@ -54,6 +76,21 @@ export class FormsController {
       console.error('❌ [API Gateway] Error deleting submission:', error);
       const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
       const message = error?.message || 'Internal server error deleting submission';
+      throw new HttpException({ status, message }, status);
+    }
+  }
+
+  @Put('submissions/:id')
+  async updateSubmission(@Param('id') id: string, @Body() updateData: any) {
+    try {
+      console.log('📝 [API Gateway] Updating submission:', id);
+      const result = await this.client.send('update_submission', { id, updateData }).toPromise();
+      console.log('✅ [API Gateway] Submission updated');
+      return result;
+    } catch (error) {
+      console.error('❌ [API Gateway] Error updating submission:', error);
+      const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
+      const message = error?.message || 'Internal server error updating submission';
       throw new HttpException({ status, message }, status);
     }
   }

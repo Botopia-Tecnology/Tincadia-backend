@@ -1,17 +1,18 @@
-import { 
-    Controller, 
-    Get, 
-    Post, 
-    Put, 
-    Delete, 
-    Body, 
-    Param, 
+import {
+    Controller,
+    Get,
+    Post,
+    Put,
+    Delete,
+    Body,
+    Param,
     Query,
     Headers,
     HttpCode,
     HttpStatus,
     Logger,
     UseGuards,
+    BadRequestException,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { Inject } from '@nestjs/common';
@@ -28,7 +29,7 @@ export class PaymentsController {
     constructor(
         @Inject('PAYMENTS_SERVICE') private readonly client: ClientProxy,
         private readonly paymentsService: PaymentsService,
-    ) {}
+    ) { }
 
     /**
      * Obtiene la configuración pública de Wompi para el frontend
@@ -64,11 +65,11 @@ export class PaymentsController {
         @Headers('x-event-checksum') checksum: string,
     ) {
         this.logger.log(`Received Wompi webhook: ${event.event}`);
-        
+
         return firstValueFrom(
-            this.client.send('payments.webhook', { 
-                event, 
-                checksum: checksum || event.signature?.checksum 
+            this.client.send('payments.webhook', {
+                event,
+                checksum: checksum || event.signature?.checksum
             })
         );
     }
@@ -96,6 +97,52 @@ export class PaymentsController {
         return firstValueFrom(
             this.client.send('payments.findByReference', { reference })
         );
+    }
+
+    @Get('subscriptions')
+    @ApiOperation({ summary: 'List all subscriptions' })
+    @ApiResponse({ status: 200, description: 'List of subscriptions' })
+    async getAllSubscriptions(
+        @Query('status') status?: string,
+        @Query('planId') planId?: string,
+        @Query('page') page?: number,
+        @Query('limit') limit?: number,
+    ) {
+        return firstValueFrom(
+            this.client.send('subscriptions.findAll', { status, planId, page, limit })
+        );
+    }
+
+    @Get('subscriptions/user/:userId')
+    @ApiOperation({ summary: 'Get user subscriptions' })
+    @ApiResponse({ status: 200, description: 'User subscriptions retrieved' })
+    async getUserSubscriptions(@Param('userId') userId: string) {
+        return firstValueFrom(this.client.send('subscriptions.findByUser', { userId }));
+    }
+
+    @Get('subscriptions/status/:userId')
+    @ApiOperation({ summary: 'Get user subscription status' })
+    @ApiResponse({ status: 200, description: 'User subscription status retrieved' })
+    async getUserSubscriptionStatus(@Param('userId') userId: string) {
+        return firstValueFrom(this.client.send('subscriptions.getStatus', { userId }));
+    }
+
+    /**
+     * Procesa un cargo directo a tarjeta
+     */
+    @Post('charge-card')
+    @ApiOperation({ summary: 'Process direct card charge' })
+    @ApiResponse({ status: 201, description: 'Card charged successfully' })
+    async chargeCard(@Body() chargeCardDto: any) {
+        this.logger.log(`Processing card charge through gateway`);
+        return firstValueFrom(this.client.send('payments.charge-card', chargeCardDto));
+    }
+
+    @Post('subscriptions/:id/cancel')
+    @ApiOperation({ summary: 'Cancel subscription' })
+    @ApiResponse({ status: 200, description: 'Subscription canceled successfully' })
+    async cancelSubscription(@Param('id') id: string, @Body('immediate') immediate: boolean = false) {
+        return firstValueFrom(this.client.send('subscriptions.cancel', { id, immediate }));
     }
 
     /**
