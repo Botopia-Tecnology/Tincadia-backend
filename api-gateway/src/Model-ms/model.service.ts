@@ -264,4 +264,56 @@ export class ModelService {
             throw new BadRequestException(`Error guardando palabra: ${error.message || error}`);
         }
     }
+
+    async startTranscription(roomName: string) {
+        try {
+            await this.ensureServiceIsRunning();
+
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Iniciando transcripción para sala: ${roomName}`);
+            }
+
+            const response = await fetch(`${this.pythonServiceUrl}/transcribe`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ room_name: roomName }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Microservice/transcribe responded with ${response.status}: ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('[Gateway] Error starting transcription:', error);
+            throw new BadRequestException(`Error starting transcription: ${error.message || error}`);
+        }
+    }
+
+    async stopTranscription(roomName: string) {
+        try {
+            await this.ensureServiceIsRunning();
+
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Deteniendo transcripción para sala: ${roomName}`);
+            }
+
+            const response = await fetch(`${this.pythonServiceUrl}/transcribe/stop`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ room_name: roomName }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Microservice/transcribe/stop responded with ${response.status}: ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('[Gateway] Error stopping transcription:', error);
+            throw new BadRequestException(`Error stopping transcription: ${error.message || error}`);
+        }
+    }
 }

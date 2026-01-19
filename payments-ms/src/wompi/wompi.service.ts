@@ -53,6 +53,15 @@ export class WompiService {
         this.baseUrl = this.isSandbox
             ? 'https://sandbox.wompi.co/v1'
             : 'https://production.wompi.co/v1';
+
+        this.logger.log(`[WompiService] Initialized in ${this.isSandbox ? 'SANDBOX' : 'PRODUCTION'} mode`);
+        this.logger.log(`[WompiService] PublicKey present: ${!!this.publicKey}`);
+        this.logger.log(`[WompiService] IntegritySecret present: ${!!this.integritySecret}`);
+        this.logger.log(`[WompiService] EventsSecret present: ${!!this.eventsSecret}`);
+
+        if (!this.integritySecret) {
+            this.logger.error('[WompiService] CRITICAL: WOMPI_INTEGRITY_SECRET is missing! Payments will fail.');
+        }
     }
 
     /**

@@ -22,11 +22,17 @@ export class Payment {
     @Column({ length: 10, default: 'COP' })
     currency: string;
 
-    @Column({ length: 50 })
+    @Column({ length: 50, nullable: true })
     plan: string;
 
     @Column({ name: 'plan_id', type: 'uuid', nullable: true })
     planId: string;
+
+    @Column({ name: 'product_type', default: 'PLAN' })
+    productType: 'PLAN' | 'COURSE';
+
+    @Column({ name: 'product_id', nullable: true })
+    productId: string;
 
     @Column({ length: 20, default: PaymentStatus.PENDING })
     status: PaymentStatus;

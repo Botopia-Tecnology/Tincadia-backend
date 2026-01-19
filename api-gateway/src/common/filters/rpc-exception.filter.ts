@@ -16,7 +16,10 @@ export class RpcExceptionFilter implements ExceptionFilter {
         const response = ctx.getResponse();
 
 
+
         this.logger.error('⚠️ Exception caught by Global Filter:', exception);
+        // Debug: Print the exact structure of the incoming exception to understand why message is lost
+        console.log('DEBUG RPC FILTER - Exception Object:', JSON.stringify(exception, null, 2));
 
         let status = HttpStatus.INTERNAL_SERVER_ERROR;
         let message: string | string[] = 'Internal server error';

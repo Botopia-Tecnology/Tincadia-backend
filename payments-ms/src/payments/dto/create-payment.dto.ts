@@ -21,15 +21,24 @@ export type BillingCycle = 'mensual' | 'anual';
 export class CreatePaymentDto {
     @IsString()
     @IsNotEmpty()
-    planId: string; // ID del plan en la tabla pricing_plans
+    @IsOptional()
+    planId?: string; // ID del plan en la tabla pricing_plans
 
     @IsEnum(PaymentPlan)
-    @IsNotEmpty()
-    planType: PaymentPlan;
+    @IsOptional()
+    planType?: PaymentPlan;
 
     @IsIn(['mensual', 'anual'])
-    @IsNotEmpty()
-    billingCycle: BillingCycle;
+    @IsOptional()
+    billingCycle?: BillingCycle;
+
+    @IsString()
+    @IsOptional()
+    productId?: string;
+
+    @IsString()
+    @IsOptional()
+    productType?: 'PLAN' | 'COURSE';
 
     @IsString()
     @IsOptional()
@@ -62,4 +71,7 @@ export class CreatePaymentDto {
     @IsString()
     @IsOptional()
     redirectUrl?: string;
+
+    @IsOptional()
+    amountInCents?: number;
 }

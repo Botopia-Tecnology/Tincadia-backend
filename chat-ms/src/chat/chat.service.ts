@@ -705,6 +705,33 @@ export class ChatService {
             at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
 
             const token = await at.toJwt();
+
+            // 🚀 TRIGGER TRANSCRIPTION AGENT
+            // Auto-start the agent if Model-ms is available
+            try {
+                const modelServiceUrl = process.env.MODEL_SERVICE_URL || 'http://localhost:8000'; // Define default or env
+                // Or better, use the known internal host if in docker/railway
+                // Assuming we can reach Model-ms. 
+                // Since this is chat-ms, it might be running on a different port/host.
+                // Let's use fetch directly.
+
+                // NOTE: Use fire-and-forget to not block the user if agent fails or is slow
+                fetch(`${modelServiceUrl}/transcribe`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ room_name: roomName })
+                }).then(res => {
+                    if (res.ok) this.logger.log(`✅ Transcription agent triggered for ${roomName}`);
+                    else this.logger.warn(`⚠️ Failed to trigger transcription: ${res.statusText}`);
+                }).catch(e => {
+                    this.logger.warn(`⚠️ Could not reach Model-ms for transcription: ${e.message}`);
+                });
+
+            } catch (err) {
+                // Ignore errors here to not break the token generation
+                this.logger.warn(`Skipping transcription trigger: ${err.message}`);
+            }
+
             return { token };
         } catch (error) {
             this.logger.error(`Error generating token: ${error.message}`);

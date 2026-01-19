@@ -49,6 +49,32 @@ export class Course {
     })
     previewLimit: number | null;
 
+    @Column({
+        name: 'price_cents',
+        type: 'int',
+        default: 0,
+        comment: 'Price in cents (e.g., 5000000 for 50,000 COP)'
+    })
+    priceInCents: number;
+
+    @Column({
+        name: 'currency',
+        type: 'varchar',
+        length: 3,
+        default: 'COP'
+    })
+    currency: string;
+
+    @Column({
+        name: 'learning_points',
+        type: 'text',
+        array: true,
+        default: '{}',
+        nullable: true,
+        comment: 'Key learning objectives for the course landing page'
+    })
+    learningPoints: string[];
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 
