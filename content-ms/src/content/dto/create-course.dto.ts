@@ -6,4 +6,5 @@ export class CreateCourseDto {
     accessScope?: 'course' | 'module' | 'lesson';
     isPaid?: boolean;
     previewLimit?: number | null;
+    priceInCents?: number;
 }

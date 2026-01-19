@@ -1,13 +1,17 @@
-import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param, Query, Headers } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
+import { firstValueFrom } from 'rxjs';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { PaymentsService } from '../payments/payments.service';
 // ...
 @Controller('content')
 @ApiTags('content')
 export class ContentController {
     constructor(
         @Inject('CONTENT_SERVICE') private readonly client: ClientProxy,
+        @Inject('AUTH_SERVICE') private readonly authClient: ClientProxy,
+        private readonly paymentsService: PaymentsService,
     ) { }
 
     @Get('courses')
@@ -63,9 +67,41 @@ export class ContentController {
 
     @Get('courses/:id')
     @ApiOperation({ summary: 'Get course by id' })
-    async findOne(@Param('id') id: string, @Query('hasAccess') hasAccess?: string) {
-        const paidAccess = hasAccess === 'true';
-        return this.client.send('findOneCourse', { id, hasAccess: paidAccess });
+    async findOne(
+        @Param('id') id: string,
+        @Headers('authorization') authHeader: string
+    ) {
+        let hasAccess = false;
+
+        if (authHeader) {
+            try {
+                const token = authHeader.replace('Bearer ', '');
+                // Verify token using Auth Service
+                const authResult = await firstValueFrom(
+                    this.authClient.send('verify_token', { token })
+                );
+
+                if (authResult?.user?.id) {
+                    // Check subscription permissions
+                    hasAccess = await this.paymentsService.hasPermission(
+                        authResult.user.id,
+                        'ACCESS_COURSES'
+                    );
+
+                    // If no subscription access, check if user purchased the specific course
+                    if (!hasAccess) {
+                        hasAccess = await this.paymentsService.hasPurchasedProduct(
+                            authResult.user.id,
+                            id
+                        );
+                    }
+                }
+            } catch (error) {
+                // Token invalid or service error, treat as no access
+            }
+        }
+
+        return this.client.send('findOneCourse', { id, hasAccess });
     }
 
     // --- Module ---

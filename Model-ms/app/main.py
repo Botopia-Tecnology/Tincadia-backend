@@ -1,5 +1,9 @@
 import sys
+import asyncio
 import os
+from dotenv import load_dotenv
+
+load_dotenv() # Load env vars from .env file
 import json
 import tempfile
 import requests
@@ -13,8 +17,12 @@ from lsc_engine import LSCEngine, MODEL_PATH, CONFIG_PATH
 from lsc_streaming_exacto import LSCStreamingPredictor
 from gtts import gTTS # Fixed capitalization
 import numpy as np
+from transcription_agent import VoskAgent
 
 app = FastAPI()
+
+# Store active agents to prevent garbage collection and allow stopping
+active_agents = {} # room_name -> VoskAgent
 
 # Configuration
 LOGS_ENABLED = os.getenv("LOGS_ENABLED", "true").lower() == "true"
@@ -164,6 +172,41 @@ async def predict_audio(request: Request, file: UploadFile = File(...)):
                 log(f"[DEBUG] Temporary audio file removed: {audio_path}")
             except:
                 pass
+
+class TranscribeRequest(BaseModel):
+    room_name: str
+
+@app.post("/transcribe")
+async def start_transcription(request: TranscribeRequest):
+    room_name = request.room_name
+    
+    if room_name in active_agents:
+        return {"success": True, "message": f"Agent already running in {room_name}"}
+
+    log(f"🚀 [Auto-Transcribe] Spawning agent for room: {room_name}")
+    try:
+        agent = VoskAgent(room_name)
+        # Store it explicitly
+        active_agents[room_name] = agent
+        
+        # Start in background
+        asyncio.create_task(agent.start())
+        
+        return {"success": True, "message": f"Agent spawned for {room_name}"}
+    except Exception as e:
+        log(f"❌ [Auto-Transcribe Error] {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/transcribe/stop")
+async def stop_transcription(request: TranscribeRequest):
+    room_name = request.room_name
+    if room_name in active_agents:
+        agent = active_agents[room_name]
+        await agent.stop()
+        del active_agents[room_name]
+        return {"success": True, "message": "Agent stopped"}
+    return {"success": False, "message": "Agent not found"}
 
 # ==================== Socket.IO para Streaming ====================
 

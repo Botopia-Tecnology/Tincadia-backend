@@ -138,6 +138,19 @@ export class PaymentsController {
         return firstValueFrom(this.client.send('payments.charge-card', chargeCardDto));
     }
 
+    @Get('purchases/check')
+    @ApiOperation({ summary: 'Check if user purchased a product' })
+    @ApiResponse({ status: 200, description: 'Returns boolean indicating purchase status' })
+    async checkPurchaseStatus(
+        @Query('userId') userId: string,
+        @Query('productId') productId: string,
+        @Query('productType') productType: string = 'COURSE',
+    ) {
+        return firstValueFrom(
+            this.client.send('payments.hasPurchasedProduct', { userId, productId, productType })
+        );
+    }
+
     @Post('subscriptions/:id/cancel')
     @ApiOperation({ summary: 'Cancel subscription' })
     @ApiResponse({ status: 200, description: 'Subscription canceled successfully' })

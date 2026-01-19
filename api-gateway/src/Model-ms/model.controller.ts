@@ -32,4 +32,21 @@ export class ModelController {
     ) {
         return this.modelService.confirmWord(body.word, body.userId, body.timestamp);
     }
+
+    // POST /model/transcribe
+    @Post('transcribe')
+    async startTranscription(
+        @Body() body: { room_name: string }
+    ) {
+        // Enforce snake_case from body if needed, or mapping
+        return this.modelService.startTranscription(body.room_name);
+    }
+
+    // POST /model/transcribe/stop
+    @Post('transcribe/stop')
+    async stopTranscription(
+        @Body() body: { room_name: string }
+    ) {
+        return this.modelService.stopTranscription(body.room_name);
+    }
 }

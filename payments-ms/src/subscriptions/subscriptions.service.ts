@@ -251,6 +251,7 @@ export class SubscriptionsService {
         planId?: string;
         currentPeriodEnd?: Date;
         cancelAtPeriodEnd?: boolean;
+        permissions?: string[];
     }> {
         const sub = await this.findByUserId(userId);
         if (!sub) {
@@ -262,6 +263,7 @@ export class SubscriptionsService {
             planId: sub.planId,
             currentPeriodEnd: sub.currentPeriodEnd,
             cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+            permissions: sub.plan?.includes || [],
         };
     }
 }
