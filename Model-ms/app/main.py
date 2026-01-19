@@ -240,7 +240,8 @@ async def handle_landmarks(sid, data):
                 "buffer_fill": float(result['buffer_fill']),
                 "status": result['status'],
                 "context": result.get('current_context'),
-                "context_changed": result.get('context_changed', False)
+                "context_changed": result.get('context_changed', False),
+                "distance_alert": result.get('distance_alert')
             }, to=sid)
             
             if LOGS_ENABLED and result['word']:

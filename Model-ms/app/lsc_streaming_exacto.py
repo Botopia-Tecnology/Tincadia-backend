@@ -137,12 +137,17 @@ class LSCStreamingExactoPredictor:
         
         # Si el buffer está llenándose (opcional, para evitar ruido muy inicial)
         buffer_fill = len(self.landmarks_buffer) / self.buffer_size
+        
+        # Verificar distancia del usuario
+        distance_alert = self._check_distance(landmarks)
+        
         if buffer_fill < 0.1: # Muy bajo para ser responsivo rápido
             return {
                 'status': 'filling_buffer', 
                 'word': None, 
                 'confidence': 0,
-                'buffer_fill': buffer_fill
+                'buffer_fill': buffer_fill,
+                'distance_alert': distance_alert
             }
 
         # Predecir usando landmarks actuales (con probabilidades para contexto)
@@ -200,12 +205,62 @@ class LSCStreamingExactoPredictor:
                 'confidence': confidence,
                 'buffer_fill': buffer_fill,
                 'current_context': self.current_context,
-                'context_changed': context_changed
+                'context_changed': context_changed,
+                'distance_alert': distance_alert
             }
             
         except Exception as e:
             log(f"[ERROR] Prediction failed: {e}")
-            return {'status': 'error', 'word': None, 'confidence': 0}
+            return {'status': 'error', 'word': None, 'confidence': 0, 'distance_alert': None}
+
+    def _check_distance(self, landmarks: np.ndarray) -> Optional[str]:
+        """
+        Verifica si el usuario está muy cerca o muy lejos basándose en los hombros.
+        Pose landmarks 11 (hombro izquierdo) y 12 (hombro derecho).
+        """
+        try:
+            # Los primeros 100 valores son la pose (25 landmarks * 4: x, y, z, vis)
+            # 11: left shoulder, 12: right shoulder
+            # Cada landmark ocupa 4 espacios
+            
+            # Landmark 11 -> indices 44, 45, 46, 47 (x, y, z, v)
+            # Landmark 12 -> indices 48, 49, 50, 51 (x, y, z, v)
+            
+            x11 = landmarks[44]
+            y11 = landmarks[45]
+            v11 = landmarks[47]
+            
+            x12 = landmarks[48]
+            y12 = landmarks[49]
+            v12 = landmarks[51]
+            
+            # Si la visibilidad es muy baja, no podemos confiar
+            if v11 < 0.5 or v12 < 0.5:
+                # Si ambos están en 0, es que no se detecta pose
+                if x11 == 0 and x12 == 0:
+                    return "NO_USER"
+                return None
+            
+            # Calcular distancia Euclidiana 2D entre hombros
+            shoulder_width = np.sqrt((x11 - x12)**2 + (y11 - y12)**2)
+            
+            if shoulder_width < 0.001:
+                return "NO_USER"
+            
+            # Umbrales basados en pruebas empíricas (coordenadas normalizadas 0-1)
+            # 0.15 = Muy lejos
+            # 0.45 = Muy cerca
+            
+            if shoulder_width < 0.18:
+                return "TOO_FAR"
+            elif shoulder_width > 0.50:
+                return "TOO_CLOSE"
+            
+            return "OK"
+            
+        except Exception as e:
+            log(f"[DEBUG] Error checking distance: {e}")
+            return None
 
     def reset_buffer(self):
         """Limpia el buffer de landmarks y predicciones."""
