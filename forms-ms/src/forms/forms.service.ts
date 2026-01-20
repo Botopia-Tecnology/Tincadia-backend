@@ -235,20 +235,28 @@ export class FormsService {
     });
   }
   async updateSubmission(id: string, updateData: any) {
-    console.log('📝 [Forms Service] Updating submission:', id);
+    console.log('📝 [Forms Service] updateSubmission called');
+    console.log('📝 [Forms Service] Submission ID:', id);
+    console.log('📝 [Forms Service] Update data received:', JSON.stringify(updateData, null, 2));
+
     const submission = await this.submissionRepository.findOneBy({ id });
     if (!submission) {
+      console.error('❌ [Forms Service] Submission not found:', id);
       throw new NotFoundException(`Submission with ID ${id} not found`);
     }
 
+    console.log('📝 [Forms Service] Existing submission data keys:', Object.keys(submission.data || {}));
+
     // Merge data - we want to update top-level fields in the JSONB column
-    // For deep merge we might need lodash, but for now object spread on data is enough 
-    // if we assume updateData.data contains the fields to update.
     if (updateData.data) {
+      console.log('📝 [Forms Service] New data keys:', Object.keys(updateData.data));
+
       submission.data = {
         ...submission.data,
         ...updateData.data
       };
+
+      console.log('📝 [Forms Service] Merged data keys:', Object.keys(submission.data));
 
       // Also update flat columns if they are present in the new data
       const data = submission.data;
@@ -256,8 +264,14 @@ export class FormsService {
       if (data['phone'] || data['telefono'] || data['telefonoWhatsapp']) submission.phone = data['phone'] || data['telefono'] || data['telefonoWhatsapp'];
       if (data['fullName'] || data['nombreCompleto']) submission.fullName = data['fullName'] || data['nombreCompleto'];
       if (data['documentNumber'] || data['documentoIdentidad']) submission.documentNumber = data['documentNumber'] || data['documentoIdentidad'];
+    } else {
+      console.warn('⚠️ [Forms Service] updateData.data is undefined or null! No changes will be made.');
     }
 
-    return await this.submissionRepository.save(submission);
+    console.log('💾 [Forms Service] Saving submission...');
+    const saved = await this.submissionRepository.save(submission);
+    console.log('✅ [Forms Service] Submission saved successfully. ID:', saved.id);
+
+    return saved;
   }
 }
