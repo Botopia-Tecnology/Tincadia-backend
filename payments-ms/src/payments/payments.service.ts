@@ -418,8 +418,12 @@ export class PaymentsService {
                 this.logger.log(`Payment ${payment.reference} verified and updated: ${payment.status}`);
 
                 // If payment is APPROVED and uses CARD, create subscription for recurring payments
-                if (txData.status === 'APPROVED' && txData.payment_method_type === 'CARD') {
-                    await this.createSubscriptionFromPayment(payment, txData);
+                if (txData.status === 'APPROVED') {
+                    if (payment.productType === 'COURSE' && payment.productId) {
+                        await this.createPurchaseFromPayment(payment);
+                    } else if (txData.payment_method_type === 'CARD') {
+                        await this.createSubscriptionFromPayment(payment, txData);
+                    }
                 }
             }
 
