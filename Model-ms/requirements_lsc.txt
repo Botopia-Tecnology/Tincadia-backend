@@ -13,3 +13,4 @@ vosk==0.3.45
 livekit>=0.7.0
 livekit-api>=0.4.0
 websockets>=12.0
+python-dotenv>=1.0.0
