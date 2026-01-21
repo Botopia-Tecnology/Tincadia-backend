@@ -93,6 +93,7 @@ class LSCStreamingExactoPredictor:
         
         # 2. Si se encontró una categoría clara, cambiar
         if new_context and new_context != self.current_context:
+            log(f"🔍 [Context Inference] Palabra '{last_word}' detectada. Cambiando contexto a: {new_context}")
             self.set_context(new_context, manual=False)
             return True
         
@@ -120,6 +121,17 @@ class LSCStreamingExactoPredictor:
         boosted_probs = boosted_probs / np.sum(boosted_probs)
         
         new_idx = np.argmax(boosted_probs)
+        original_idx = np.argmax(probabilities)
+        
+        if new_idx != original_idx:
+            original_word = self.exacto_predictor.config["classes"].get(str(original_idx), "Unknown")
+            boosted_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Unknown")
+            log(f"✨ [Context Boost] El contexto '{self.current_context}' cambió la predicción: '{original_word}' ({probabilities[original_idx]:.2f}) -> '{boosted_word}' ({boosted_probs[new_idx]:.2f})")
+        elif LOGS_ENABLED:
+            original_word = self.exacto_predictor.config["classes"].get(str(original_idx), "Unknown")
+            if original_word in target_labels:
+                log(f"🎯 [Context Match] Palabra en contexto '{self.current_context}': '{original_word}' (Confianza boosted: {boosted_probs[new_idx]:.2f})")
+
         return new_idx, boosted_probs[new_idx]
 
     def add_landmarks(self, landmarks: np.ndarray) -> Optional[Dict]:
