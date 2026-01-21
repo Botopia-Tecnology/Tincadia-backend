@@ -59,9 +59,12 @@ class LSCStreamingExactoPredictor:
         
         # Historial para inferencia automática
         self.word_history = deque(maxlen=5)
-        self.auto_context_enabled = True
         
-        log(f"✅ Predictor de streaming listo (buffer: {buffer_size})")
+        # Toggle para activar/desactivar inferencia de contexto
+        self.context_aware_enabled = os.getenv("CONTEXT_AWARE_ENABLED", "true").lower() == "true"
+        self.auto_context_enabled = self.context_aware_enabled
+        
+        log(f"✅ Predictor de streaming listo (buffer: {buffer_size}, context_aware: {self.context_aware_enabled})")
 
     def set_context(self, context_name: Optional[str], manual: bool = True):
         """Establece el contexto actual. Si es manual, desactiva la inferencia automática temporalmente."""
@@ -78,7 +81,7 @@ class LSCStreamingExactoPredictor:
 
     def _infer_context_automatic(self, last_word: str):
         """Infiere el contexto basado en la última palabra y el historial."""
-        if not self.auto_context_enabled:
+        if not self.context_aware_enabled or not self.auto_context_enabled:
             return
 
         # 1. Búsqueda directa por categoría
@@ -163,8 +166,8 @@ class LSCStreamingExactoPredictor:
                     'buffer_fill': buffer_fill
                 }
             
-            # Aplicar lógica de contexto si existe
-            if self.current_context:
+            # Aplicar lógica de contexto si existe y está habilitada
+            if self.context_aware_enabled and self.current_context:
                 predicted_idx, confidence = self._apply_context_boost(result['probabilities'])
                 predicted_word = self.exacto_predictor.config["classes"].get(str(predicted_idx), f"Clase_{predicted_idx}")
             else:

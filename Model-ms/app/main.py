@@ -28,6 +28,9 @@ async def startup_event():
         model, labels = LSCEngine.get_model_and_labels()
         if model is not None:
             print(f"✅ [Startup] Modelo precargado exitosamente. Clases: {len(labels)}")
+            # Log de estado de contexto
+            context_status = os.getenv("CONTEXT_AWARE_ENABLED", "true").lower() == "true"
+            print(f"🎯 [Startup] Inferencia de contexto: {'ACTIVADA' if context_status else 'DESACTIVADA'}")
         else:
             print("❌ [Startup] Error: El modelo no se pudo precargar (es None)")
     except Exception as e:
@@ -123,12 +126,20 @@ async def predict_landmarks(body: LandmarksRequest):
 async def predict_audio(request: Request, file: UploadFile = File(...)):
     log("\n[DEBUG] --- /predict/audio Request ---")
     
-    # 1. Get Text
-    text = await _process_video_file(file)
-    log(f"[DEBUG] Result for Audio: {text}")
+    # 1. Check Cloudinary Credentials
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    api_key = os.getenv("CLOUDINARY_API_KEY")
+    api_secret = os.getenv("CLOUDINARY_API_SECRET")
 
-    audio_path = None
-    # 2. Generate Audio
+    if not all([cloud_name, api_key, api_secret]) or "xxxx" in [cloud_name, api_key, api_secret]:
+        raise HTTPException(
+            status_code=500, 
+            detail="Error: Las credenciales de Cloudinary no están configuradas en el servidor (Model-ms). "
+                   "Por favor, configure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY y CLOUDINARY_API_SECRET en el archivo .env del backend."
+        )
+
+    # 2. Get Text
+    text = await _process_video_file(file)
     try:
         fd, audio_path = tempfile.mkstemp(suffix=".mp3")
         os.close(fd)
