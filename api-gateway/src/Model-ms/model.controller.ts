@@ -11,10 +11,9 @@ export class ModelController {
     @Post('video-to-text')
     @UseInterceptors(FileInterceptor('file'))
     async videoToText(
-        @UploadedFile() file?: Express.Multer.File,
-        @Body('url') url?: string,
+        @UploadedFile() file: Express.Multer.File
     ) {
-        return this.modelService.videoToText(file, url);
+        return this.modelService.videoToText(file);
     }
 
     // POST /model/video-to-audio

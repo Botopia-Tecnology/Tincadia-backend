@@ -104,7 +104,7 @@ class ExactoPredictorCOLNUMWORD:
             log(f"[ERROR] Normalización exacta falló: {e}")
             return coords
     
-    def predict_from_coords(self, coords_list: list) -> dict:
+    def predict_from_coords(self, coords_list: list, include_probabilities: bool = False) -> dict:
         """
         Predice desde lista de coordenadas con normalización exacta
         """
@@ -134,12 +134,17 @@ class ExactoPredictorCOLNUMWORD:
             else:
                 label = f"Clase_{predicted_idx}"
             
-            return {
+            result = {
                 "word": label,
                 "confidence": float(confidence),
                 "class_idx": int(predicted_idx),
                 "status": "ok"
             }
+
+            if include_probabilities:
+                result["probabilities"] = predictions[0].tolist()
+            
+            return result
             
         except Exception as e:
             log(f"[ERROR] Predicción desde coords falló: {e}")

@@ -1,127 +1,150 @@
 #!/usr/bin/env python3
 """
 Evaluador para el Modelo-COL-NUM-WORD-1101-2
-Permite probar el modelo en tiempo real usando la cámara web o videos.
+Permite probar el modelo en tiempo real con soporte para CONTEXTO.
 """
 import os
 import sys
 import cv2
 import numpy as np
-from load_model import ModeloLSC
 
-# Agregar rutas relativas para importar módulos copiados
+# Agregar rutas para encontrar módulos del modelo
 script_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(script_dir, 'utils'))
-sys.path.insert(0, os.path.join(script_dir, 'models'))
+parent_dir = os.path.dirname(script_dir)
+sys.path.insert(0, parent_dir)
 
-# Importar detector holistic desde los utils copiados
 try:
-    from holistic.holistic_detector import HolisticDetector
+    from exacto_predictor_colnumword import ExactoPredictorCOLNUMWORD
+    from lsc_streaming_exacto import LSCStreamingPredictor
 except ImportError:
-    # Intento alternativo de importación si la estructura interna de utils varía
-    from utils.holistic.holistic_detector import HolisticDetector
+    print("❌ Error: No se encontraron los módulos del predictor en el directorio superior.")
+    sys.exit(1)
 
 class EvaluadorLSC:
     def __init__(self):
-        print("🔧 Cargando Modelo LSC...")
-        self.modelo = ModeloLSC()
-        print("✅ Modelo listo para usar")
+        print("🔧 Inicializando Predictor Exacto con soporte de Contexto...")
         
-        # Inicializar detector Holistic
-        self.holistic = HolisticDetector(
-            static_mode=False,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
-            model_complexity=1,
-            use_hands=True,
-            use_face=False, 
-            use_pose=True,
+        # Rutas del modelo
+        model_path = os.path.join(script_dir, "weights.hdf5")
+        config_path = os.path.join(script_dir, "model_config.json")
+        
+        # Crear predictor base
+        self.base_predictor = ExactoPredictorCOLNUMWORD(model_path, config_path)
+        
+        # Crear predictor de streaming (que ya tiene la lógica de contexto)
+        self.streaming_predictor = LSCStreamingPredictor(
+            base_predictor=self.base_predictor,
+            buffer_size=1 # Para evaluación en tiempo real queremos respuesta rápida
         )
-        print("✅ Detector Holistic inicializado")
         
-        # Cargar clases del modelo para búsqueda rápida
-        self.classes = []
-        if hasattr(self.modelo, 'config') and 'classes' in self.modelo.config:
-            for idx, label in self.modelo.config['classes'].items():
-                self.classes.append((int(idx), label))
+        print("✅ Evaluador listo.")
         
-        print(f"✅ Clases cargadas: {len(self.classes)} señas")
-    
+        # Disponibilizar contextos para el usuario
+        self.contexts = {
+            "0": None,
+            "1": "Colores",
+            "2": "Numeros",
+            "3": "Letras",
+            "4": "Saludos"
+        }
+
+    def seleccionar_contexto(self):
+        print("\n--- SELECCIÓN DE CONTEXTO ---")
+        print("0. Ninguno (Normal)")
+        print("1. Colores (Boost: Verde, Azul, etc.)")
+        print("2. Números (Boost: Uno, Dos, Tres, etc.)")
+        print("3. Letras  (Boost: A, B, C, etc.)")
+        print("4. Saludos (Boost: Hola, Gracias, etc.)")
+        
+        choice = input("\nSelecciona un contexto (0-4): ").strip()
+        context_name = self.contexts.get(choice, None)
+        self.streaming_predictor.set_context(context_name)
+        return context_name
+
     def evaluar_camara(self):
-        """Evaluar usando cámara web"""
+        # Iniciar en modo automático por defecto
         print("\n" + "="*50)
-        print("MODO CÁMARA EN VIVO")
+        print(f"MODO CÁMARA EN VIVO - Inferencia Automática Activa")
         print("Presiona 'q' para salir.")
+        print("Presiona 'r' para resetear buffer.")
+        print("Presiona 'm' para menú de contexto manual.")
         print("="*50 + "\n")
+        
+        import mediapipe as mp
+        mp_holistic = mp.solutions.holistic
+        holistic = mp_holistic.Holistic(min_detection_confidence=0.5, min_tracking_confidence=0.5)
         
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("[ERROR] No se pudo acceder a la cámara.")
             return
-        
-        cv2.namedWindow("Evaluación LSC", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Evaluación LSC", 800, 600)
-        
-        try:
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # Detección holistic
-                results = self.holistic.detect_holistic(frame)
-                
-                # Detectar manos activas
-                mano_derecha_activa = results.right_hand_landmarks is not None
-                mano_izquierda_activa = results.left_hand_landmarks is not None
-                
-                # Modo espejo inteligente para mano derecha sola
-                if mano_derecha_activa and not mano_izquierda_activa:
-                    frame = cv2.flip(frame, 1)
-                    results = self.holistic.detect_holistic(frame)
-                
-                # Dibujar landmarks
-                self.holistic.draw_prediction(frame, results)
-                
-                try:
-                    # Extraer coordenadas usando el método propio del detector
-                    # Nota: HolisticDetector suele tener get_coordenates o get_coordenadas
-                    if hasattr(self.holistic, 'get_coordenates'):
-                        coords = self.holistic.get_coordenates(results, used_parts=["pose", "right_hand", "left_hand"])
-                    else:
-                        coords = self.holistic.get_coordenadas(results, used_parts=["pose", "right_hand", "left_hand"])
-                    
-                    # Realizar predicción
-                    pred_resultado = self.modelo.predict(coords)
-                    
-                    label = pred_resultado['label']
-                    confidence = pred_resultado['confidence']
-                    
-                    if confidence > 0.4: # Umbral de visualización
-                        color = (0, 255, 0)
-                        cv2.rectangle(frame, (0,0), (640, 80), (245, 117, 16), -1)
-                        cv2.putText(frame, f"Sena: {label}", (10,30), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-                        cv2.putText(frame, f"Confianza: {confidence:.1%}", (10,65), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
-                except Exception as e:
-                    # Errores comunes si no se detectan landmarks suficientes
-                    pass
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret: break
+            
+            # Procesamiento básico para MediaPipe
+            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = holistic.process(image)
+            
+            # Lógica de espejo
+            if results.right_hand_landmarks and not results.left_hand_landmarks:
+                frame = cv2.flip(frame, 1)
+                image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = holistic.process(image)
 
-                cv2.imshow("Evaluación LSC", frame)
-                
-                if cv2.waitKey(10) & 0xFF == ord('q'):
-                    break
-        finally:
-            cap.release()
-            cv2.destroyAllWindows()
+            # Extraer coordenadas
+            coords = self._extract_coords(results)
+            
+            # Predicción con el streaming predictor (incluye el boost de contexto automático)
+            res = self.streaming_predictor.add_landmarks(coords)
+            
+            # Dibujar UI
+            self._draw_ui(frame, res, self.streaming_predictor.current_context)
+            
+            cv2.imshow('Evaluador LSC con Contexto Auto', frame)
+            
+            key = cv2.waitKey(10) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('r'):
+                self.streaming_predictor.reset_buffer()
+                print("🔄 Buffer reseteado")
+            elif key == ord('m'):
+                self.seleccionar_contexto()
+        
+        cap.release()
+        cv2.destroyAllWindows()
+
+    def _extract_coords(self, results):
+        if results.pose_landmarks:
+            pose = np.array([[lm.x, lm.y, lm.z, lm.visibility] for lm in results.pose_landmarks.landmark[:25]]).flatten()
+        else:
+            pose = np.zeros(100)
+        rh = np.array([[lm.x, lm.y, lm.z] for lm in results.right_hand_landmarks.landmark]).flatten() if results.right_hand_landmarks else np.zeros(63)
+        lh = np.array([[lm.x, lm.y, lm.z] for lm in results.left_hand_landmarks.landmark]).flatten() if results.left_hand_landmarks else np.zeros(63)
+        return np.concatenate([pose, rh, lh])
+
+    def _draw_ui(self, frame, res, context_name):
+        # Barra superior
+        cv2.rectangle(frame, (0,0), (frame.shape[1], 80), (45, 45, 45), -1)
+        
+        ctx_text = f"Contexto: {context_name or 'Normal'}"
+        cv2.putText(frame, ctx_text, (frame.shape[1]-200, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+
+        if res and res.get('word'):
+            word = res['word']
+            conf = res['confidence']
+            status = res['status']
+            
+            color = (0, 255, 0) if status == 'predicting' else (0, 255, 255)
+            
+            cv2.putText(frame, f"SENA: {word.upper()}", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
+            cv2.putText(frame, f"Confianza: {conf:.1%}", (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        else:
+            cv2.putText(frame, "Esperando seña...", (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1, (150, 150, 150), 2)
 
 def main():
-    print("="*60)
-    print("   EVALUADOR LSC - MODELO EXPORTADO")
-    print("="*60)
-    
     evaluador = EvaluadorLSC()
     evaluador.evaluar_camara()
 
