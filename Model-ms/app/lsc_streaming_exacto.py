@@ -48,6 +48,10 @@ class LSCStreamingExactoPredictor:
         # Buffer para predicciones (suavizado)
         self.prediction_buffer = deque(maxlen=10)  # Últimas 10 predicciones
         
+        # Estado
+        self.frame_count = 0
+        self.last_prediction = None
+        self.last_accepted_word = None # Nuevo: Contexto de palabra aceptada
         # Contexto y pesos
         self.current_context = None
         self.context_weights = {
@@ -133,6 +137,11 @@ class LSCStreamingExactoPredictor:
                 log(f"🎯 [Context Match] Palabra en contexto '{self.current_context}': '{original_word}' (Confianza boosted: {boosted_probs[new_idx]:.2f})")
 
         return new_idx, boosted_probs[new_idx]
+
+    def set_context(self, word: str):
+        """Actualiza el contexto con la última palabra aceptada por el usuario."""
+        self.last_accepted_word = word
+        log(f"🧠 Contexto actualizado: {word}")
 
     def add_landmarks(self, landmarks: np.ndarray) -> Optional[Dict]:
         """
@@ -292,7 +301,8 @@ class LSCStreamingExactoPredictor:
             'buffer_size': self.buffer_size,
             'current_buffer_length': len(self.landmarks_buffer),
             'prediction_buffer_length': len(self.prediction_buffer),
-            'last_prediction': self.last_prediction
+            'last_prediction': self.last_prediction,
+            'last_accepted_word': self.last_accepted_word
         }
 
 # Para compatibilidad con el código existente

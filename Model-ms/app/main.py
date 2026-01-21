@@ -311,6 +311,27 @@ async def handle_reset(sid):
         await sio.emit('reset_ack', {'message': 'Buffer cleared'}, to=sid)
         log(f"[Socket.IO] Buffer reset for {sid}")
 
+@sio.on('word_accepted')
+async def handle_word_accepted(sid, data):
+    """
+    Evento para recibir la palabra aceptada por el usuario en el frontend.
+    Data esperado de JS: { "word": "HOLA" } o simplemente "HOLA"
+    """
+    try:
+        word = data.get('word') if isinstance(data, dict) else data
+        
+        if not word:
+            return
+            
+        if sid in active_predictors:
+            active_predictors[sid].set_context(word)
+            # Opcional: Confirmar recepción
+            # await sio.emit('context_updated', {'word': word}, to=sid)
+        else:
+            log(f"[Socket.IO] Warning: 'word_accepted' from unknown sid {sid}")
+            
+    except Exception as e:
+        log(f"[Socket.IO Error] Processing word_accepted: {e}")
 @sio.on('set_context')
 async def handle_set_context(sid, data):
     try:
