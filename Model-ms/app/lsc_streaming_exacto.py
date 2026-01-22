@@ -22,9 +22,9 @@ def log(*args, **kwargs):
 # Importar predictor exacto
 from exacto_predictor_colnumword import ExactoPredictorCOLNUMWORD
 
-# NLP (GPT-2 for intelligent context)
-from transformers import GPT2Tokenizer, GPT2LMHeadModel
-import torch
+# NLP (GPT-2 for intelligent context) - Se cargarán bajo demanda
+# from transformers import GPT2Tokenizer, GPT2LMHeadModel
+# import torch
 
 class LSCStreamingExactoPredictor:
     """
@@ -48,6 +48,9 @@ class LSCStreamingExactoPredictor:
         # Inicializar GPT-2
         log("🧠 Cargando modelo inteligente (GPT-2) para contexto...")
         try:
+            from transformers import GPT2Tokenizer, GPT2LMHeadModel
+            import torch
+            
             self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
             self.llm_model = GPT2LMHeadModel.from_pretrained("gpt2")
             log("✅ GPT-2 cargado correctamente")
@@ -168,6 +171,7 @@ class LSCStreamingExactoPredictor:
         # Log del texto que se envía al LLM
         log(f"📝 [LLM Context] Evaluando siguiente palabra para: '{input_text}...'")
         
+        import torch
         inputs = self.tokenizer(input_text, return_tensors="pt")
         
         with torch.no_grad():
