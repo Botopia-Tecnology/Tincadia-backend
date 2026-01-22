@@ -55,7 +55,10 @@ class LSCStreamingExactoPredictor:
             self.llm_model = GPT2LMHeadModel.from_pretrained("gpt2")
             log("✅ GPT-2 cargado correctamente")
         except Exception as e:
+            import traceback
             log(f"⚠️ Error cargando GPT-2 (se usará modo base): {e}")
+            if LOGS_ENABLED:
+                traceback.print_exc()
             self.llm_model = None
         
         # Buffer circular para landmarks
@@ -156,12 +159,18 @@ class LSCStreamingExactoPredictor:
         return new_idx, boosted_probs[new_idx]
 
     def set_accepted_word(self, word: str):
-        """Actualiza el contexto con la última palabra aceptada por el usuario."""
+        """Actualiza el contexto y el historial con la palabra confirmada por el usuario."""
         self.last_accepted_word = word
-        # Añadir al historial lingüístico para que GPT-2 lo use como base
+        
+        # 1. Asegurar que la palabra aceptada sea la última en el historial
         if not self.word_history or self.word_history[-1] != word:
             self.word_history.append(word)
-        log(f"📥 [Word Accepted] Palabra recibida: '{word}'. Memoria renovada para GPT-2.")
+        
+        # 2. Forzar inferencia de contexto basado en la palabra real aceptada
+        # (Esto permite que si el usuario acepta 'HOLA', el contexto cambie a 'Saludos')
+        self._infer_context_automatic(word)
+        
+        log(f"📥 [Word Accepted] last_accepted_word: '{word}'. Contexto e historial actualizados.")
 
     def _apply_llm_boost(self, probabilities: list) -> Tuple[int, float]:
         """Usa GPT-2 para puntuar candidatos basándose en los últimos términos."""
@@ -171,8 +180,8 @@ class LSCStreamingExactoPredictor:
 
         # Texto de contexto (historial de palabras)
         input_text = " ".join(self.word_history)
-        # Log del texto que se envía al LLM
-        log(f"📝 [LLM Context] Evaluando siguiente palabra para: '{input_text}...'")
+        # Log del texto que se envía al LLM - Incluyendo last_accepted_word de forma explícita
+        log(f"📝 [LLM Context] Basado en '{self.last_accepted_word if self.last_accepted_word else 'N/A'}' | Historial completo: '{input_text}...'")
         
         import torch
         inputs = self.tokenizer(input_text, return_tensors="pt")
@@ -301,10 +310,13 @@ class LSCStreamingExactoPredictor:
             context_changed = False
             if final_word:
                 status = 'predicting'
-                # Inferencia automática cuando la palabra se estabiliza y es nueva
+                # Inferencia automática parcial: Solo si no hay una palabra aceptada reciente
+                # o si la palabra detectada es distinta a la aceptada.
                 if not self.word_history or self.word_history[-1] != final_word:
-                    self.word_history.append(final_word)
-                    context_changed = self._infer_context_automatic(final_word)
+                    # Solo añadimos al historial automático si la confianza es alta
+                    if confidence > 0.6:
+                        self.word_history.append(final_word)
+                        context_changed = self._infer_context_automatic(final_word)
             elif buffer_fill > 0.05:
                 status = 'processing'
             else:
