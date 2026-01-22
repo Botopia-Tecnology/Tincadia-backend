@@ -311,7 +311,7 @@ async def handle_reset(sid):
     if sid in active_predictors:
         active_predictors[sid].reset_buffer()
         await sio.emit('reset_ack', {'message': 'Buffer cleared'}, to=sid)
-        log(f"[Socket.IO] Buffer reset for {sid}")
+        # log(f"[Socket.IO] Buffer reset for {sid}")
 
 @sio.on('word_accepted')
 async def handle_word_accepted(sid, data):
@@ -321,6 +321,7 @@ async def handle_word_accepted(sid, data):
     """
     try:
         word = data.get('word') if isinstance(data, dict) else data
+        log(f"🔔 [Socket.IO] Evento 'word_accepted' RECIBIDO: '{word}' (sid: {sid})")
         
         if not word:
             return

@@ -55,7 +55,10 @@ class LSCStreamingExactoPredictor:
             self.llm_model = GPT2LMHeadModel.from_pretrained("gpt2")
             log("✅ GPT-2 cargado correctamente")
         except Exception as e:
+            import traceback
             log(f"⚠️ Error cargando GPT-2 (se usará modo base): {e}")
+            if LOGS_ENABLED:
+                traceback.print_exc()
             self.llm_model = None
         
         # Buffer circular para landmarks
@@ -80,6 +83,7 @@ class LSCStreamingExactoPredictor:
         
         # Historial para inferencia automática
         self.word_history = deque(maxlen=5)
+        self.llm_scores_cache = {} # Caché para evitar procesar GPT-2 en cada cuadro
         
         # Toggle para activar/desactivar inferencia de contexto
         self.context_aware_enabled = os.getenv("CONTEXT_AWARE_ENABLED", "true").lower() == "true"
@@ -114,10 +118,9 @@ class LSCStreamingExactoPredictor:
         
         # 2. Si se encontró una categoría clara, cambiar
         if new_context and new_context != self.current_context:
-            # Silenciamos este log para enfocarnos en GPT-2 si el usuario lo prefiere
-            # log(f"🔍 [Context Inference] Palabra '{last_word}' detectada. Cambiando contexto a: {new_context}")
-            self.set_context(new_context, manual=False)
-            return True
+            # DESACTIVADO: La inferencia por categorías ya no es necesaria con GPT-2
+            # self.set_context(new_context, manual=False)
+            return False 
         
         return False
 
@@ -156,56 +159,72 @@ class LSCStreamingExactoPredictor:
         return new_idx, boosted_probs[new_idx]
 
     def set_accepted_word(self, word: str):
-        """Actualiza el contexto con la última palabra aceptada por el usuario."""
+        """Actualiza el contexto y el historial con la palabra confirmada por el usuario."""
         self.last_accepted_word = word
-        # Añadir al historial lingüístico para que GPT-2 lo use como base
+        
+        # 1. Asegurar que la palabra aceptada sea la última en el historial
         if not self.word_history or self.word_history[-1] != word:
             self.word_history.append(word)
-        log(f"📥 [Word Accepted] Palabra recibida: '{word}'. Memoria renovada para GPT-2.")
+        
+        # 2. Forzar inferencia de contexto basado en la palabra real aceptada
+        # (Esto permite que si el usuario acepta 'HOLA', el contexto cambie a 'Saludos')
+        self._infer_context_automatic(word)
+        
+        # 3. Refrescar la inteligencia de GPT-2 (se hace una sola vez y se cachea)
+        self._refresh_llm_cache()
+        
+        log(f"📥 [Word Accepted] last_accepted_word: '{word}'. Memoria inteligente actualizada.")
+
+    def _refresh_llm_cache(self):
+        """Calcula los puntajes de GPT-2 una sola vez y los guarda en caché."""
+        if not self.llm_model or not self.word_history:
+            self.llm_scores_cache = {}
+            return
+
+        try:
+            input_text = " ".join(self.word_history)
+            log(f"🧠 [GPT-2 Refresh] Generando nueva base de conocimiento para: '{input_text}'")
+            
+            import torch
+            inputs = self.tokenizer(input_text, return_tensors="pt")
+            
+            with torch.no_grad():
+                outputs = self.llm_model(**inputs)
+                next_token_logits = outputs.logits[:, -1, :]
+                llm_probs = torch.softmax(next_token_logits, dim=-1).squeeze()
+            
+            classes_map = self.exacto_predictor.config["classes"]
+            new_cache = {}
+            log_details = []
+            
+            for idx_str, label in classes_map.items():
+                label_tokens = self.tokenizer.encode(" " + label, add_special_tokens=False)
+                if label_tokens:
+                    score = llm_probs[label_tokens[0]].item()
+                    new_cache[int(idx_str)] = score
+                    if score > 0.001:
+                        log_details.append(f"{label}: {score:.4f}")
+            
+            self.llm_scores_cache = new_cache
+            if log_details:
+                log(f"🧠 [IA Scores] Nuevas sugerencias: {', '.join(log_details)}")
+                
+        except Exception as e:
+            log(f"⚠️ Error refrescando caché de IA: {e}")
+            self.llm_scores_cache = {}
 
     def _apply_llm_boost(self, probabilities: list) -> Tuple[int, float]:
-        """Usa GPT-2 para puntuar candidatos basándose en los últimos términos."""
-        if not self.llm_model or not self.word_history:
+        """Usa los puntajes en caché de GPT-2 para premiar a los candidatos."""
+        if not self.llm_scores_cache:
             idx = np.argmax(probabilities)
             return idx, probabilities[idx]
 
-        # Texto de contexto (historial de palabras)
-        input_text = " ".join(self.word_history)
-        # Log del texto que se envía al LLM
-        log(f"📝 [LLM Context] Evaluando siguiente palabra para: '{input_text}...'")
-        
-        import torch
-        inputs = self.tokenizer(input_text, return_tensors="pt")
-        
-        with torch.no_grad():
-            outputs = self.llm_model(**inputs)
-            next_token_logits = outputs.logits[:, -1, :]
-            # Convertir logits a probabilidades
-            llm_probs = torch.softmax(next_token_logits, dim=-1).squeeze()
-            
-        # Puntuar cada clase del modelo LSC
         classes_map = self.exacto_predictor.config["classes"]
         boosted_probs = np.array(probabilities).copy()
         
-        log_details = []
-        for idx_str, label in classes_map.items():
-            idx = int(idx_str)
-            # Tokenizar la etiqueta (usualmente una sola palabra)
-            # Nota: GPT-2 tokenizer suele añadir un espacio al inicio dependiendo de la versión
-            label_tokens = self.tokenizer.encode(" " + label, add_special_tokens=False)
-            if label_tokens:
-                # Usar la probabilidad del primer token de la palabra
-                llm_score = llm_probs[label_tokens[0]].item()
-                # Aumentamos el factor considerablemente para asegurar que la IA guíe la frase
-                boosted_probs[idx] *= (1.0 + llm_score * 500) 
-                # Solo logueamos si la IA tiene algo de importancia técnica (score > 0)
-                if llm_score > 0.00001:
-                    log_details.append(f"{label}: {llm_score:.4f}")
-            else:
-                pass # Silencio para etiquetas sin tokens
-
-        if log_details:
-             log(f"🧠 [IA Scores] Puntajes de GPT-2: {', '.join(log_details)}")
+        for idx_int, llm_score in self.llm_scores_cache.items():
+            # Aplicar factor de refuerzo usando el score pre-calculado
+            boosted_probs[idx_int] *= (1.0 + llm_score * 500)
 
         # Normalizar
         boosted_probs = boosted_probs / np.sum(boosted_probs)
@@ -216,9 +235,9 @@ class LSCStreamingExactoPredictor:
         boost_word = classes_map.get(str(new_idx), "Desconocido")
 
         if new_idx != original_idx:
-            log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
-        else:
-            log(f"✅ [IA Boost] Mantiene: '{boost_word}' (Confianza final: {boosted_probs[new_idx]:.2f})")
+            # Silenciado para evitar spam de 30 veces por segundo
+            # log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
+            pass
             
         return new_idx, boosted_probs[new_idx]
 
@@ -266,14 +285,14 @@ class LSCStreamingExactoPredictor:
                     'buffer_fill': buffer_fill
                 }
             
-            # Aplicar lógica de contexto inteligente si está habilitada
+            # Aplicar lógica de contexto inteligente (GPT-2)
             if self.context_aware_enabled:
-                if self.current_context:
-                    # Boost por categoría fija
-                    predicted_idx, confidence = self._apply_context_boost(result['probabilities'])
-                elif self.word_history:
-                    # Boost por IA (GPT-2) solo si no hay contexto fijo bloqueante
+                # Priorizamos GPT-2 (LLM Boost) sobre las categorías fijas
+                if self.word_history:
                     predicted_idx, confidence = self._apply_llm_boost(result['probabilities'])
+                elif self.current_context:
+                    # Categorías fijas solo si no hay historial para GPT-2 (opcional)
+                    predicted_idx, confidence = self._apply_context_boost(result['probabilities'])
                 else:
                     predicted_idx, confidence = np.argmax(result['probabilities']), max(result['probabilities'])
                 
@@ -301,10 +320,12 @@ class LSCStreamingExactoPredictor:
             context_changed = False
             if final_word:
                 status = 'predicting'
-                # Inferencia automática cuando la palabra se estabiliza y es nueva
-                if not self.word_history or self.word_history[-1] != final_word:
-                    self.word_history.append(final_word)
-                    context_changed = self._infer_context_automatic(final_word)
+                # Inferencia automática parcial: Solo si no hay una palabra aceptada reciente
+                # o si la palabra detectada es distinta a la aceptada.
+                # Inferencia automática desactivada para GPT-2
+                # Solo el usuario mediante set_accepted_word (last_accepted_word)
+                # puede alimentar la memoria de la IA para evitar ruido.
+                pass
             elif buffer_fill > 0.05:
                 status = 'processing'
             else:
