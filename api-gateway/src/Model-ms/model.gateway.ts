@@ -69,4 +69,12 @@ export class ModelGateway implements OnGatewayConnection, OnGatewayDisconnect {
     ) {
         this.modelService.setContext(client.id, data.context);
     }
+
+    @SubscribeMessage('word_accepted')
+    handleWordAccepted(
+        @MessageBody() data: { word: string },
+        @ConnectedSocket() client: Socket,
+    ) {
+        this.modelService.sendConfirmedWord(client.id, data.word);
+    }
 }
