@@ -171,7 +171,10 @@ export class ModelService {
     sendConfirmedWord(clientId: string, word: string) {
         const pythonSocket = this.pythonSessions.get(clientId);
         if (pythonSocket) {
+            if (this.logsEnabled) console.log(`[Gateway] Forwarding 'word_accepted' to Python for ${clientId}`);
             pythonSocket.emit('word_accepted', { word });
+        } else {
+            if (this.logsEnabled) console.warn(`[Gateway] No Python session found for ${clientId} to forward word`);
         }
     }
 
