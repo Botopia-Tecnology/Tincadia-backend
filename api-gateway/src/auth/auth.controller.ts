@@ -395,5 +395,15 @@ export class AuthController {
   updateUserRole(@Param('userId') userId: string, @Body() body: { role: string }) {
     return this.client.send('update_role', { userId, role: body.role });
   }
+
+  @Get('check-document/:documentNumber')
+  @ApiOperation({
+    summary: 'Verificar existencia de documento',
+    description: 'Verifica si un número de documento ya está registrado en el sistema. Retorna true/false.'
+  })
+  @ApiResponse({ status: 200, description: 'Verificación exitosa', schema: { example: { exists: true } } })
+  checkDocumentExists(@Param('documentNumber') documentNumber: string) {
+    return this.client.send('check_document_exists', { documentNumber });
+  }
 }
 
