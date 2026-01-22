@@ -13,15 +13,11 @@ async function bootstrap() {
   // API Gateway HTTP
   const app = await NestFactory.create(AppModule, {
     cors: {
-      origin: [
-        ...corsOrigins,
-        'https://tincadia.vercel.app',
-        'https://tincadia-frontend.vercel.app',
-        'https://www.tincadia.com',
-        'https://tincadia.com',
-        'https://poliomyelitic-plumier-geneva.ngrok-free.dev',
-        /\.devtunnels\.ms$ /,
-      ],
+      origin: (requestOrigin, callback) => {
+        // Allow all origins for now to ensure mobile app compatibility
+        // This matches the behavior of the WebSocket Gateway
+        callback(null, true);
+      },
       credentials: true,
       allowedHeaders: [
         'Content-Type',
