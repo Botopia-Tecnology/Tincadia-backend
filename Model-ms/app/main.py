@@ -299,8 +299,10 @@ async def handle_landmarks(sid, data):
                 "distance_alert": result.get('distance_alert')
             }, to=sid)
             
-            if LOGS_ENABLED and result['word']:
-                log(f"✨ [Streaming] Predicción: {result['word']} (confianza: {result['confidence']:.2f})")
+            # Silenciado para enfocarse exclusivamente en los logs de inteligencia GPT-2
+            # if LOGS_ENABLED and result['word'] and result['confidence'] >= 0.5:
+            #     last_w = result.get('last_accepted_word', 'Ninguna')
+            #     log(f"✨ [Streaming] (Ancla: {last_w}) -> Predicción: {result['word']} ({result['confidence']:.2f})")
 
     except Exception as e:
         log(f"[Socket.IO Error] Processing landmarks: {e}")

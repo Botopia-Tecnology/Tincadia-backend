@@ -301,19 +301,19 @@ class LSCStreamingExactoPredictor:
                 confidence = result['confidence']
                 predicted_word = result['word']
             
-            # Filtrar por confianza
-            if confidence >= 0.4:
+            # Filtrar por confianza - Aumentado de 0.4 a 0.5 para mayor rigor
+            if confidence >= 0.5:
                 self.prediction_buffer.append(predicted_word)
             
             # Suavizado (Smoothing) con Voto Mayoritario
             final_word = None
-            if len(self.prediction_buffer) >= 2:  # Reducido de 3 a 2 para mayor rapidez
+            if len(self.prediction_buffer) >= 3:  # Aumentado de 2 a 3 para mayor estabilidad
                 # Obtener la palabra más común en las últimas N predicciones
                 counts = Counter(self.prediction_buffer)
                 most_common = counts.most_common(1)[0]
                 
-                # Si la más común es suficientemente dominante
-                if most_common[1] >= len(self.prediction_buffer) * 0.4:
+                # Si la más común es suficientemente dominante (exigencia del 60%)
+                if most_common[1] >= len(self.prediction_buffer) * 0.6:
                     final_word = most_common[0]
             
             # Determinar estatus
