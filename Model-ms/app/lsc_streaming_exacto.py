@@ -235,7 +235,9 @@ class LSCStreamingExactoPredictor:
         boost_word = classes_map.get(str(new_idx), "Desconocido")
 
         if new_idx != original_idx:
-            log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
+            # Silenciado para evitar spam de 30 veces por segundo
+            # log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
+            pass
             
         return new_idx, boosted_probs[new_idx]
 
@@ -321,6 +323,12 @@ class LSCStreamingExactoPredictor:
                 # Ahora solo se actualiza el historial cuando el usuario acepta la palabra (handle_word_accepted -> set_accepted_word).
                 # if not self.word_history or self.word_history[-1] != final_word:
                 #    if confidence > 0.6: ...
+                # Inferencia automática parcial: Solo si no hay una palabra aceptada reciente
+                # o si la palabra detectada es distinta a la aceptada.
+                # Inferencia automática desactivada para GPT-2
+                # Solo el usuario mediante set_accepted_word (last_accepted_word)
+                # puede alimentar la memoria de la IA para evitar ruido.
+                pass
             elif buffer_fill > 0.05:
                 status = 'processing'
             else:

@@ -321,6 +321,7 @@ async def handle_word_accepted(sid, data):
     """
     try:
         word = data.get('word') if isinstance(data, dict) else data
+        log(f"🔔 [Socket.IO] Evento 'word_accepted' RECIBIDO: '{word}' (sid: {sid})")
         
         if not word:
             return
