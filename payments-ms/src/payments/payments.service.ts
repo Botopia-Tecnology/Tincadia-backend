@@ -156,10 +156,10 @@ export class PaymentsService {
 
             // 3. Create Pending Payment
             // Note: planId must be a valid UUID if provided, unless it's null.
+            const isCourse = (data.productType === 'COURSE' || data.planType === 'course_access' || data.planId === 'course_purchase');
+
             // When buying a course, we set planId to null to avoid FK constraint/UUID errors
-            const planIdToSave = (data.productType === 'COURSE' || data.planType === 'course_access' || data.planId === 'course_purchase')
-                ? undefined
-                : (data.planId || undefined);
+            const planIdToSave = isCourse ? undefined : (data.planId || undefined);
 
             const payment = this.paymentRepository.create({
                 userId: data.userId || undefined,
@@ -167,7 +167,7 @@ export class PaymentsService {
                 currency: 'COP',
                 plan: data.planType || 'COURSE',
                 planId: planIdToSave,
-                productType: data.productType || 'PLAN',
+                productType: isCourse ? 'COURSE' : (data.productType || 'PLAN'),
                 productId: data.productId,
                 status: PaymentStatus.PENDING,
                 reference,
