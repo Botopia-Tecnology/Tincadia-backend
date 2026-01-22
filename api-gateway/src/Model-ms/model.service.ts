@@ -350,7 +350,7 @@ if __name__ == "__main__":
     async confirmWord(word: string, userId?: string, timestamp?: Date): Promise<any> {
         /**
          * Guarda una palabra confirmada por el usuario.
-         * Por ahora usamos un archivo JSON simple. Para producción, se debería migrar a base de datos.
+         * TAMBIÉN envía el evento a todas las sesiones de Python activas para actualizar GPT-2.
          */
         try {
             const dataDir = path.resolve(process.cwd(), 'data');
@@ -376,6 +376,19 @@ if __name__ == "__main__":
 
             // Guardar
             fs.writeFileSync(confirmedWordsPath, JSON.stringify(confirmedWords, null, 2));
+
+            // NUEVO: Enviar palabra a TODAS las sesiones de Python activas para actualizar contexto GPT-2
+            if (this.logsEnabled) {
+                console.log(`[Gateway] HTTP confirm-word: Enviando '${word}' a ${this.pythonSessions.size} sesiones Python activas`);
+            }
+            for (const [clientId, pythonSocket] of this.pythonSessions.entries()) {
+                if (pythonSocket && pythonSocket.connected) {
+                    pythonSocket.emit('word_accepted', { word });
+                    if (this.logsEnabled) {
+                        console.log(`[Gateway] HTTP confirm-word: Emitido word_accepted('${word}') a sesión ${clientId}`);
+                    }
+                }
+            }
 
             if (this.logsEnabled) {
                 console.log(`[Gateway] Palabra confirmada: ${word} (Total: ${confirmedWords.length})`);
