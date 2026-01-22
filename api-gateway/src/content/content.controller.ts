@@ -45,6 +45,8 @@ export class ContentController {
         return this.client.send('deleteCategory', id);
     }
 
+
+
     // --- Course ---
 
     @Post('courses')
@@ -199,6 +201,12 @@ export class ContentController {
             publicId: data.publicId,
             resourceType: data.resourceType || 'image'
         });
+    }
+
+    @Get('cloudinary/signature')
+    @ApiOperation({ summary: 'Get Cloudinary upload signature' })
+    async getUploadSignature(@Query() params: any) {
+        return this.client.send('getUploadSignature', params);
     }
 
     // --- Landing Page Config ---

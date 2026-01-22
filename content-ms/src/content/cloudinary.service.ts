@@ -93,4 +93,23 @@ export class CloudinaryService {
         });
         return url;
     }
+
+    /**
+     * Generate signature for client-side upload
+     */
+    getUploadSignature(params: Record<string, any>) {
+        const timestamp = Math.round((new Date).getTime() / 1000);
+        const paramsToSign = { ...params, timestamp };
+        const signature = cloudinary.utils.api_sign_request(
+            paramsToSign,
+            this.configService.get<string>('CLOUDINARY_API_SECRET') || ''
+        );
+
+        return {
+            signature,
+            timestamp,
+            cloudName: this.configService.get<string>('CLOUDINARY_CLOUD_NAME'),
+            apiKey: this.configService.get<string>('CLOUDINARY_API_KEY')
+        };
+    }
 }

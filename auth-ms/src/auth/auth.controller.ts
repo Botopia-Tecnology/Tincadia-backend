@@ -94,4 +94,9 @@ export class AuthController {
     return this.authService.updateRole(data.userId, data.role);
   }
 
+  @MessagePattern('check_document_exists')
+  checkDocumentExists(@Payload() data: { documentNumber: string }): Promise<{ exists: boolean }> {
+    return this.authService.checkDocumentExists(data.documentNumber);
+  }
+
 }

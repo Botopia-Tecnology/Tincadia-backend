@@ -29,7 +29,7 @@ export class LandingConfigService {
     async findOne(key: string) {
         const config = await this.landingConfigRepository.findOne({ where: { key } });
         if (!config) {
-            throw new NotFoundException(`Config with key ${key} not found`);
+            return null; // Return null instead of throwing for optional configs
         }
         return config;
     }

@@ -596,4 +596,27 @@ export class AuthService {
 
     return { success: true, userId, role };
   }
+
+  async checkDocumentExists(documentNumber: string): Promise<{ exists: boolean }> {
+    try {
+      if (!documentNumber) return { exists: false };
+
+      const supabase = this.supabaseService.getAdminClient();
+
+      const { count, error } = await supabase
+        .from('profiles')
+        .select('*', { count: 'exact', head: true })
+        .eq('document_number', documentNumber);
+
+      if (error) {
+        this.logger.error(`Error checking document: ${error.message}`);
+        return { exists: false };
+      }
+
+      return { exists: (count || 0) > 0 };
+    } catch (error) {
+      this.logger.error(`Error checking document existence: ${error.message}`);
+      return { exists: false };
+    }
+  }
 }
