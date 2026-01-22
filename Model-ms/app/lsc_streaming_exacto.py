@@ -142,18 +142,20 @@ class LSCStreamingExactoPredictor:
         if new_idx != original_idx:
             original_word = self.exacto_predictor.config["classes"].get(str(original_idx), "Desconocido")
             boosted_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Desconocido")
-            log(f"✨ [Refuerzo de Contexto] El contexto '{self.current_context}' cambió la predicción: '{original_word}' ({probabilities[original_idx]:.2f}) -> '{boosted_word}' ({boosted_probs[new_idx]:.2f})")
-        elif LOGS_ENABLED:
-            original_word = self.exacto_predictor.config["classes"].get(str(original_idx), "Desconocido")
-            if original_word in target_labels:
-                log(f"🎯 [Match de Contexto] Palabra en el contexto '{self.current_context}': '{original_word}' (Confianza reforzada: {boosted_probs[new_idx]:.2f})")
+            log(f"✨ [Refuerzo de Contexto] CAMBIO: '{original_word}' ({probabilities[original_idx]:.2f}) -> '{boosted_word}' ({boosted_probs[new_idx]:.2f})")
+        else:
+            final_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Desconocido")
+            log(f"🎯 [Refuerzo de Contexto] Mantiene: '{final_word}' (Confianza: {boosted_probs[new_idx]:.2f})")
 
         return new_idx, boosted_probs[new_idx]
 
     def set_accepted_word(self, word: str):
         """Actualiza el contexto con la última palabra aceptada por el usuario."""
         self.last_accepted_word = word
-        log(f"🧠 Contexto de palabra aceptada actualizado: {word}")
+        # Añadir al historial lingüístico para que GPT-2 lo use como base
+        if not self.word_history or self.word_history[-1] != word:
+            self.word_history.append(word)
+        log(f"🧠 Contexto de palabra aceptada: '{word}'. Historial: {' '.join(self.word_history)}")
 
     def _apply_llm_boost(self, probabilities: list) -> Tuple[int, float]:
         """Usa GPT-2 para puntuar candidatos basándose en los últimos términos."""
@@ -187,24 +189,27 @@ class LSCStreamingExactoPredictor:
             if label_tokens:
                 # Usar la probabilidad del primer token de la palabra
                 llm_score = llm_probs[label_tokens[0]].item()
-                # Factor: 1.0 + (llm_score * factor_fuerza)
-                # Aumentamos el factor a 100 para dar más peso a la IA
-                boosted_probs[idx] *= (1.0 + llm_score * 100) 
-                if llm_score > 0.001: # Solo registrar si hay algo de interés
-                    log_details.append(f"{label}: {llm_score:.4f}")
+                # Aumentamos el factor considerablemente para asegurar que la IA guíe la frase
+                boosted_probs[idx] *= (1.0 + llm_score * 500) 
+                log_details.append(f"{label}({label_tokens[0]}): {llm_score:.6f}")
+            else:
+                log(f"⚠️ [LLM Warning] No se pudieron generar tokens para la etiqueta: '{label}'")
 
         if log_details:
-             log(f"🧠 [LLM Scores] Probabilidades sugeridas por GPT-2: {', '.join(log_details)}")
+             log(f"🧠 [IA Scores] Puntajes de GPT-2: {', '.join(log_details)}")
 
         # Normalizar
         boosted_probs = boosted_probs / np.sum(boosted_probs)
         new_idx = np.argmax(boosted_probs)
         original_idx = np.argmax(probabilities)
         
+        orig_word = classes_map.get(str(original_idx), "Desconocido")
+        boost_word = classes_map.get(str(new_idx), "Desconocido")
+
         if new_idx != original_idx:
-            orig_word = classes_map.get(str(original_idx))
-            boost_word = classes_map.get(str(new_idx))
-            log(f"🤖 [IA Boost] GPT-2 cambió la predicción: '{orig_word}' -> '{boost_word}'")
+            log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
+        else:
+            log(f"✅ [IA Boost] Mantiene: '{boost_word}' (Confianza final: {boosted_probs[new_idx]:.2f})")
             
         return new_idx, boosted_probs[new_idx]
 
@@ -302,6 +307,7 @@ class LSCStreamingExactoPredictor:
                 'confidence': confidence,
                 'buffer_fill': buffer_fill,
                 'current_context': self.current_context,
+                'last_accepted_word': self.last_accepted_word,
                 'context_changed': context_changed,
                 'distance_alert': distance_alert
             }

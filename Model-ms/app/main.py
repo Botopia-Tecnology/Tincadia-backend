@@ -294,6 +294,7 @@ async def handle_landmarks(sid, data):
                 "buffer_fill": float(result['buffer_fill']),
                 "status": result['status'],
                 "context": result.get('current_context'),
+                "last_accepted_word": result.get('last_accepted_word'),
                 "context_changed": result.get('context_changed', False),
                 "distance_alert": result.get('distance_alert')
             }, to=sid)
@@ -324,7 +325,7 @@ async def handle_word_accepted(sid, data):
             return
             
         if sid in active_predictors:
-            active_predictors[sid].set_context(word)
+            active_predictors[sid].set_accepted_word(word)
             # Opcional: Confirmar recepción
             # await sio.emit('context_updated', {'word': word}, to=sid)
         else:
