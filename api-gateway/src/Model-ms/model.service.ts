@@ -168,6 +168,13 @@ export class ModelService {
         }
     }
 
+    sendConfirmedWord(clientId: string, word: string) {
+        const pythonSocket = this.pythonSessions.get(clientId);
+        if (pythonSocket) {
+            pythonSocket.emit('word_accepted', { word });
+        }
+    }
+
     private async ensureServiceIsRunning() {
 
         if (await this.isServiceReachable()) {
