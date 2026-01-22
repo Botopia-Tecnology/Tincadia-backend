@@ -30,6 +30,7 @@ export class ModelController {
     async confirmWord(
         @Body() body: { word: string; userId?: string; timestamp?: Date }
     ) {
+        console.log(`🌐 [ModelController] HTTP POST /model/confirm-word recibido:`, body);
         return this.modelService.confirmWord(body.word, body.userId, body.timestamp);
     }
 

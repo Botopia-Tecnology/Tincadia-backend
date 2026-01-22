@@ -35,6 +35,13 @@ async function bootstrap() {
 
   // Middleware to fix malformed URLs (duplicated API_URL from frontend bug)
   app.use((req, res, next) => {
+    // Fix URLs like /api/api/model... -> /api/model...
+    if (req.url && req.url.startsWith('/api/api/')) {
+      const original = req.url;
+      req.url = req.url.replace('/api/api/', '/api/');
+      console.log(`🔧 Fixing double API prefix: ${original} -> ${req.url}`);
+    }
+
     // Fix URLs like /apihttps://domain.com/api/chat/... -> /chat/...
     if (req.url && req.url.includes('https://')) {
       const match = req.url.match(/https?:\/\/[^/]+\/api(\/.*)/);
