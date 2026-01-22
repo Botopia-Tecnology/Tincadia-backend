@@ -236,7 +236,7 @@ class LSCStreamingExactoPredictor:
 
         if new_idx != original_idx:
             # Silenciado para evitar spam de 30 veces por segundo
-            # log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
+            log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
             pass
             
         return new_idx, boosted_probs[new_idx]
