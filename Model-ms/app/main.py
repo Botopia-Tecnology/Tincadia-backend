@@ -320,22 +320,30 @@ async def handle_word_accepted(sid, data):
     Evento para recibir la palabra aceptada por el usuario en el frontend.
     Data esperado de JS: { "word": "HOLA" } o simplemente "HOLA"
     """
+    log(f"🚨🚨🚨 [Socket.IO] handle_word_accepted TRIGGERED!")
+    log(f"🚨 [Socket.IO] Raw data received: {data} (type: {type(data)})")
+    log(f"🚨 [Socket.IO] SID: {sid}")
+    log(f"🚨 [Socket.IO] Active predictors: {list(active_predictors.keys())}")
+    
     try:
         word = data.get('word') if isinstance(data, dict) else data
-        log(f"🔔 [Socket.IO] Evento 'word_accepted' RECIBIDO: '{word}' (sid: {sid})")
+        log(f"🔔 [Socket.IO] Parsed word: '{word}'")
         
         if not word:
+            log(f"⚠️ [Socket.IO] word is empty/None, returning early")
             return
             
         if sid in active_predictors:
+            log(f"✅ [Socket.IO] Found predictor for sid {sid}, calling set_accepted_word('{word}')")
             active_predictors[sid].set_accepted_word(word)
-            # Opcional: Confirmar recepción
-            # await sio.emit('context_updated', {'word': word}, to=sid)
+            log(f"✅ [Socket.IO] set_accepted_word completed")
         else:
-            log(f"[Socket.IO] Warning: 'word_accepted' from unknown sid {sid}")
+            log(f"❌ [Socket.IO] Warning: 'word_accepted' from unknown sid {sid}")
             
     except Exception as e:
-        log(f"[Socket.IO Error] Processing word_accepted: {e}")
+        log(f"💥 [Socket.IO Error] Processing word_accepted: {e}")
+        import traceback
+        traceback.print_exc()
 @sio.on('set_context')
 async def handle_set_context(sid, data):
     try:

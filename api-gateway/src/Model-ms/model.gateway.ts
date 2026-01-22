@@ -75,6 +75,7 @@ export class ModelGateway implements OnGatewayConnection, OnGatewayDisconnect {
         @MessageBody() data: { word: string },
         @ConnectedSocket() client: Socket,
     ) {
+        if (this.logsEnabled) console.log(`[ModelGateway] Received 'word_accepted' from ${client.id}:`, data);
         this.modelService.sendConfirmedWord(client.id, data.word);
     }
 }

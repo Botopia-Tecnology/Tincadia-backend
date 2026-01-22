@@ -160,20 +160,25 @@ class LSCStreamingExactoPredictor:
 
     def set_accepted_word(self, word: str):
         """Actualiza el contexto y el historial con la palabra confirmada por el usuario."""
+        log(f"🔔🔔🔔 [set_accepted_word] LLAMADO con word='{word}'")
+        log(f"🔔 [set_accepted_word] Estado ANTES: word_history={list(self.word_history)}, last_accepted_word={self.last_accepted_word}")
+        
         self.last_accepted_word = word
         
         # 1. Asegurar que la palabra aceptada sea la última en el historial
         if not self.word_history or self.word_history[-1] != word:
             self.word_history.append(word)
+            log(f"✅ [set_accepted_word] Añadida '{word}' al historial")
+        else:
+            log(f"⏭️ [set_accepted_word] '{word}' ya estaba en el historial, no se añade")
         
         # 2. Forzar inferencia de contexto basado en la palabra real aceptada
-        # (Esto permite que si el usuario acepta 'HOLA', el contexto cambie a 'Saludos')
         self._infer_context_automatic(word)
         
-        # 3. Refrescar la inteligencia de GPT-2 (se hace una sola vez y se cachea)
+        # 3. Refrescar la inteligencia de GPT-2
         self._refresh_llm_cache()
         
-        log(f"📥 [Word Accepted] last_accepted_word: '{word}'. Memoria inteligente actualizada.")
+        log(f"🔔 [set_accepted_word] Estado DESPUÉS: word_history={list(self.word_history)}")
 
     def _refresh_llm_cache(self):
         """Calcula los puntajes de GPT-2 una sola vez y los guarda en caché."""
@@ -286,14 +291,20 @@ class LSCStreamingExactoPredictor:
                 }
             
             # Aplicar lógica de contexto inteligente (GPT-2)
+            # DEBUG: Estado del historial
+            log(f"🔍 [DEBUG] word_history: {list(self.word_history)} (len: {len(self.word_history)})")
+            log(f"🔍 [DEBUG] llm_scores_cache entries: {len(self.llm_scores_cache)}")
+            
             if self.context_aware_enabled:
                 # Priorizamos GPT-2 (LLM Boost) sobre las categorías fijas
                 if self.word_history:
+                    log(f"🧠 [DEBUG] Aplicando LLM Boost con historial: {list(self.word_history)}")
                     predicted_idx, confidence = self._apply_llm_boost(result['probabilities'])
                 elif self.current_context:
-                    # Categorías fijas solo si no hay historial para GPT-2 (opcional)
+                    log(f"🎯 [DEBUG] Aplicando Context Boost: {self.current_context}")
                     predicted_idx, confidence = self._apply_context_boost(result['probabilities'])
                 else:
+                    log(f"⚡ [DEBUG] Sin historial ni contexto, usando predicción base")
                     predicted_idx, confidence = np.argmax(result['probabilities']), max(result['probabilities'])
                 
                 predicted_word = self.exacto_predictor.config["classes"].get(str(predicted_idx), f"Clase_{predicted_idx}")
@@ -320,16 +331,8 @@ class LSCStreamingExactoPredictor:
             context_changed = False
             if final_word:
                 status = 'predicting'
-                # REMOVED: Inferencia automática basada en predicción no confirmada.
-                # Ahora solo se actualiza el historial cuando el usuario acepta la palabra (handle_word_accepted -> set_accepted_word).
-                # if not self.word_history or self.word_history[-1] != final_word:
-                #    if confidence > 0.6: ...
-                # Inferencia automática parcial: Solo si no hay una palabra aceptada reciente
-                # o si la palabra detectada es distinta a la aceptada.
-                # Inferencia automática desactivada para GPT-2
-                # Solo el usuario mediante set_accepted_word (last_accepted_word)
-                # puede alimentar la memoria de la IA para evitar ruido.
-                pass
+                # word_history solo se actualiza mediante set_accepted_word (evento word_accepted del frontend)
+                # NO añadimos automáticamente aquí
             elif buffer_fill > 0.05:
                 status = 'processing'
             else:
