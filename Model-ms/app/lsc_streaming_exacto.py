@@ -114,7 +114,8 @@ class LSCStreamingExactoPredictor:
         
         # 2. Si se encontró una categoría clara, cambiar
         if new_context and new_context != self.current_context:
-            log(f"🔍 [Context Inference] Palabra '{last_word}' detectada. Cambiando contexto a: {new_context}")
+            # Silenciamos este log para enfocarnos en GPT-2 si el usuario lo prefiere
+            # log(f"🔍 [Context Inference] Palabra '{last_word}' detectada. Cambiando contexto a: {new_context}")
             self.set_context(new_context, manual=False)
             return True
         
@@ -145,10 +146,12 @@ class LSCStreamingExactoPredictor:
         if new_idx != original_idx:
             original_word = self.exacto_predictor.config["classes"].get(str(original_idx), "Desconocido")
             boosted_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Desconocido")
-            log(f"✨ [Refuerzo de Contexto] CAMBIO: '{original_word}' ({probabilities[original_idx]:.2f}) -> '{boosted_word}' ({boosted_probs[new_idx]:.2f})")
+            # Log de refuerzo de categoría silencioso o muy breve
+            # log(f"✨ [Refuerzo de Contexto] CAMBIO: '{original_word}' ({probabilities[original_idx]:.2f}) -> '{boosted_word}' ({boosted_probs[new_idx]:.2f})")
         else:
-            final_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Desconocido")
-            log(f"🎯 [Refuerzo de Contexto] Mantiene: '{final_word}' (Confianza: {boosted_probs[new_idx]:.2f})")
+            # final_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Desconocido")
+            # log(f"🎯 [Refuerzo de Contexto] Mantiene: '{final_word}' (Confianza: {boosted_probs[new_idx]:.2f})")
+            pass
 
         return new_idx, boosted_probs[new_idx]
 
@@ -158,7 +161,7 @@ class LSCStreamingExactoPredictor:
         # Añadir al historial lingüístico para que GPT-2 lo use como base
         if not self.word_history or self.word_history[-1] != word:
             self.word_history.append(word)
-        log(f"🧠 Contexto de palabra aceptada: '{word}'. Historial: {' '.join(self.word_history)}")
+        log(f"📥 [Word Accepted] Palabra recibida: '{word}'. Memoria renovada para GPT-2.")
 
     def _apply_llm_boost(self, probabilities: list) -> Tuple[int, float]:
         """Usa GPT-2 para puntuar candidatos basándose en los últimos términos."""
@@ -195,9 +198,11 @@ class LSCStreamingExactoPredictor:
                 llm_score = llm_probs[label_tokens[0]].item()
                 # Aumentamos el factor considerablemente para asegurar que la IA guíe la frase
                 boosted_probs[idx] *= (1.0 + llm_score * 500) 
-                log_details.append(f"{label}({label_tokens[0]}): {llm_score:.6f}")
+                # Solo logueamos si la IA tiene algo de importancia técnica (score > 0)
+                if llm_score > 0.00001:
+                    log_details.append(f"{label}: {llm_score:.4f}")
             else:
-                log(f"⚠️ [LLM Warning] No se pudieron generar tokens para la etiqueta: '{label}'")
+                pass # Silencio para etiquetas sin tokens
 
         if log_details:
              log(f"🧠 [IA Scores] Puntajes de GPT-2: {', '.join(log_details)}")
@@ -375,7 +380,7 @@ class LSCStreamingExactoPredictor:
         self.prediction_buffer.clear()
         self.frame_count = 0
         self.last_prediction = None
-        log("[*] Buffer reseteado")
+        # log("[*] Buffer reseteado")
 
     def get_stats(self) -> Dict:
         """Retorna estadísticas del predictor."""
