@@ -316,18 +316,11 @@ class LSCStreamingExactoPredictor:
             
             # Determinar estatus
             context_changed = False
-            if final_word:
                 status = 'predicting'
-                # Inferencia automática parcial: Solo si no hay una palabra aceptada reciente
-                # o si la palabra detectada es distinta a la aceptada.
-                if not self.word_history or self.word_history[-1] != final_word:
-                    # Solo añadimos al historial automático si la confianza es alta
-                    if confidence > 0.6:
-                        # Añadimos al historial para GPT-2, pero ya no disparamos cambio de categoría auto
-                        self.word_history.append(final_word)
-                        # Refrescamos la inteligencia (caché) porque el historial cambió
-                        self._refresh_llm_cache()
-                        # context_changed = self._infer_context_automatic(final_word) # Desactivado
+                # REMOVED: Inferencia automática basada en predicción no confirmada.
+                # Ahora solo se actualiza el historial cuando el usuario acepta la palabra (handle_word_accepted -> set_accepted_word).
+                # if not self.word_history or self.word_history[-1] != final_word:
+                #    if confidence > 0.6: ...
             elif buffer_fill > 0.05:
                 status = 'processing'
             else:
