@@ -318,6 +318,7 @@ class LSCStreamingExactoPredictor:
             
             # Determinar estatus
             context_changed = False
+            if final_word:
                 status = 'predicting'
                 # REMOVED: Inferencia automática basada en predicción no confirmada.
                 # Ahora solo se actualiza el historial cuando el usuario acepta la palabra (handle_word_accepted -> set_accepted_word).
