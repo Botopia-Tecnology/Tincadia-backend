@@ -32,7 +32,7 @@ class LSCStreamingExactoPredictor:
     para garantizar compatibilidad 100% con el entrenamiento
     """
 
-    def __init__(self, model_path: str = None, labels_path: str = None, config_path: str = "model_config.json", buffer_size: int = 45, shared_model=None, shared_labels=None, base_predictor=None):
+    def __init__(self, model_path: str = None, labels_path: str = None, config_path: str = "model_config.json", buffer_size: int = 5, shared_model=None, shared_labels=None, base_predictor=None):
         """
         Inicializa el predictor de streaming exacto.
         Puede recibir un base_predictor ya cargado para ahorrar memoria y tiempo.
@@ -259,6 +259,37 @@ class LSCStreamingExactoPredictor:
                 'message': f'Invalid landmarks shape: {landmarks.shape}'
             }
         
+        # 1. Lógica de Espejo (Mirroring)
+        # Basado en la lógica del evaluador local que ayuda a la compatibilidad.
+        # Si detecta mano derecha pero no izquierda, invertimos las coordenadas X.
+        # Pose landmarks: x es la primera coordenada de cada grupo de 4.
+        # Hands landmarks: x es la primera coordenada de cada grupo de 3.
+        
+        has_left = np.any(landmarks[163:226] != 0)
+        has_right = np.any(landmarks[100:163] != 0)
+        
+        if has_right and not has_left:
+            # Espejar coordenadas X (1 - x)
+            mirrored = landmarks.copy()
+            # Pose X indices: 0, 4, 8, ... 96
+            for i in range(0, 100, 4):
+                if mirrored[i] != 0:
+                    mirrored[i] = 1.0 - mirrored[i]
+            # Hands X indices: 100, 103, ... 223
+            for i in range(100, 226, 3):
+                if mirrored[i] != 0:
+                    mirrored[i] = 1.0 - mirrored[i]
+            
+            # Intercambiar manos en el vector final
+            # Mano derecha (100-163) pasa a ser mano izquierda y viceversa
+            rh_data = mirrored[100:163].copy()
+            lh_data = mirrored[163:226].copy()
+            mirrored[100:163] = lh_data
+            mirrored[163:226] = rh_data
+            
+            landmarks = mirrored
+            # log("🔄 [Mirror] Landmarks espejados (Dominancia derecha detectada)")
+
         # Añadir al buffer
         self.landmarks_buffer.append(landmarks)
         
@@ -318,13 +349,13 @@ class LSCStreamingExactoPredictor:
             
             # Suavizado (Smoothing) con Voto Mayoritario
             final_word = None
-            if len(self.prediction_buffer) >= 3:  # Aumentado de 2 a 3 para mayor estabilidad
+            if len(self.prediction_buffer) >= 2:  # Reducido de 3 a 2 para respuesta más inmediata
                 # Obtener la palabra más común en las últimas N predicciones
                 counts = Counter(self.prediction_buffer)
                 most_common = counts.most_common(1)[0]
                 
-                # Si la más común es suficientemente dominante (exigencia del 60%)
-                if most_common[1] >= len(self.prediction_buffer) * 0.6:
+                # Si la más común es suficientemente dominante (exigencia reducida al 50% para buffer pequeño)
+                if most_common[1] >= len(self.prediction_buffer) * 0.5:
                     final_word = most_common[0]
             
             # Determinar estatus
