@@ -251,7 +251,7 @@ async def connect(sid, environ):
         log(f"[*] Inicializando sesión de streaming para {sid}...")
         predictor = LSCStreamingPredictor(
             base_predictor=base_predictor,
-            buffer_size=25  # Reducido de 35 a 25 para mayor agilidad
+            buffer_size=5  # Reducido de 25 a 5 para máxima agilidad (igual al evaluador local)
         )
         
         active_predictors[sid] = predictor
