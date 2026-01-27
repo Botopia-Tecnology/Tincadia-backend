@@ -101,7 +101,8 @@ export class CloudinaryService {
      * Generate signature for client-side upload
      */
     getUploadSignature(params: Record<string, any>) {
-        const timestamp = Math.round((new Date).getTime() / 1000);
+        // Use provided timestamp or generate new one
+        const timestamp = params.timestamp || Math.round((new Date).getTime() / 1000);
 
         // Ensure source is included if sent (Upload Widget sends source='uw')
         const paramsToSign = { ...params, timestamp };
