@@ -5,10 +5,13 @@ import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class CloudinaryService {
     constructor(private configService: ConfigService) {
+        // Helper to strip quotes if present (fixes Railway/production env issues)
+        const clean = (val: string | undefined) => val?.replace(/^"|"$/g, '').trim();
+
         cloudinary.config({
-            cloud_name: this.configService.get<string>('CLOUDINARY_CLOUD_NAME'),
-            api_key: this.configService.get<string>('CLOUDINARY_API_KEY'),
-            api_secret: this.configService.get<string>('CLOUDINARY_API_SECRET'),
+            cloud_name: clean(this.configService.get<string>('CLOUDINARY_CLOUD_NAME')),
+            api_key: clean(this.configService.get<string>('CLOUDINARY_API_KEY')),
+            api_secret: clean(this.configService.get<string>('CLOUDINARY_API_SECRET')),
         });
     }
 
@@ -116,7 +119,8 @@ export class CloudinaryService {
             .join('&');
 
         // 3. Append API Secret
-        const apiSecret = this.configService.get<string>('CLOUDINARY_API_SECRET');
+        const rawSecret = this.configService.get<string>('CLOUDINARY_API_SECRET');
+        const apiSecret = rawSecret?.replace(/^"|"$/g, '').trim();
         const stringToSign = `${serializedParams}${apiSecret}`;
 
         console.log('🔍 [Cloudinary Debug] Serialized Params:', serializedParams);
@@ -133,8 +137,8 @@ export class CloudinaryService {
         return {
             signature,
             timestamp,
-            cloudName: this.configService.get<string>('CLOUDINARY_CLOUD_NAME'),
-            apiKey: this.configService.get<string>('CLOUDINARY_API_KEY')
+            cloudName: this.configService.get<string>('CLOUDINARY_CLOUD_NAME')?.replace(/^"|"$/g, '').trim(),
+            apiKey: this.configService.get<string>('CLOUDINARY_API_KEY')?.replace(/^"|"$/g, '').trim()
         };
     }
 }
