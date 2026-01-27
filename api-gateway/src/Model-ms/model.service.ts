@@ -94,6 +94,34 @@ export class ModelService {
         }
     }
 
+    async textToSpeech(text: string): Promise<any> {
+        try {
+            await this.ensureServiceIsRunning();
+
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Enviando texto a ${this.pythonServiceUrl}/tts...`);
+            }
+
+            const response = await fetch(`${this.pythonServiceUrl}/tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Microservice responded with ${response.status}: ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            if (this.logsEnabled) {
+                console.error('[Gateway] TTS Error:', error);
+            }
+            throw new BadRequestException(`Error en TTS: ${error.message || error}`);
+        }
+    }
+
     async connectToPython(frontendClient: ServerSocket) {
         await this.ensureServiceIsRunning();
 

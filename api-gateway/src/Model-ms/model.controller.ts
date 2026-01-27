@@ -25,6 +25,14 @@ export class ModelController {
         return this.modelService.videoToAudio(file);
     }
 
+    // POST /model/tts
+    @Post('tts')
+    async textToSpeech(
+        @Body() body: { text: string }
+    ) {
+        return this.modelService.textToSpeech(body.text);
+    }
+
     // POST /model/confirm-word
     @Post('confirm-word')
     async confirmWord(

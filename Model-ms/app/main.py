@@ -184,6 +184,65 @@ async def predict_audio(request: Request, file: UploadFile = File(...)):
             except:
                 pass
 
+class TTSRequest(BaseModel):
+    text: str
+
+@app.post("/tts")
+async def text_to_speech(request: TTSRequest):
+    text = request.text
+    log(f"\n[DEBUG] --- /tts Request: '{text}' ---")
+    
+    if not text:
+        raise HTTPException(status_code=400, detail="Text is required")
+
+    # 1. Check Cloudinary Credentials
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME")
+    api_key = os.getenv("CLOUDINARY_API_KEY")
+    api_secret = os.getenv("CLOUDINARY_API_SECRET")
+
+    if not all([cloud_name, api_key, api_secret]) or "xxxx" in [cloud_name, api_key, api_secret]:
+        raise HTTPException(
+            status_code=500, 
+            detail="Error: Cloudinary credentials missing in Model-ms"
+        )
+
+    audio_path = None
+    try:
+        # 2. Generate Audio
+        fd, audio_path = tempfile.mkstemp(suffix=".mp3")
+        os.close(fd)
+        
+        log(f"[DEBUG] Generating TTS audio at {audio_path}")
+        tts = gTTS(text=text, lang='es')
+        tts.save(audio_path)
+        
+        # 3. Upload to Cloudinary
+        log(f"[DEBUG] Uploading to Cloudinary...")
+        upload_result = cloudinary.uploader.upload(
+            audio_path,
+            folder="tincadia/tts",
+            resource_type="video" # 'video' allows audio playback in cloudinary
+        )
+        
+        audio_url = upload_result.get("secure_url")
+        log(f"[DEBUG] Upload successful: {audio_url}")
+
+        return {
+            "success": True,
+            "audioUrl": audio_url
+        }
+
+    except Exception as e:
+        if LOGS_ENABLED:
+            traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error in TTS: {str(e)}")
+    finally:
+        if audio_path and os.path.exists(audio_path):
+            try:
+                os.remove(audio_path)
+            except:
+                pass
+
 class TranscribeRequest(BaseModel):
     room_name: str
 
