@@ -84,6 +84,8 @@ export class ChatController {
     @ApiOperation({ summary: 'Editar mensaje' })
     @ApiResponse({ status: 200, description: 'Mensaje editado' })
     editMessage(@Param('messageId') messageId: string, @Body() dto: Omit<EditMessageDto, 'messageId'>) {
+        console.log('🔍 [Gateway Debug] editMessage body:', JSON.stringify(dto));
+        console.log('🔍 [Gateway Debug] MessageId:', messageId);
         return this.client.send('edit_message', { ...dto, messageId });
     }
 
