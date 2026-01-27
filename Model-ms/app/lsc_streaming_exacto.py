@@ -66,10 +66,11 @@ class LSCStreamingExactoPredictor:
         self.landmarks_buffer = deque(maxlen=buffer_size)
         
         # Buffer para predicciones (suavizado)
-        self.prediction_buffer = deque(maxlen=10)  # Últimas 10 predicciones
+        self.prediction_buffer = deque(maxlen=15)  # Aumentado de 10 a 15 para mayor estabilidad
         
         # Estado
         self.frame_count = 0
+        self.no_user_count = 0 # Contador para auto-reset
         self.last_prediction = None
         self.last_accepted_word = None # Nuevo: Contexto de palabra aceptada
         # Contexto y pesos
@@ -299,10 +300,20 @@ class LSCStreamingExactoPredictor:
         # Verificar distancia del usuario
         distance_alert = self._check_distance(landmarks)
         
-        if buffer_fill < 0.1: # Muy bajo para ser responsivo rápido
+        # Determinar si hay usuario
+        if distance_alert in ["NO_USER", "TOO_FAR"]:
+            self.no_user_count += 1
+        else:
+            self.no_user_count = 0
+            
+        # Auto-reset si no hay nadie por medio segundo (aprox 15 frames)
+        if self.no_user_count > 15:
+            if len(self.prediction_buffer) > 0:
+                log("🧹 [Auto-Reset] Limpiando buffer por ausencia de usuario")
+                self.reset_buffer()
             return {
-                'status': 'filling_buffer', 
-                'word': None, 
+                'status': 'no_user',
+                'word': None,
                 'confidence': 0,
                 'buffer_fill': buffer_fill,
                 'distance_alert': distance_alert
@@ -321,49 +332,65 @@ class LSCStreamingExactoPredictor:
                     'buffer_fill': buffer_fill
                 }
             
+            # 2. LOG DIAGNÓSTICO: Top 3 cada 30 frames
+            self.frame_count += 1
+            if self.frame_count % 30 == 0:
+                probs = np.array(result['probabilities'])
+                top_indices = np.argsort(probs)[-3:][::-1]
+                classes_map = self.exacto_predictor.config["classes"]
+                top_str = ", ".join([f"{classes_map.get(str(i), '??')}: {probs[i]:.2f}" for i in top_indices])
+                log(f"🔍 [Top-3 Candidates] {top_str}")
+
             # Aplicar lógica de contexto inteligente (GPT-2)
-            # DEBUG: Estado del historial
-            log(f"🔍 [DEBUG] word_history: {list(self.word_history)} (len: {len(self.word_history)})")
-            log(f"🔍 [DEBUG] llm_scores_cache entries: {len(self.llm_scores_cache)}")
+            # Throttle debug logs
+            if self.frame_count % 60 == 0:
+                log(f"🔍 [Status] word_history: {list(self.word_history)} | context: {self.current_context}")
             
             if self.context_aware_enabled:
                 # Priorizamos GPT-2 (LLM Boost) sobre las categorías fijas
                 if self.word_history:
-                    log(f"🧠 [DEBUG] Aplicando LLM Boost con historial: {list(self.word_history)}")
+                    # log(f"🧠 [DEBUG] Aplicando LLM Boost con historial: {list(self.word_history)}")
                     predicted_idx, confidence = self._apply_llm_boost(result['probabilities'])
                 elif self.current_context:
-                    log(f"🎯 [DEBUG] Aplicando Context Boost: {self.current_context}")
+                    # log(f"🎯 [DEBUG] Aplicando Context Boost: {self.current_context}")
                     predicted_idx, confidence = self._apply_context_boost(result['probabilities'])
                 else:
-                    log(f"⚡ [DEBUG] Sin historial ni contexto, usando predicción base")
-                    predicted_idx, confidence = np.argmax(result['probabilities']), max(result['probabilities'])
+                    # predicted_idx, confidence = np.argmax(result['probabilities']), max(result['probabilities'])
+                    # Base case is now just the raw result
+                    predicted_idx = result['class_idx']
+                    confidence = result['confidence']
                 
                 predicted_word = self.exacto_predictor.config["classes"].get(str(predicted_idx), f"Clase_{predicted_idx}")
             else:
                 confidence = result['confidence']
                 predicted_word = result['word']
             
-            # Filtrar por confianza - Aumentado de 0.4 a 0.5 para mayor rigor
+            # Filtrar por confianza - Mantener en 0.5 para el buffer, pero loguear el top 3 arriba
             if confidence >= 0.5:
                 self.prediction_buffer.append(predicted_word)
+            else:
+                # Si la confianza es muy baja, añadimos None para ir vaciando el buffer de suavizado
+                if confidence < 0.2:
+                    self.prediction_buffer.append(None)
             
             # Suavizado (Smoothing) con Voto Mayoritario
             final_word = None
-            if len(self.prediction_buffer) >= 2:  # Reducido de 3 a 2 para respuesta más inmediata
+            if len(self.prediction_buffer) >= 4:  # Aumentado de 2 a 4 para mayor estabilidad (accuracy)
                 # Obtener la palabra más común en las últimas N predicciones
-                counts = Counter(self.prediction_buffer)
-                most_common = counts.most_common(1)[0]
-                
-                # Si la más común es suficientemente dominante (exigencia reducida al 50% para buffer pequeño)
-                if most_common[1] >= len(self.prediction_buffer) * 0.5:
-                    final_word = most_common[0]
+                # Filtrar valores None
+                valid_preds = [p for p in self.prediction_buffer if p is not None]
+                if valid_preds:
+                    counts = Counter(valid_preds)
+                    most_common = counts.most_common(1)[0]
+                    
+                    # Si la más común es suficientemente dominante (60% del buffer actual)
+                    if most_common[1] >= len(self.prediction_buffer) * 0.6:
+                        final_word = most_common[0]
             
             # Determinar estatus
             context_changed = False
             if final_word:
                 status = 'predicting'
-                # word_history solo se actualiza mediante set_accepted_word (evento word_accepted del frontend)
-                # NO añadimos automáticamente aquí
             elif buffer_fill > 0.05:
                 status = 'processing'
             else:
@@ -438,6 +465,7 @@ class LSCStreamingExactoPredictor:
         self.landmarks_buffer.clear()
         self.prediction_buffer.clear()
         self.frame_count = 0
+        self.no_user_count = 0
         self.last_prediction = None
         # log("[*] Buffer reseteado")
 
