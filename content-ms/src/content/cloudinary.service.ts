@@ -99,11 +99,27 @@ export class CloudinaryService {
      */
     getUploadSignature(params: Record<string, any>) {
         const timestamp = Math.round((new Date).getTime() / 1000);
+
+        // Ensure source is included if sent (Upload Widget sends source='uw')
         const paramsToSign = { ...params, timestamp };
-        const signature = cloudinary.utils.api_sign_request(
-            paramsToSign,
-            this.configService.get<string>('CLOUDINARY_API_SECRET') || ''
-        );
+
+        // Manual signature generation to ensure 'source' and other widget params are included
+        // 1. Sort keys
+        const sortedKeys = Object.keys(paramsToSign).sort();
+
+        // 2. Create string "key=value&key2=value2"
+        const serializedParams = sortedKeys
+            .map(key => `${key}=${paramsToSign[key]}`)
+            .join('&');
+
+        // 3. Append API Secret
+        const stringToSign = `${serializedParams}${this.configService.get<string>('CLOUDINARY_API_SECRET')}`;
+
+        // 4. SHA1 Hash (using cloudinary's crypto wrapper or native crypto if available)
+        // Since we imported 'cloudinary', we can use its util or node's crypto. 
+        // Let's use node's crypto for reliability.
+        const crypto = require('crypto');
+        const signature = crypto.createHash('sha1').update(stringToSign).digest('hex');
 
         return {
             signature,

@@ -90,8 +90,8 @@ export class ChatController {
     @Delete('messages/:messageId')
     @ApiOperation({ summary: 'Eliminar mensaje (soft delete)' })
     @ApiResponse({ status: 200, description: 'Mensaje eliminado' })
-    deleteMessage(@Param('messageId') messageId: string, @Body() dto: { userId: string }) {
-        return this.client.send('delete_message', { messageId, userId: dto.userId });
+    deleteMessage(@Param('messageId') messageId: string, @Query('userId') userId: string) {
+        return this.client.send('delete_message', { messageId, userId });
     }
 
     @Post('correct-text')

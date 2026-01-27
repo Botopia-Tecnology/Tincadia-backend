@@ -332,7 +332,7 @@ export class ChatService {
                 .from('messages')
                 .select('*')
                 .eq('conversation_id', data.conversationId)
-                .is('deleted_at', null)
+                // .is('deleted_at', null) // Include deleted messages to show placeholder
                 .order('created_at', { ascending: false });
 
             // Delta sync
@@ -663,21 +663,49 @@ export class ChatService {
     }
 
     /**
-     * Eliminar mensaje (soft delete)
+     * Eliminar mensaje (soft delete para todos)
      */
     async deleteMessage(data: DeleteMessageDto) {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
-            const { error } = await supabase
-                .from('messages')
-                .update({ deleted_at: new Date().toISOString() })
-                .eq('id', data.messageId)
-                .eq('sender_id', data.userId);
+            this.logger.log(`🗑️ Attempting delete: msgId=${data.messageId}, userId=${data.userId}`);
 
-            if (error) {
-                throw new NotFoundException('Mensaje no encontrado');
+            // 1. Update message content and type
+            // We set deleted_at for auditing, but the main logic is changing type to 'deleted'
+            const { data: updatedMessage, error } = await supabase
+                .from('messages')
+                .update({
+                    content: '🚫 Mensaje eliminado',
+                    type: 'text', // Changed from 'deleted' to satisfy DB constraint
+                    deleted_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', data.messageId)
+                .eq('sender_id', data.userId)
+                .select()
+                .single();
+
+            if (error || !updatedMessage) {
+                this.logger.error(`❌ Delete failed. Error: ${error?.message}, Found msg: ${!!updatedMessage}`);
+                // Check if message exists at all to give better error
+                const { data: check } = await supabase.from('messages').select('sender_id').eq('id', data.messageId).single();
+                if (check) {
+                    this.logger.error(`👉 Message exists but sender_id is ${check.sender_id} (requested by ${data.userId})`);
+                } else {
+                    this.logger.error(`👉 Message ID ${data.messageId} does not exist`);
+                }
+
+                throw new NotFoundException('Mensaje no encontrado o no tienes permiso');
             }
+
+            // 2. Broadcast update to all participants
+            // (We reuse the 'new_message' or send a specific 'message_updated' event)
+            // Ideally use Supabase Realtime UPDATE event which is already automatic for the table.
+            // But we can also push a notification if needed, though usually not for deletion.
+
+            // Note: The `useChat` hook on frontend listens to Postgres UPDATE events, 
+            // so it should automatically pick up the change in content and type.
 
             return { success: true };
         } catch (error) {
