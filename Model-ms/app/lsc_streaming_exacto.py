@@ -66,7 +66,7 @@ class LSCStreamingExactoPredictor:
         self.landmarks_buffer = deque(maxlen=buffer_size)
         
         # Buffer para predicciones (suavizado)
-        self.prediction_buffer = deque(maxlen=15)  # Aumentado de 10 a 15 para mayor estabilidad
+        self.prediction_buffer = deque(maxlen=10)  # Reducido de 15 a 10 para mayor agilidad
         
         # Estado
         self.frame_count = 0
@@ -108,7 +108,7 @@ class LSCStreamingExactoPredictor:
     def _infer_context_automatic(self, last_word: str):
         """Infiere el contexto basado en la última palabra y el historial."""
         if not self.context_aware_enabled or not self.auto_context_enabled:
-            return
+            return False
 
         # 1. Búsqueda directa por categoría
         new_context = None
@@ -119,19 +119,18 @@ class LSCStreamingExactoPredictor:
         
         # 2. Si se encontró una categoría clara, cambiar
         if new_context and new_context != self.current_context:
-            # DESACTIVADO: La inferencia por categorías ya no es necesaria con GPT-2
-            # self.set_context(new_context, manual=False)
-            return False 
+            log(f"🎯 [Auto-Category] Detectada categoría: {new_context}")
+            self.set_context(new_context, manual=False)
+            return True
         
         return False
 
-    def _apply_context_boost(self, probabilities: list) -> Tuple[int, float]:
-        """Aplica un refuerzo a las probabilidades según el contexto actual."""
+    def _apply_context_boost(self, probabilities: np.ndarray) -> np.ndarray:
+        """Aplica un refuerzo a las probabilidades según el contexto actual (Categoría)."""
         if not self.current_context:
-            idx = np.argmax(probabilities)
-            return idx, probabilities[idx]
+            return probabilities
 
-        boosted_probs = np.array(probabilities).copy()
+        boosted_probs = probabilities.copy()
         target_labels = self.context_weights.get(self.current_context, [])
         
         # Obtener mapeo de etiquetas del predictor
@@ -140,24 +139,10 @@ class LSCStreamingExactoPredictor:
         for idx_str, label in classes_map.items():
             idx = int(idx_str)
             if label in target_labels:
-                # Boost por un factor (ej. 1.5) para favorecer el contexto
-                boosted_probs[idx] *= 1.8
+                # Boost significativo para mantener la categoría (factor 2.0)
+                boosted_probs[idx] *= 2.0
         
-        # Volver a normalizar para que sumen 1 (opcional, pero util para confianza real)
-        new_idx = np.argmax(boosted_probs)
-        original_idx = np.argmax(probabilities)
-        
-        if new_idx != original_idx:
-            original_word = self.exacto_predictor.config["classes"].get(str(original_idx), "Desconocido")
-            boosted_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Desconocido")
-            # Log de refuerzo de categoría silencioso o muy breve
-            # log(f"✨ [Refuerzo de Contexto] CAMBIO: '{original_word}' ({probabilities[original_idx]:.2f}) -> '{boosted_word}' ({boosted_probs[new_idx]:.2f})")
-        else:
-            # final_word = self.exacto_predictor.config["classes"].get(str(new_idx), "Desconocido")
-            # log(f"🎯 [Refuerzo de Contexto] Mantiene: '{final_word}' (Confianza: {boosted_probs[new_idx]:.2f})")
-            pass
-
-        return new_idx, boosted_probs[new_idx]
+        return boosted_probs
 
     def set_accepted_word(self, word: str):
         """Actualiza el contexto y el historial con la palabra confirmada por el usuario."""
@@ -177,7 +162,8 @@ class LSCStreamingExactoPredictor:
         self._infer_context_automatic(word)
         
         # 3. Refrescar la inteligencia de GPT-2
-        self._refresh_llm_cache()
+        # 4. Limpiar buffer de predicción para despejar el camino a la siguiente seña
+        self.prediction_buffer.clear()
         
         log(f"🔔 [set_accepted_word] Estado DESPUÉS: word_history={list(self.word_history)}")
 
@@ -188,8 +174,13 @@ class LSCStreamingExactoPredictor:
             return
 
         try:
-            input_text = " ".join(self.word_history)
-            log(f"🧠 [GPT-2 Refresh] Generando nueva base de conocimiento para: '{input_text}'")
+            # Limpiar etiquetas para que la IA entienda mejor (Letra_A -> A)
+            cleaned_history = [w.replace("Letra_", "") if w.startswith("Letra_") else w for w in self.word_history]
+            input_text = " ".join(cleaned_history)
+            
+            # Throttle refresh log
+            if self.frame_count % 60 == 0 or len(self.word_history) == 1:
+                log(f"🧠 [GPT-2 Refresh] Nueva base: '{input_text}'")
             
             import torch
             inputs = self.tokenizer(input_text, return_tensors="pt")
@@ -219,33 +210,17 @@ class LSCStreamingExactoPredictor:
             log(f"⚠️ Error refrescando caché de IA: {e}")
             self.llm_scores_cache = {}
 
-    def _apply_llm_boost(self, probabilities: list) -> Tuple[int, float]:
+    def _apply_llm_boost(self, probabilities: np.ndarray) -> np.ndarray:
         """Usa los puntajes en caché de GPT-2 para premiar a los candidatos."""
         if not self.llm_scores_cache:
-            idx = np.argmax(probabilities)
-            return idx, probabilities[idx]
+            return probabilities
 
-        classes_map = self.exacto_predictor.config["classes"]
-        boosted_probs = np.array(probabilities).copy()
-        
+        boosted_probs = probabilities.copy()
         for idx_int, llm_score in self.llm_scores_cache.items():
-            # Aplicar factor de refuerzo usando el score pre-calculado
-            boosted_probs[idx_int] *= (1.0 + llm_score * 500)
+            # Factor de refuerzo lingüístico (50)
+            boosted_probs[idx_int] *= (1.0 + llm_score * 50)
 
-        # Normalizar
-        boosted_probs = boosted_probs / np.sum(boosted_probs)
-        new_idx = np.argmax(boosted_probs)
-        original_idx = np.argmax(probabilities)
-        
-        orig_word = classes_map.get(str(original_idx), "Desconocido")
-        boost_word = classes_map.get(str(new_idx), "Desconocido")
-
-        if new_idx != original_idx:
-            # Silenciado para evitar spam de 30 veces por segundo
-            log(f"🤖 [IA Boost] CAMBIO: '{orig_word}' ({probabilities[original_idx]:.2f}) -> '{boost_word}' ({boosted_probs[new_idx]:.2f})")
-            pass
-            
-        return new_idx, boosted_probs[new_idx]
+        return boosted_probs
 
     def add_landmarks(self, landmarks: np.ndarray) -> Optional[Dict]:
         """
@@ -306,11 +281,11 @@ class LSCStreamingExactoPredictor:
         else:
             self.no_user_count = 0
             
-        # Auto-reset si no hay nadie por medio segundo (aprox 15 frames)
-        if self.no_user_count > 15:
+        # Auto-reset si no hay nadie por un instante (aprox 5 frames de silencio)
+        if self.no_user_count > 5:
             if len(self.prediction_buffer) > 0:
-                log("🧹 [Auto-Reset] Limpiando buffer por ausencia de usuario")
-                self.reset_buffer()
+                log("🧹 [Auto-Reset] Limpiando buffer por silencio")
+                self.prediction_buffer.clear()
             return {
                 'status': 'no_user',
                 'word': None,
@@ -347,20 +322,42 @@ class LSCStreamingExactoPredictor:
                 log(f"🔍 [Status] word_history: {list(self.word_history)} | context: {self.current_context}")
             
             if self.context_aware_enabled:
-                # Priorizamos GPT-2 (LLM Boost) sobre las categorías fijas
-                if self.word_history:
-                    # log(f"🧠 [DEBUG] Aplicando LLM Boost con historial: {list(self.word_history)}")
-                    predicted_idx, confidence = self._apply_llm_boost(result['probabilities'])
-                elif self.current_context:
-                    # log(f"🎯 [DEBUG] Aplicando Context Boost: {self.current_context}")
-                    predicted_idx, confidence = self._apply_context_boost(result['probabilities'])
-                else:
-                    # predicted_idx, confidence = np.argmax(result['probabilities']), max(result['probabilities'])
-                    # Base case is now just the raw result
-                    predicted_idx = result['class_idx']
-                    confidence = result['confidence']
+                # 1. Obtener base
+                raw_probs = np.array(result['probabilities'])
+                original_idx = np.argmax(raw_probs)
+                base_confidence = raw_probs[original_idx]
                 
+                # 2. IA Boost (Lingüístico - GPT2)
+                boosted_probs = self._apply_llm_boost(raw_probs)
+                
+                # 3. Context Boost (Categoría - Colores, Letras, etc)
+                boosted_probs = self._apply_context_boost(boosted_probs)
+                
+                # 4. Normalizar y obtener final
+                boosted_probs = boosted_probs / np.sum(boosted_probs)
+                predicted_idx = np.argmax(boosted_probs)
+                confidence = boosted_probs[predicted_idx]
+                
+                # SEGURIDAD: Si el modelo base es demasiado bajo (< 0.15), ignoramos IA
+                if base_confidence < 0.15:
+                    predicted_idx = original_idx
+                    confidence = base_confidence
+
                 predicted_word = self.exacto_predictor.config["classes"].get(str(predicted_idx), f"Clase_{predicted_idx}")
+                
+                if predicted_idx != original_idx and (confidence >= 0.4 or self.frame_count % 60 == 0):
+                    orig_word = self.exacto_predictor.config["classes"].get(str(original_idx), "??")
+                    # log(f"✨ [Smart Boost] '{orig_word}' ({base_confidence:.2f}) -> '{predicted_word}' ({confidence:.2f}) [Ctx: {self.current_context}]")
+                
+                # --- LÓGICA FAST-BREAK (Antipegado) ---
+                # Si detectamos una seña NUEVA con mucha confianza, limpiamos la vieja del buffer
+                if len(self.prediction_buffer) > 0:
+                    counts = Counter(self.prediction_buffer)
+                    last_majority_word = counts.most_common(1)[0][0]
+                    if predicted_word != last_majority_word and confidence > 0.7:
+                        log(f"🚀 [Fast-Break] Detectado cambio rápido: {last_majority_word} -> {predicted_word}")
+                        self.prediction_buffer.clear() 
+                # --------------------------------------
             else:
                 confidence = result['confidence']
                 predicted_word = result['word']

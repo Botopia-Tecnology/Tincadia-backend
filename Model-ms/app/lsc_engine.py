@@ -66,11 +66,15 @@ class LSCEngine:
                     # Cargar pesos
                     cls._model.load_weights(MODEL_PATH)
                     
-                    # Crear predictor exacto
+                    # Crear predictor exacto COMPARTIENDO el modelo ya cargado
                     from exacto_predictor_colnumword import ExactoPredictorCOLNUMWORD
-                    cls._exacto_predictor = ExactoPredictorCOLNUMWORD(MODEL_PATH, CONFIG_PATH)
+                    cls._exacto_predictor = ExactoPredictorCOLNUMWORD(
+                        model_path=MODEL_PATH, 
+                        config_path=CONFIG_PATH,
+                        model=cls._model
+                    )
                     
-                    log(f"✅ LSCEngine: Modelo {config['model_info']['name']} cargado con éxito.")
+                    log(f"✅ LSCEngine: Recursos compartidos optimizados.")
                 except Exception as e:
                     if LOGS_ENABLED:
                         print(f"❌ [LSCEngine Error] Falló la carga del modelo: {e}")
