@@ -24,34 +24,43 @@ class ExactoPredictorCOLNUMWORD:
     que el entrenamiento original del Modelo-COL-NUM-WORD-1101-2
     """
     
-    def __init__(self, model_path, config_path):
-        """Inicializar predictor con normalización exacta"""
+    def __init__(self, model_path=None, config_path=None, model=None):
+        """
+        Inicializar predictor. 
+        Puede recibir rutas para cargar todo, o un objeto 'model' ya cargado.
+        """
+        if config_path:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                self.config = json.load(f)
+        else:
+            self.config = None
+
+        if model:
+            self.model = model
+            log("✅ Usando instancia de modelo compartida")
+        elif model_path and config_path:
+            # Obtener directorio del modelo
+            model_dir = os.path.dirname(model_path)
+            
+            # Importar arquitectura
+            sys.path.insert(0, os.path.join(model_dir, "dependencies"))
+            from coordenates_models import get_model_coord_dense_5
+            
+            # Forzar CPU
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+            tf.config.set_visible_devices([], 'GPU')
+            
+            # Construir y cargar modelo
+            self.model = get_model_coord_dense_5(
+                (self.config["model_info"]["input_shape"][0],), 
+                self.config["model_info"]["num_classes"]
+            )
+            self.model.load_weights(model_path)
+            log(f"✅ Modelo {self.config['model_info']['name']} cargado desde disco")
         
-        # Obtener directorio del modelo
-        model_dir = os.path.dirname(model_path)
-        
-        # Cargar configuración y modelo
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = json.load(f)
-        
-        # Importar arquitectura desde el directorio del modelo
-        sys.path.insert(0, os.path.join(model_dir, "dependencies"))
-        from coordenates_models import get_model_coord_dense_5
-        
-        # Forzar CPU
-        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-        tf.config.set_visible_devices([], 'GPU')
-        
-        # Construir y cargar modelo
-        self.model = get_model_coord_dense_5(
-            (self.config["model_info"]["input_shape"][0],), 
-            self.config["model_info"]["num_classes"]
-        )
-        self.model.load_weights(model_path)
-        
-        log(f"✅ Modelo {self.config['model_info']['name']} cargado")
-        log(f"📊 Precisión: {self.config['model_info']['val_accuracy']:.2%}")
-        log(f"🎯 Clases: {self.config['model_info']['num_classes']}")
+        if self.config:
+            log(f"📊 Precisión: {self.config['model_info']['val_accuracy']:.2%}")
+            log(f"🎯 Clases: {self.config['model_info']['num_classes']}")
     
     def normalize_landmarks_exacto(self, coords: np.ndarray) -> np.ndarray:
         """
