@@ -134,11 +134,20 @@ export class ChatService {
 
             if (partError) {
                 this.logger.error(`Error adding participants: ${partError.message}`);
-                // Rollback conversation creation? Or just fail? (Supabase doesn't support transactions easily here unless using rpc)
-                // For now, let's try to delete the conversation if participants fail.
+                // Rollback conversation creation? Or just fail?
                 await supabase.from('conversations').delete().eq('id', conversation.id);
                 throw new BadRequestException('Error al añadir participantes al grupo');
             }
+
+            // 3. Send Initial System Message to ensure visibility
+            // (Empty groups are filtered out by getConversations, so we need a message)
+            await this.sendMessage({
+                conversationId: conversation.id,
+                senderId: data.creatorId,
+                content: '👥 Grupo creado',
+                type: 'text' as any, // Cast to avoid TS error with MessageType enum
+                metadata: { isSystem: true }
+            });
 
             return { conversationId: conversation.id };
         } catch (error) {
