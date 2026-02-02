@@ -132,7 +132,9 @@ export class AuthService {
       const parts = (idToken as string).split('.');
       if (parts.length === 3) {
         try {
-          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+          const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, '=');
+          const payload = JSON.parse(Buffer.from(padded, 'base64').toString('utf-8'));
           if (payload.nonce) {
             nonce = payload.nonce;
           }
