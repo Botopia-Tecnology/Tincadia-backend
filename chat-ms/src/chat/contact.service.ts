@@ -22,21 +22,39 @@ export class ContactService {
             const supabase = this.supabaseService.getAdminClient();
 
             // Normalize phone: remove spaces, ensure consistent format
+            // Robust matching logic: generate variations to find user whatever their stored format
             const inputPhone = (data.phone || '').trim();
+            const cleanInput = inputPhone.replace(/\D/g, '');
 
-            // Create variations to search for (handles different storage formats)
+            // Normalize to last 10 digits (most common use case)
+            let normalized = cleanInput;
+            if (normalized.length > 10) {
+                // If it starts with 57 and is longer, strip it (naive but works for CO)
+                if (normalized.startsWith('57')) normalized = normalized.slice(2);
+                // if starts with 0
+                else if (normalized.startsWith('0')) normalized = normalized.slice(1);
+
+                // Fallback: take last 10
+                if (normalized.length > 10) normalized = normalized.slice(-10);
+            }
+
+            // Create variations to search for
             const phoneVariations: string[] = [];
 
-            // Add original input
+            // 1. Original input
             phoneVariations.push(inputPhone);
 
-            // If starts with +, also try without it
-            if (inputPhone.startsWith('+')) {
-                phoneVariations.push(inputPhone.slice(1));
-            } else {
-                // If doesn't start with +, also try with it
-                phoneVariations.push('+' + inputPhone);
+            // 2. Normalized (10 digits)
+            if (normalized && normalized !== inputPhone) {
+                phoneVariations.push(normalized);
             }
+
+            // 3. Variations with country code (assuming CO primarily based on user request)
+            const withPrefix = `57${normalized}`;
+            const withPlusPrefix = `+57${normalized}`;
+
+            if (!phoneVariations.includes(withPrefix)) phoneVariations.push(withPrefix);
+            if (!phoneVariations.includes(withPlusPrefix)) phoneVariations.push(withPlusPrefix);
 
             // Try to find user with any of the phone variations
             const { data: targetUser, error: userError } = await supabase

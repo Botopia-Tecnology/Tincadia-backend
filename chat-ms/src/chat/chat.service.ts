@@ -1063,7 +1063,7 @@ export class ChatService {
 
             if (partError) {
                 this.logger.error(`Error fetching participants: ${partError.message}`);
-                throw new BadRequestException(`Could not fetch participants: ${partError.message}`);
+                throw new BadRequestException(`No se pudieron obtener los participantes: ${partError.message}`);
             }
 
             if (!participants || participants.length === 0) {
@@ -1080,7 +1080,7 @@ export class ChatService {
 
             if (profError) {
                 this.logger.error(`Error fetching profiles: ${profError.message}`);
-                throw new BadRequestException(`Could not fetch profiles: ${profError.message}`);
+                throw new BadRequestException(`No se pudieron obtener los perfiles: ${profError.message}`);
             }
 
             // 3. Mapear datos
