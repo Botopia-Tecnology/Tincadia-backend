@@ -25,7 +25,7 @@ export class ContactsService {
     @InjectRepository(ContactSyncState) private readonly stateRepo: Repository<ContactSyncState>,
     @InjectRepository(ContactMatchCache) private readonly cacheRepo: Repository<ContactMatchCache>,
     @InjectRepository(ContactSyncChunkResult) private readonly chunkRepo: Repository<ContactSyncChunkResult>,
-  ) {}
+  ) { }
 
   async getState(userId: string) {
     const state = await this.stateRepo.findOne({ where: { userId } });
@@ -84,22 +84,22 @@ export class ContactsService {
   private normalizeContactKey(input: string): string {
     // Remove all non-digit characters
     let digits = (input || '').replace(/\D/g, '');
-    
+
     // Handle Colombian numbers: remove country code 57 if present
     if (digits.startsWith('57') && digits.length > 10) {
       digits = digits.slice(2);
     }
-    
+
     // Handle numbers starting with 0
     if (digits.startsWith('0') && digits.length > 10) {
       digits = digits.slice(1);
     }
-    
+
     // Return last 10 digits
     if (digits.length > 10) {
       digits = digits.slice(-10);
     }
-    
+
     return digits;
   }
 
@@ -153,23 +153,58 @@ export class ContactsService {
       return existingChunk.response;
     }
 
-    const normalizedContacts = dto.contacts.map((c) => this.normalizeContactKey(c));
-    const uniqueContacts = Array.from(new Set(normalizedContacts.filter(Boolean)));
+    // 1. Normalize and Prepare Search Terms
+    // map: original -> normalized(10)
+    const originalToNormalized = new Map<string, string>();
+    // set: all variations to query in DB
+    const searchPhones = new Set<string>();
 
-    // Matching eficiente: SELECT ... WHERE phone IN (...)
-    const matchedProfiles = await this.profilesRepo
-      .createQueryBuilder('p')
-      .select(['p.id', 'p.phone'])
-      .where('p.phone IN (:...phones)', { phones: uniqueContacts })
-      .getMany();
+    for (const rawContact of dto.contacts) {
+      const normalized = this.normalizeContactKey(rawContact);
+      if (!normalized) continue;
 
-    const phoneToUserId = new Map<string, string>();
-    for (const p of matchedProfiles) {
-      if (p.phone) phoneToUserId.set(p.phone, p.id);
+      originalToNormalized.set(rawContact, normalized);
+
+      // Generate variations for DB lookup
+      // 1. The 10 digit version
+      searchPhones.add(normalized);
+      // 2. The 57 + 10 digit
+      searchPhones.add(`57${normalized}`);
+      // 3. The +57 + 10 digit
+      searchPhones.add(`+57${normalized}`);
     }
 
-    const matches: MatchResponse[] = normalizedContacts.map((contact) => {
-      const userId = phoneToUserId.get(contact);
+    const uniqueSearchPhones = Array.from(searchPhones);
+
+    let matchedProfiles: Profile[] = [];
+
+    if (uniqueSearchPhones.length > 0) {
+      matchedProfiles = await this.profilesRepo
+        .createQueryBuilder('p')
+        .select(['p.id', 'p.phone'])
+        .where('p.phone IN (:...phones)', { phones: uniqueSearchPhones })
+        .getMany();
+    }
+
+    // Map: normalized(10) -> userId
+    // We match a DB profile to a normalized key if the DB phone *ends with* the normalized key
+    const normalizedToUserId = new Map<string, string>();
+
+    for (const p of matchedProfiles) {
+      if (!p.phone) continue;
+      // Reverse-normalize the DB phone to find which key it corresponds to
+      // We can use the same normalize function or just check suffix
+      const dbNormalized = this.normalizeContactKey(p.phone);
+      if (dbNormalized) {
+        normalizedToUserId.set(dbNormalized, p.id);
+      }
+    }
+
+    // Build Match Response
+    const matches: MatchResponse[] = dto.contacts.map((contact) => {
+      const normalized = originalToNormalized.get(contact);
+      const userId = normalized ? normalizedToUserId.get(normalized) : undefined;
+
       return userId
         ? { contact, isOnTincadia: true, userId }
         : { contact, isOnTincadia: false };
@@ -177,11 +212,23 @@ export class ContactsService {
 
     // Cache por contacto (opcional pero útil)
     const now = new Date();
-    const cacheRows = uniqueContacts.map((contactKey) => {
-      const matchedUserId = phoneToUserId.get(contactKey) || null;
+    // Use unique *normalized* keys to avoid dupes in cache logic if multiple raw contacts map to same user
+    // actually, cache is usually by contactKey (raw or normalized?).
+    // The entity uses contact_key. Let's use the ORIGINAL provided key to be safe, 
+    // or normalized if that's the contract. Ideally cache should be keyed by what the app sends next time?
+    // Let's stick to normalizedKey or raw? The previous code used normalizedContacts as cache key?
+    // "const normalizedContacts = dto.contacts.map((c) => this.normalizeContactKey(c));"
+    // "cacheRepo... contactKey: contactKey" wheren contactKey was from uniqueContacts.
+    // So it was caching the NORMALIZED key. Let's stick to caching the NORMALIZED key.
+
+    // Get unique normalized keys that were processed
+    const uniqueNormalizedProcessed = Array.from(new Set(Array.from(originalToNormalized.values())));
+
+    const cacheRows = uniqueNormalizedProcessed.map((normalizedKey) => {
+      const matchedUserId = normalizedToUserId.get(normalizedKey) || null;
       return this.cacheRepo.create({
         userId: dto.userId,
-        contactKey,
+        contactKey: normalizedKey,
         matchedUserId,
         matched: Boolean(matchedUserId),
         checkedAt: now,
@@ -199,7 +246,7 @@ export class ContactsService {
         .execute();
     }
 
-    state.cursor = typeof dto.cursorAfterChunk === 'number' ? dto.cursorAfterChunk : (state.cursor ?? 0) + normalizedContacts.length;
+    state.cursor = typeof dto.cursorAfterChunk === 'number' ? dto.cursorAfterChunk : (state.cursor ?? 0) + dto.contacts.length;
     state.lastChunkAt = now;
     await this.stateRepo.save(state);
 

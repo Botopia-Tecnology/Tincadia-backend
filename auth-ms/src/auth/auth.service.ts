@@ -58,7 +58,7 @@ export class AuthService {
       if (error instanceof UnauthorizedException) {
         throw error;
       }
-      throw new UnauthorizedException('Login failed: ' + error.message); // Include info
+      throw new UnauthorizedException('Error al iniciar sesión: Credenciales inválidas o cuenta no encontrada.'); // Include info
     }
   }
 
@@ -82,13 +82,13 @@ export class AuthService {
 
       if (signUpError) {
         if (signUpError.message.includes('already registered')) {
-          throw new ConflictException('Email already registered');
+          throw new ConflictException('Este correo electrónico ya está registrado.');
         }
-        throw new BadRequestException(signUpError.message);
+        throw new BadRequestException('Error en el registro: ' + signUpError.message);
       }
 
       if (!authData.user) {
-        throw new BadRequestException('User registration failed');
+        throw new BadRequestException('El registro de usuario falló.');
       }
 
       // 2. Create profile in local database
@@ -115,7 +115,7 @@ export class AuthService {
         throw error;
       }
       this.logger.error(`Registration error: ${error.message}`);
-      throw new BadRequestException('Registration failed');
+      throw new BadRequestException('Error al registrar usuario. Inténtalo de nuevo.');
     }
   }
 
@@ -154,7 +154,7 @@ export class AuthService {
       }
 
       if (!authData.user) {
-        throw new UnauthorizedException('OAuth login failed');
+        throw new UnauthorizedException('El inicio de sesión con OAuth falló.');
       }
 
       // Check if profile exists, if not create one
@@ -223,7 +223,7 @@ export class AuthService {
         throw error;
       }
       this.logger.error(`OAuth login error: ${error.message}`);
-      throw new UnauthorizedException('OAuth login failed');
+      throw new UnauthorizedException('El inicio de sesión con OAuth falló.');
     }
   }
 
@@ -233,7 +233,7 @@ export class AuthService {
       // The client should just discard the token
       return { message: 'Logged out successfully' };
     } catch (error) {
-      throw new BadRequestException('Logout failed');
+      throw new BadRequestException('Error al cerrar sesión.');
     }
   }
 
@@ -248,7 +248,7 @@ export class AuthService {
       ]);
 
       if (!authUser) {
-        throw new UnauthorizedException('User not found');
+        throw new UnauthorizedException('Usuario no encontrado.');
       }
 
       // Generate ETag (simple hash of updatedAt)
@@ -264,7 +264,7 @@ export class AuthService {
         etag,
       };
     } catch (error) {
-      throw new BadRequestException('Error getting profile');
+      throw new BadRequestException('Error al obtener el perfil.');
     }
   }
 
@@ -293,7 +293,7 @@ export class AuthService {
       };
     } catch (error) {
       this.logger.error(`Error updating profile: ${error.message}`);
-      throw new BadRequestException('Error updating profile');
+      throw new BadRequestException('Error actualizando perfil.');
     }
   }
 
@@ -346,7 +346,7 @@ export class AuthService {
       });
 
       if (error) {
-        throw new BadRequestException('Error updating user metadata with avatar URL');
+        throw new BadRequestException('Error al actualizar la foto de perfil (metadata).');
       }
 
       // 4. Also update the local database profile if needed
@@ -357,7 +357,7 @@ export class AuthService {
       return { avatarUrl };
     } catch (error) {
       this.logger.error(`Error uploading profile picture for ${userId}:`, error);
-      throw new BadRequestException('Failed to upload profile picture');
+      throw new BadRequestException('Falla al subir la foto de perfil.');
     }
   }
 
@@ -403,7 +403,7 @@ export class AuthService {
       ]);
 
       if (!authUser) {
-        throw new UnauthorizedException('User not found in Auth system');
+        throw new UnauthorizedException('Usuario no encontrado en el sistema.');
       }
 
       return {
@@ -411,7 +411,7 @@ export class AuthService {
         isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
-      throw new UnauthorizedException('Invalid or expired token');
+      throw new UnauthorizedException('Token inválido o expirado. Por favor inicia sesión nuevamente.');
     }
   }
 
@@ -428,12 +428,12 @@ export class AuthService {
         throw new BadRequestException(error.message);
       }
 
-      return { message: 'Recovery email sent successfully' };
+      return { message: 'Correo de recuperación enviado exitosamente.' };
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
-      throw new BadRequestException('Error sending recovery email');
+      throw new BadRequestException('Error al enviar el correo de recuperación.');
     }
   }
 
@@ -482,7 +482,7 @@ export class AuthService {
       return { users: mappedUsers };
     } catch (error) {
       this.logger.error(`Error getting users: ${error.message}`);
-      throw new BadRequestException('Error getting users');
+      throw new BadRequestException('Error al obtener la lista de usuarios.');
     }
   }
 
