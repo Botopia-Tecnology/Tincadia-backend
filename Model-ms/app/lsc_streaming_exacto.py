@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Streaming Predictor compatible con el modelo exacto COL-NUM-WORD-1101-2
+Streaming Predictor compatible con el modelo exacto ModeloV3001
 Usa el predictor exacto para normalización y predicción
 """
 import numpy as np
@@ -28,14 +28,14 @@ from exacto_predictor_colnumword import ExactoPredictorCOLNUMWORD
 
 class LSCStreamingExactoPredictor:
     """
-    Predictor de streaming que usa el predictor exacto COL-NUM-WORD-1101-2
+    Predictor de streaming que usa el predictor exacto ModeloV3001
     para garantizar compatibilidad 100% con el entrenamiento
     """
 
-    def __init__(self, model_path: str = None, labels_path: str = None, config_path: str = "model_config.json", buffer_size: int = 5, shared_model=None, shared_labels=None, base_predictor=None):
+    def __init__(self, model_path: str = None, labels_path: str = None, config_path: str = "model_config.json", buffer_size: int = 5, shared_model=None, shared_labels=None, base_predictor=None, shared_llm=None, shared_tokenizer=None):
         """
         Inicializa el predictor de streaming exacto.
-        Puede recibir un base_predictor ya cargado para ahorrar memoria y tiempo.
+        Puede recibir un base_predictor y recursos LLM ya cargados.
         """
         if base_predictor:
             self.exacto_predictor = base_predictor
@@ -45,21 +45,26 @@ class LSCStreamingExactoPredictor:
             self.exacto_predictor = ExactoPredictorCOLNUMWORD(model_path, config_path)
             log(f"✅ Nuevo predictor interno creado para streaming")
         
-        # Inicializar GPT-2
-        log("🧠 Cargando modelo inteligente (GPT-2) para contexto...")
-        try:
-            from transformers import GPT2Tokenizer, GPT2LMHeadModel
-            import torch
-            
-            self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-            self.llm_model = GPT2LMHeadModel.from_pretrained("gpt2")
-            log("✅ GPT-2 cargado correctamente")
-        except Exception as e:
-            import traceback
-            log(f"⚠️ Error cargando GPT-2 (se usará modo base): {e}")
-            if LOGS_ENABLED:
-                traceback.print_exc()
-            self.llm_model = None
+        # Inicializar GPT-2 (Usar instancia compartida si existe)
+        if shared_llm and shared_tokenizer:
+            self.llm_model = shared_llm
+            self.tokenizer = shared_tokenizer
+            # log("✅ Usando GPT-2 compartido (Singleton)") # Verbose off
+        else:
+            log("🧠 [Warning] Cargando Instancia LOCAL de GPT-2 (No optimizado)...")
+            try:
+                from transformers import GPT2Tokenizer, GPT2LMHeadModel
+                import torch
+                
+                self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+                self.llm_model = GPT2LMHeadModel.from_pretrained("gpt2")
+                log("✅ GPT-2 local cargado correctamente")
+            except Exception as e:
+                import traceback
+                log(f"⚠️ Error cargando GPT-2 local: {e}")
+                if LOGS_ENABLED:
+                    traceback.print_exc()
+                self.llm_model = None
         
         # Buffer circular para landmarks
         self.buffer_size = buffer_size
@@ -76,10 +81,10 @@ class LSCStreamingExactoPredictor:
         # Contexto y pesos
         self.current_context = None
         self.context_weights = {
-            "Colores": ["Amarillo", "Azul", "Blanco", "Café", "Gris", "Morado", "Naranja", "Negro", "Rojo", "Rosado", "Verde"],
-            "Numeros": ["Uno", "Dos", "Tres", "Cuatro", "Cinco", "Seis", "Siete", "Ocho", "Nueve", "Diez"],
+            "Colores": ["amarillo", "azul", "blanco", "cafe", "gris", "morado", "naranja", "negro", "rojo", "rosado", "verde"],
+            "Numeros": ["uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez"],
             "Letras": [f"Letra_{c}" for c in "ABCDEFGHIJKLMNÑOPQRSTUVWXY"],
-            "Saludos": ["Hola", "Chao", "BIENVENIDO", "Buenas-noches", "Buenas-tardes", "Buenos-dias", "COMO-ESTA", "CON-GUSTO", "Gracias", "De-nada", "PERMISO", "Perdon", "Por-favor"]
+            "Saludos": ["HOLA", "CHAO", "BIENVENIDO", "BUENAS-NOCHES", "BUENAS-TARDES", "BUENOS-DIAS", "COMO-ESTA", "CON-GUSTO", "GRACIAS", "DENADA", "PERMISO", "PERDON", "POR-FAVOR"]
         }
         
         # Historial para inferencia automática

@@ -31,11 +31,16 @@ LOGS_ENABLED = os.getenv("LOGS_ENABLED", "true").lower() == "true"
 async def startup_event():
     print("🚀 [Startup] Iniciando microservicio Model-ms...")
     try:
-        print("[Startup] Pre-cargando modelo COL-NUM-WORD-1101-2...")
+        print("[Startup] Pre-cargando modelo ModeloV3001...")
         # Forzar carga del singleton
         model, labels = LSCEngine.get_model_and_labels()
         if model is not None:
             print(f"✅ [Startup] Modelo precargado exitosamente. Clases: {len(labels)}")
+            
+            # Pre-cargar GPT-2
+            print("🧠 [Startup] Pre-cargando GPT-2 (Singleton)...")
+            LSCEngine.get_llm_resources()
+            
             # Log de estado de contexto
             context_status = os.getenv("CONTEXT_AWARE_ENABLED", "true").lower() == "true"
             print(f"🎯 [Startup] Inferencia de contexto: {'ACTIVADA' if context_status else 'DESACTIVADA'}")
@@ -306,11 +311,16 @@ async def connect(sid, environ):
                 log(f"❌ [Socket.IO Error] Fallo crítico: modelo inaccesible. Rechazando {sid}")
                 return False
 
+        # Obtener recursos LLM compartidos
+        llm_model, tokenizer = LSCEngine.get_llm_resources()
+
         # Inicializar predictor de streaming usando el predictor base compartido
         log(f"[*] Inicializando sesión de streaming para {sid}...")
         predictor = LSCStreamingPredictor(
             base_predictor=base_predictor,
-            buffer_size=5  # Reducido de 25 a 5 para máxima agilidad (igual al evaluador local)
+            buffer_size=5,  # Reducido de 25 a 5 para máxima agilidad (igual al evaluador local)
+            shared_llm=llm_model,
+            shared_tokenizer=tokenizer
         )
         
         active_predictors[sid] = predictor
