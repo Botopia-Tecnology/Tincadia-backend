@@ -5,8 +5,8 @@ import traceback
 import numpy as np
 import tensorflow as tf
 
-# Configuración de archivos - Modelo COL-NUM-WORD-1101-2
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "Modelo-COL-NUM-WORD-1101-2-EXPORT")
+# Configuración de archivos - ModeloV3001
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "ModeloV3001-EXPORT")
 MODEL_PATH = os.path.join(MODEL_DIR, "weights.hdf5")
 CONFIG_PATH = os.path.join(MODEL_DIR, "model_config.json")
 LABELS_PATH = os.path.join(MODEL_DIR, "model_config.json")  # Las etiquetas están en el config
@@ -22,11 +22,13 @@ def log(*args, **kwargs):
 class LSCEngine:
     """
     Singleton para manejar la carga del modelo y compartirlo entre predictores.
-    Usa el modelo COL-NUM-WORD-1101-2 (63 clases: letras, números, colores, palabras)
+    Usa el modelo ModeloV3001 (99 clases: letras, números, colores, palabras...)
     """
     _model = None
     _labels = None
     _exacto_predictor = None
+    _llm_model = None
+    _tokenizer = None
 
     @classmethod
     def _load_resources(cls):
@@ -87,6 +89,29 @@ class LSCEngine:
                     log(f"   CONFIG_PATH exists ({c_exists}): {CONFIG_PATH}")
 
     @classmethod
+    def _load_llm_resources(cls):
+        """Carga el modelo GPT-2 y el tokenizador si no están en memoria."""
+        if cls._llm_model is None:
+            log("[*] LSCEngine: Cargando GPT-2 (Singleton)...")
+            try:
+                from transformers import GPT2Tokenizer, GPT2LMHeadModel
+                import torch
+                
+                # Suppress warnings
+                import warnings
+                warnings.filterwarnings("ignore")
+                
+                cls._tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+                cls._llm_model = GPT2LMHeadModel.from_pretrained("gpt2")
+                log("✅ LSCEngine: GPT-2 cargado exitosamente.")
+            except Exception as e:
+                if LOGS_ENABLED:
+                    print(f"❌ [LSCEngine Error] Falló la carga de GPT-2: {e}")
+                    traceback.print_exc()
+                cls._llm_model = None
+                cls._tokenizer = None
+
+    @classmethod
     def get_model(cls):
         cls._load_resources()
         return cls._model
@@ -106,6 +131,12 @@ class LSCEngine:
         """Retorna el predictor exacto COL-NUM-WORD (para videos y landmarks)."""
         cls._load_resources()
         return cls._exacto_predictor
+
+    @classmethod
+    def get_llm_resources(cls):
+        """Retorna el modelo GPT-2 y tokenizador compartidos."""
+        cls._load_llm_resources()
+        return cls._llm_model, cls._tokenizer
 
     # Instancia global
 engine = LSCEngine()

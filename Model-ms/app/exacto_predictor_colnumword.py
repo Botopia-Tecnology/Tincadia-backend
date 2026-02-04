@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Predictor exacto para COL-NUM-WORD-1101-2
+Predictor exacto para ModeloV3001
 Usa la misma normalización min-max que el entrenamiento original
-Modelo con 63 clases: letras, números, colores, palabras
+Modelo con 99 clases: letras, números, colores, palabras...
 """
 import os
 import json
@@ -21,7 +21,7 @@ def log(*args, **kwargs):
 class ExactoPredictorCOLNUMWORD:
     """
     Predictor que usa exactamente la misma normalización
-    que el entrenamiento original del Modelo-COL-NUM-WORD-1101-2
+    que el entrenamiento original del ModeloV3001
     """
     
     def __init__(self, model_path=None, config_path=None, model=None):
@@ -268,7 +268,7 @@ class ExactoPredictorCOLNUMWORD:
 # Para compatibilidad con el backend actual
 def create_exact_predictor():
     """Crea predictor exacto compatible con backend"""
-    model_dir = os.path.join(os.path.dirname(__file__), "Modelo-COL-NUM-WORD-1101-2-EXPORT")
+    model_dir = os.path.join(os.path.dirname(__file__), "ModeloV3001-EXPORT")
     return ExactoPredictorCOLNUMWORD(
         os.path.join(model_dir, "weights.hdf5"),
         os.path.join(model_dir, "model_config.json")

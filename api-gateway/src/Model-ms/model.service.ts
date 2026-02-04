@@ -294,8 +294,8 @@ import mediapipe as mp
 
 def extract_coords():
     predictor = ExactoPredictorCOLNUMWORD(
-        r"${this.pythonScriptPath}\\Modelo-COL-NUM-WORD-1101-2-EXPORT\\weights.hdf5",
-        r"${this.pythonScriptPath}\\Modelo-COL-NUM-WORD-1101-2-EXPORT\\model_config.json"
+        r"${this.pythonScriptPath}\\ModeloV3001-EXPORT\\weights.hdf5",
+        r"${this.pythonScriptPath}\\ModeloV3001-EXPORT\\model_config.json"
     )
     
     # Usar la ruta directamente sin comillas para evitar problemas
