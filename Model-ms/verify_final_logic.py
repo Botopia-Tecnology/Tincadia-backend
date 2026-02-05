@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 # Configurar entorno para evitar logs de TF
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-sys.path.append(os.path.join(os.getcwd(), 'app'))
+sys.path.append(os.path.join(os.path.dirname(__file__), 'app'))
 
 def verify():
     print("--- 🔍 Iniciando Verificación de Lógica Final ---")
@@ -78,7 +78,7 @@ def verify():
         'status': 'ok',
         'word': 'Hola',
         'confidence': 0.40,
-        'probabilities': [0.40, 0.35, 0.05] + [0.0]*60
+        'probabilities': [0.40, 0.35, 0.05] + [0.0]*96
     }
     
     # Forzar una "inteligencia" en el cache para 'Como-estas'
@@ -87,7 +87,7 @@ def verify():
     # Darle 10 cuadros para que la predicción se estabilice en el buffer (necesita >= 3)
     for i in range(10):
         res = predictor.add_landmarks(np.zeros(226))
-        # print(f"  [Frame {i}] Predicho: {res['word']}, Confianza: {res['confidence']:.2f}, Buffer: {len(predictor.prediction_buffer)}")
+        print(f"  [Frame {i}] Status: {res['status']}, Word: {res['word']}, Conf: {res['confidence']:.2f}, Buffer: {list(predictor.prediction_buffer)}")
     
     # Debido al boost, 'Como-estas' debería ganar sobradamente
     print(f"Predicción final con IA: {res['word']}")
