@@ -89,7 +89,7 @@ Thumbs.db
 
 # Model files (large)
 *.h5
-*.hdf5
+# *.hdf5
 *.pkl
 *.pickle
 *.joblib
