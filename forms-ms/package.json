@@ -43,6 +43,7 @@
     "cacheable": "^2.0.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "cloudinary": "^2.9.0",
     "dotenv": "^17.2.0",
     "joi": "^17.13.3",
     "keyv": "^5.0.0",

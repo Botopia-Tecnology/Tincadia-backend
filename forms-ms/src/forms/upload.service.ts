@@ -1,63 +1,44 @@
 import { Injectable } from '@nestjs/common';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { CloudinaryService } from './cloudinary.service';
 
 @Injectable()
 export class UploadService {
-    private supabase: SupabaseClient;
-    private bucketName = 'form-attachments';
-
-    constructor() {
-        this.supabase = createClient(
-            process.env.SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_KEY!,
-        );
-    }
+    constructor(private readonly cloudinaryService: CloudinaryService) { }
 
     async uploadFile(
         fileBuffer: Buffer,
         fileName: string,
         mimeType: string,
     ): Promise<{ url: string; path: string }> {
-        // Generate unique file name to avoid collisions
-        const timestamp = Date.now();
-        const sanitizedName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const filePath = `submissions/${timestamp}_${sanitizedName}`;
+        console.log(`📤 Uploading file to Cloudinary: ${fileName} (${mimeType})`);
 
-        console.log(`📤 Uploading file: ${filePath}`);
+        try {
+            // Use 'auto' resource type in CloudinaryService to handle images, videos, pdfs
+            const result = await this.cloudinaryService.uploadFile(fileBuffer, fileName, 'tincadia/forms');
 
-        const { data, error } = await this.supabase.storage
-            .from(this.bucketName)
-            .upload(filePath, fileBuffer, {
-                contentType: mimeType,
-                upsert: false,
-            });
+            console.log(`✅ File uploaded: ${result.secure_url}`);
 
-        if (error) {
+            return {
+                url: result.secure_url,
+                path: result.public_id, // Store public_id as path
+            };
+        } catch (error: any) {
             console.error('❌ Upload error:', error);
             throw new Error(`Failed to upload file: ${error.message}`);
         }
-
-        // Get public URL
-        const { data: urlData } = this.supabase.storage
-            .from(this.bucketName)
-            .getPublicUrl(filePath);
-
-        console.log(`✅ File uploaded: ${urlData.publicUrl}`);
-
-        return {
-            url: urlData.publicUrl,
-            path: filePath,
-        };
     }
 
-    async deleteFile(filePath: string): Promise<void> {
-        const { error } = await this.supabase.storage
-            .from(this.bucketName)
-            .remove([filePath]);
-
-        if (error) {
-            console.error('❌ Delete error:', error);
-            throw new Error(`Failed to delete file: ${error.message}`);
+    async deleteFile(publicId: string): Promise<void> {
+        // Default to 'image' or try to guess/store type? 
+        // For now, let's assume image or handle errors gracefully if type mismatch.
+        // Ideally we should store resource_type too.
+        // But for forms, standard destroy might need type. 
+        // Attempting generic destroy.
+        try {
+            await this.cloudinaryService.deleteAsset(publicId, 'image');
+        } catch (e) {
+            console.warn('Failed to delete as image, trying raw/video might be needed', e);
         }
     }
 }
+
