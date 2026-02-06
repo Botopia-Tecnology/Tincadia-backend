@@ -37,9 +37,9 @@ async def startup_event():
         if model is not None:
             print(f"✅ [Startup] Modelo precargado exitosamente. Clases: {len(labels)}")
             
-            # Pre-cargar GPT-2
-            print("🧠 [Startup] Pre-cargando GPT-2 (Singleton)...")
-            LSCEngine.get_llm_resources()
+            # Pre-cargar GPT-2 en segundo plano para no bloquear el inicio
+            print("🧠 [Startup] Iniciando carga de GPT-2 en segundo plano...")
+            asyncio.create_task(asyncio.to_thread(LSCEngine.get_llm_resources))
             
             # Log de estado de contexto
             context_status = os.getenv("CONTEXT_AWARE_ENABLED", "true").lower() == "true"
