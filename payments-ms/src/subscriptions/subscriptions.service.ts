@@ -73,11 +73,22 @@ export class SubscriptionsService {
      * Find subscription by user ID
      */
     async findByUserId(userId: string): Promise<Subscription | null> {
-        return this.subscriptionRepo.findOne({
+        const sub = await this.subscriptionRepo.findOne({
             where: { userId, status: In(['active', 'trialing', 'past_due']) },
-            order: { createdAt: 'DESC' },
+            order: {
+                cancelAtPeriodEnd: 'ASC', // Prioritize active (false) over canceling (true)
+                createdAt: 'DESC'         // Then newest first
+            },
             relations: ['plan']
         });
+
+        if (sub) {
+            console.log(`[SubscriptionStatus] Found sub for user ${userId}: ID=${sub.id}, Plan=${sub.plan?.name}, Status=${sub.status}, Canceling=${sub.cancelAtPeriodEnd}, PlanType=${sub.plan?.planType}`);
+        } else {
+            console.log(`[SubscriptionStatus] No active subscription found for user ${userId}`);
+        }
+
+        return sub;
     }
 
     /**
@@ -252,6 +263,7 @@ export class SubscriptionsService {
         hasSubscription: boolean;
         status?: string;
         planId?: string;
+        planType?: string;
         currentPeriodEnd?: Date;
         cancelAtPeriodEnd?: boolean;
         permissions?: string[];
@@ -261,20 +273,27 @@ export class SubscriptionsService {
 
         let features = {};
 
-        if (sub && sub.status === 'active') {
-            // If user has active subscription, use that plan's features
+        if (sub && (sub.status === 'active' || sub.status === 'trialing')) {
+            // If user has active/trialing subscription, use that plan's features
+            let planType: string | undefined;
+
             if (sub.plan && sub.plan.features) {
                 features = sub.plan.features;
+                planType = sub.plan.planType;
             } else if (sub.planId) {
                 // Fallback if relation not loaded but ID exists
                 const plan = await this.pricingPlanRepo.findOne({ where: { id: sub.planId } });
-                if (plan) features = plan.features;
+                if (plan) {
+                    features = plan.features;
+                    planType = plan.planType;
+                }
             }
 
             return {
                 hasSubscription: true,
                 status: sub.status,
                 planId: sub.planId,
+                planType,
                 currentPeriodEnd: sub.currentPeriodEnd,
                 cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
                 permissions: sub.plan?.includes || [],
@@ -283,7 +302,6 @@ export class SubscriptionsService {
         }
 
         // No active subscription? Return Free Plan features
-        // Logic: Find plan marked as 'is_free', or name contains 'basico'
         const freePlan = await this.pricingPlanRepo.findOne({
             where: [
                 { isFree: true },
