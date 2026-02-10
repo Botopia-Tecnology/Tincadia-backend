@@ -73,11 +73,22 @@ export class SubscriptionsService {
      * Find subscription by user ID
      */
     async findByUserId(userId: string): Promise<Subscription | null> {
-        return this.subscriptionRepo.findOne({
+        const sub = await this.subscriptionRepo.findOne({
             where: { userId, status: In(['active', 'trialing', 'past_due']) },
-            order: { createdAt: 'DESC' },
+            order: {
+                cancelAtPeriodEnd: 'ASC', // Prioritize active (false) over canceling (true)
+                createdAt: 'DESC'         // Then newest first
+            },
             relations: ['plan']
         });
+
+        if (sub) {
+            console.log(`[SubscriptionStatus] Found sub for user ${userId}: ID=${sub.id}, Plan=${sub.plan?.name}, Status=${sub.status}, Canceling=${sub.cancelAtPeriodEnd}, PlanType=${sub.plan?.planType}`);
+        } else {
+            console.log(`[SubscriptionStatus] No active subscription found for user ${userId}`);
+        }
+
+        return sub;
     }
 
     /**
