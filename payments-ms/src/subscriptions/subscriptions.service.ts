@@ -252,6 +252,7 @@ export class SubscriptionsService {
         hasSubscription: boolean;
         status?: string;
         planId?: string;
+        planType?: string;
         currentPeriodEnd?: Date;
         cancelAtPeriodEnd?: boolean;
         permissions?: string[];
@@ -261,20 +262,27 @@ export class SubscriptionsService {
 
         let features = {};
 
-        if (sub && sub.status === 'active') {
-            // If user has active subscription, use that plan's features
+        if (sub && (sub.status === 'active' || sub.status === 'trialing')) {
+            // If user has active/trialing subscription, use that plan's features
+            let planType: string | undefined;
+
             if (sub.plan && sub.plan.features) {
                 features = sub.plan.features;
+                planType = sub.plan.planType;
             } else if (sub.planId) {
                 // Fallback if relation not loaded but ID exists
                 const plan = await this.pricingPlanRepo.findOne({ where: { id: sub.planId } });
-                if (plan) features = plan.features;
+                if (plan) {
+                    features = plan.features;
+                    planType = plan.planType;
+                }
             }
 
             return {
                 hasSubscription: true,
                 status: sub.status,
                 planId: sub.planId,
+                planType,
                 currentPeriodEnd: sub.currentPeriodEnd,
                 cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
                 permissions: sub.plan?.includes || [],
@@ -283,7 +291,6 @@ export class SubscriptionsService {
         }
 
         // No active subscription? Return Free Plan features
-        // Logic: Find plan marked as 'is_free', or name contains 'basico'
         const freePlan = await this.pricingPlanRepo.findOne({
             where: [
                 { isFree: true },
