@@ -51,20 +51,12 @@ class LSCStreamingExactoPredictor:
             self.tokenizer = shared_tokenizer
             # log("✅ Usando GPT-2 compartido (Singleton)") # Verbose off
         else:
-            log("🧠 [Warning] Cargando Instancia LOCAL de GPT-2 (No optimizado)...")
-            try:
-                from transformers import GPT2Tokenizer, GPT2LMHeadModel
-                import torch
-                
-                self.tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-                self.llm_model = GPT2LMHeadModel.from_pretrained("gpt2")
-                log("✅ GPT-2 local cargado correctamente")
-            except Exception as e:
-                import traceback
-                log(f"⚠️ Error cargando GPT-2 local: {e}")
-                if LOGS_ENABLED:
-                    traceback.print_exc()
-                self.llm_model = None
+            # CAMBIO CRÍTICO: No cargar GPT-2 localmente para evitar bloqueos.
+            # Si el singleton no está listo, simplemente funcionamos sin IA.
+            log("⚠️ [Optimizacion] GPT-2 compartido no disponible aún. Iniciando en modo SOLO RED NEURONAL (Rápido).")
+            self.llm_model = None
+            self.tokenizer = None
+            self.context_aware_enabled = False # Desactivar inteligencia temporalmente
         
         # Buffer circular para landmarks
         self.buffer_size = buffer_size
@@ -233,6 +225,8 @@ class LSCStreamingExactoPredictor:
         """
         # Validación básica de forma
         if landmarks.shape[0] != 226:
+            if LOGS_ENABLED:
+                log(f"❌ [Predictor Error] Invalid landmarks shape: {landmarks.shape}. Expected (226,)")
             return {
                 'status': 'error',
                 'word': None,

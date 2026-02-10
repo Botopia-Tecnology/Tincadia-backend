@@ -325,7 +325,7 @@ async def connect(sid, environ):
         
         active_predictors[sid] = predictor
         await sio.emit('status', {'message': 'Connected to Python LSC Model (Optimal)'}, to=sid)
-        log(f"✅ [Socket.IO] Conexión aceptada para {sid}")
+        log(f"✅ [Socket.IO] Conexión aceptada para {sid} | Predictor: {'Híbrido (Neural+GPT2)' if predictor.context_aware_enabled else 'Solo Neural'}")
     except Exception as e:
         if LOGS_ENABLED:
             print(f"❌ [Socket.IO Error] Excepción fatal en connect para {sid}: {e}")
@@ -362,8 +362,8 @@ async def handle_landmarks(sid, data):
                  log(f"[DEBUG] Sample Recv: {landmarks_data[:5]}...")
 
         if not landmarks_data or len(landmarks_data) != 226:
-            if predictor.frame_count % 30 == 0:
-                log(f"[DEBUG] INVALID DATA SHAPE/CONTENT: {len(landmarks_data) if landmarks_data else 'None'}")
+            if LOGS_ENABLED:
+                log(f"❌ [Socket.IO Warning] Datos de landmarks inválidos para {sid}. Len: {len(landmarks_data) if landmarks_data else 'None'}")
             return
 
         landmarks = np.array(landmarks_data, dtype=np.float32)
@@ -411,29 +411,23 @@ async def handle_word_accepted(sid, data):
     Evento para recibir la palabra aceptada por el usuario en el frontend.
     Data esperado de JS: { "word": "HOLA" } o simplemente "HOLA"
     """
-    log(f"🚨🚨🚨 [Socket.IO] handle_word_accepted TRIGGERED!")
-    log(f"🚨 [Socket.IO] Raw data received: {data} (type: {type(data)})")
-    log(f"🚨 [Socket.IO] SID: {sid}")
-    log(f"🚨 [Socket.IO] Active predictors: {list(active_predictors.keys())}")
+    # log(f"🔔 [Socket.IO] handle_word_accepted from {sid}") # Reduced verbosity
     
     try:
         word = data.get('word') if isinstance(data, dict) else data
-        log(f"🔔 [Socket.IO] Parsed word: '{word}'")
         
         if not word:
-            log(f"⚠️ [Socket.IO] word is empty/None, returning early")
+            log(f"⚠️ [Socket.IO] word_accepted recibido vacío de {sid}")
             return
             
         if sid in active_predictors:
-            log(f"✅ [Socket.IO] Found predictor for sid {sid}, calling set_accepted_word('{word}')")
+            log(f"✅ [Socket.IO] Palabra aceptada recibida de {sid}: '{word}'")
             active_predictors[sid].set_accepted_word(word)
-            log(f"✅ [Socket.IO] set_accepted_word completed")
         else:
             log(f"❌ [Socket.IO] Warning: 'word_accepted' from unknown sid {sid}")
             
     except Exception as e:
         log(f"💥 [Socket.IO Error] Processing word_accepted: {e}")
-        import traceback
         traceback.print_exc()
 @sio.on('set_context')
 async def handle_set_context(sid, data):
