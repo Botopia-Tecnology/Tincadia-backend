@@ -6,7 +6,8 @@ import { Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './entities/payment.entity';
 import { PricingPlan } from './entities/pricing-plan.entity';
 import { Course } from './entities/course.entity';
-import { Subscription } from '../subscriptions/entities/subscription.entity';
+import { Subscription, SubscriptionStatus } from '../subscriptions/entities/subscription.entity';
+
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { PaymentQueryDto } from './dto/payment-query.dto';
@@ -334,19 +335,47 @@ export class PaymentsService {
                 return;
             }
 
-            // Get billing interval from plan configuration
+            // Get billing interval and trial period from plan configuration
             let billingIntervalMonths = 1; // Default to monthly
+            let trialPeriodDays = 0;
             if (payment.planId) {
                 const plan = await this.pricingPlanRepository.findOne({ where: { id: payment.planId } });
-                if (plan?.billingIntervalMonths) {
-                    billingIntervalMonths = plan.billingIntervalMonths;
+                if (plan) {
+                    if (plan.billingIntervalMonths) {
+                        billingIntervalMonths = plan.billingIntervalMonths;
+                    }
+                    if (plan.trialPeriodDays) {
+                        trialPeriodDays = plan.trialPeriodDays;
+                    }
                 }
             }
 
-            // Calculate period dates based on plan's billing interval
+            // Calculate dates
             const now = new Date();
-            const periodEnd = new Date(now);
-            periodEnd.setMonth(periodEnd.getMonth() + billingIntervalMonths);
+            let currentPeriodStart = now;
+            let nextChargeAt = now;
+            let status: SubscriptionStatus = 'active';
+
+            if (trialPeriodDays > 0) {
+                // If trial, period starts now but charging starts after trial
+                status = 'trialing'; // Assuming 'trialing' is a valid status in your system enum/types
+                // The trial ends in X days
+                const trialEnd = new Date(now);
+                trialEnd.setDate(trialEnd.getDate() + trialPeriodDays);
+
+                // For a trial, the "current period" of the subscription (access) starts now
+                // but the "billing" period really starts when the trial ends.
+                // However, usually currentPeriodEnd tracks when access might be revoked if not paid.
+                // Let's set currentPeriodEnd to trialEnd for now.
+                currentPeriodStart = now;
+                nextChargeAt = trialEnd;
+                // The first billing cycle will start at trialEnd
+            } else {
+                // Normal flow
+                const periodEnd = new Date(now);
+                periodEnd.setMonth(periodEnd.getMonth() + billingIntervalMonths);
+                nextChargeAt = periodEnd;
+            }
 
             // Determine billing cycle label
             const billingCycle = billingIntervalMonths >= 12 ? 'annual' : 'monthly';
@@ -361,17 +390,17 @@ export class PaymentsService {
                 paymentSourceId: transaction.payment_source_id,
                 cardLastFour,
                 cardBrand,
-                status: 'active',
+                status,
                 billingCycle,
                 amountCents: payment.amountInCents,
-                currentPeriodStart: now,
-                currentPeriodEnd: periodEnd,
-                nextChargeAt: periodEnd,
+                currentPeriodStart,
+                currentPeriodEnd: nextChargeAt, // For trial, this is trial end. For normal, this is next charge.
+                nextChargeAt,
                 lastPaymentReference: payment.reference,
             });
 
             await this.subscriptionRepository.save(subscription);
-            this.logger.log(`✅ Created subscription ${subscription.id} for user ${payment.userId} with ${billingIntervalMonths} month interval`);
+            this.logger.log(`✅ Created subscription ${subscription.id} for user ${payment.userId} with ${billingIntervalMonths} month interval. Trial: ${trialPeriodDays} days.`);
         } catch (error) {
             this.logger.error(`Failed to create subscription for payment ${payment.reference}:`, error);
             // Don't throw - payment was successful, subscription creation is secondary

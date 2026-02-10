@@ -48,6 +48,10 @@ export class PricingPlan {
     @Column({ name: 'billing_interval_months', type: 'int', default: 1 })
     billing_interval_months: number;
 
+    // Trial period in days (0 or null = no trial)
+    @Column({ name: 'trial_period_days', type: 'int', nullable: true, default: 0 })
+    trial_period_days: number;
+
     @Column({ default: 0 })
     order: number;
 }
