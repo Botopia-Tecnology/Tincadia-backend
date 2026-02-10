@@ -274,12 +274,9 @@ class LSCStreamingExactoPredictor:
         # Añadir al buffer
         self.landmarks_buffer.append(landmarks)
         
-        # Si el buffer está llenándose (opcional, para evitar ruido muy inicial)
-        buffer_fill = len(self.landmarks_buffer) / self.buffer_size
-        
-        # Verificar distancia del usuario
-        distance_alert = self._check_distance(landmarks)
-        
+        if self.frame_count % 30 == 0:
+             log(f"[DEBUG] add_landmarks: buffer_len={len(self.landmarks_buffer)} fill={buffer_fill:.2f} dist={distance_alert}")
+
         # Determinar si hay usuario
         if distance_alert in ["NO_USER", "TOO_FAR"]:
             self.no_user_count += 1
@@ -291,6 +288,10 @@ class LSCStreamingExactoPredictor:
             if len(self.prediction_buffer) > 0:
                 log("🧹 [Auto-Reset] Limpiando buffer por silencio")
                 self.prediction_buffer.clear()
+            
+            if self.frame_count % 30 == 0:
+                 log(f"[DEBUG] NO_USER detected (count={self.no_user_count}). Returning status='no_user'")
+
             return {
                 'status': 'no_user',
                 'word': None,
@@ -305,6 +306,8 @@ class LSCStreamingExactoPredictor:
             result = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
             
             if result['status'] != 'ok':
+                if LOGS_ENABLED:
+                    log(f"[DEBUG] ExactoPredictor error: status={result['status']} message={result.get('message', 'No message')}")
                 return {
                     'status': 'error',
                     'word': None,

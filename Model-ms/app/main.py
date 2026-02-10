@@ -343,6 +343,8 @@ async def handle_landmarks(sid, data):
     try:
         predictor = active_predictors.get(sid)
         if not predictor:
+            if LOGS_ENABLED:
+                log(f"[DEBUG] handle_landmarks: No predictor found for SID {sid}. Ignoring landmarks.")
             return
 
         # Extraer datos de landmarks
@@ -357,6 +359,10 @@ async def handle_landmarks(sid, data):
         result = predictor.add_landmarks(landmarks)
         
         if result:
+            # Throttle logs for emission
+            if predictor.frame_count % 30 == 0:
+                 log(f"[DEBUG] Emitting prediction to {sid}: {result.get('word')} ({result.get('confidence')}) status={result.get('status')}")
+
             await sio.emit('prediction', {
                 "word": result['word'],
                 "confidence": float(result['confidence']),
@@ -372,6 +378,9 @@ async def handle_landmarks(sid, data):
             if LOGS_ENABLED and result['word'] and result['confidence'] >= 0.5:
                 # last_w = result.get('last_accepted_word', 'Ninguna')
                 log(f"✨ [Streaming] Predicción: {result['word']} ({result['confidence']:.2f})")
+        else:
+             if predictor.frame_count % 30 == 0:
+                 log(f"[DEBUG] add_landmarks returned None/Empty for {sid}")
 
     except Exception as e:
         log(f"[Socket.IO Error] Processing landmarks: {e}")
