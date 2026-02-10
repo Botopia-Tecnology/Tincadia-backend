@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThanOrEqual, In } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Subscription, BillingCycle } from './entities/subscription.entity';
+import { PricingPlan } from '../payments/entities/pricing-plan.entity';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { WompiService } from '../wompi/wompi.service';
@@ -14,6 +15,8 @@ export class SubscriptionsService {
     constructor(
         @InjectRepository(Subscription)
         private readonly subscriptionRepo: Repository<Subscription>,
+        @InjectRepository(PricingPlan)
+        private readonly pricingPlanRepo: Repository<PricingPlan>,
         private readonly wompiService: WompiService,
     ) { }
 
@@ -252,18 +255,49 @@ export class SubscriptionsService {
         currentPeriodEnd?: Date;
         cancelAtPeriodEnd?: boolean;
         permissions?: string[];
+        features?: any;
     }> {
         const sub = await this.findByUserId(userId);
-        if (!sub) {
-            return { hasSubscription: false };
+
+        let features = {};
+
+        if (sub && sub.status === 'active') {
+            // If user has active subscription, use that plan's features
+            if (sub.plan && sub.plan.features) {
+                features = sub.plan.features;
+            } else if (sub.planId) {
+                // Fallback if relation not loaded but ID exists
+                const plan = await this.pricingPlanRepo.findOne({ where: { id: sub.planId } });
+                if (plan) features = plan.features;
+            }
+
+            return {
+                hasSubscription: true,
+                status: sub.status,
+                planId: sub.planId,
+                currentPeriodEnd: sub.currentPeriodEnd,
+                cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+                permissions: sub.plan?.includes || [],
+                features: features
+            };
         }
+
+        // No active subscription? Return Free Plan features
+        // Logic: Find plan marked as 'is_free', or name contains 'basico'
+        const freePlan = await this.pricingPlanRepo.findOne({
+            where: [
+                { isFree: true },
+                { name: 'Plan Básico' } // Fallback check
+            ]
+        });
+
+        if (freePlan) {
+            features = freePlan.features;
+        }
+
         return {
-            hasSubscription: true,
-            status: sub.status,
-            planId: sub.planId,
-            currentPeriodEnd: sub.currentPeriodEnd,
-            cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-            permissions: sub.plan?.includes || [],
+            hasSubscription: false,
+            features: features
         };
     }
 }
