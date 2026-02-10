@@ -46,6 +46,9 @@ export class PricingPlan {
     @Column('jsonb', { default: [] })
     excludes: string[];
 
+    @Column('jsonb', { default: {} })
+    features: any;
+
     @Column({ name: 'is_active', default: true })
     isActive: boolean;
 

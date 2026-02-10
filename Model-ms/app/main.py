@@ -347,10 +347,21 @@ async def handle_landmarks(sid, data):
                 log(f"[DEBUG] handle_landmarks: No predictor found for SID {sid}. Ignoring landmarks.")
             return
 
+        # Detailed Data Inspection
+        if predictor.frame_count % 30 == 0:
+             log(f"[DEBUG] handle_landmarks RAW: type={type(data)}")
+             
         # Extraer datos de landmarks
         landmarks_data = data.get('data') if isinstance(data, dict) else data
         
+        if predictor.frame_count % 30 == 0:
+             log(f"[DEBUG] handle_landmarks EXTRACTED: type={type(landmarks_data)} len={len(landmarks_data) if landmarks_data else 'None'}")
+             if isinstance(landmarks_data, list) and len(landmarks_data) > 0:
+                 log(f"[DEBUG] Sample Recv: {landmarks_data[:5]}...")
+
         if not landmarks_data or len(landmarks_data) != 226:
+            if predictor.frame_count % 30 == 0:
+                log(f"[DEBUG] INVALID DATA SHAPE/CONTENT: {len(landmarks_data) if landmarks_data else 'None'}")
             return
 
         landmarks = np.array(landmarks_data, dtype=np.float32)

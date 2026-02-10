@@ -271,6 +271,10 @@ class LSCStreamingExactoPredictor:
             landmarks = mirrored
             # log("🔄 [Mirror] Landmarks espejados (Dominancia derecha detectada)")
 
+        # 1.5 Calculo de variables necesarias (Fix UnboundLocalError)
+        distance_alert = self._check_distance(landmarks)
+        buffer_fill = len(self.landmarks_buffer) / self.buffer_size
+
         # Añadir al buffer
         self.landmarks_buffer.append(landmarks)
         
@@ -422,12 +426,8 @@ class LSCStreamingExactoPredictor:
         Pose landmarks 11 (hombro izquierdo) y 12 (hombro derecho).
         """
         try:
-            # Los primeros 100 valores son la pose (25 landmarks * 4: x, y, z, vis)
+            # Los primeros 100 valores son la pose (25 landmarks * 4: x, y, z, v)
             # 11: left shoulder, 12: right shoulder
-            # Cada landmark ocupa 4 espacios
-            
-            # Landmark 11 -> indices 44, 45, 46, 47 (x, y, z, v)
-            # Landmark 12 -> indices 48, 49, 50, 51 (x, y, z, v)
             
             x11 = landmarks[44]
             y11 = landmarks[45]
@@ -437,6 +437,10 @@ class LSCStreamingExactoPredictor:
             y12 = landmarks[49]
             v12 = landmarks[51]
             
+            # Periodic debug of raw values
+            if self.frame_count % 60 == 0:
+                 log(f"[DEBUG] Distance Check: L_Shoulder=({x11:.2f}, {y11:.2f}, v={v11:.2f}) R_Shoulder=({x12:.2f}, {y12:.2f}, v={v12:.2f})")
+
             # Si la visibilidad es muy baja, no podemos confiar
             if v11 < 0.5 or v12 < 0.5:
                 # Si ambos están en 0, es que no se detecta pose
@@ -447,6 +451,9 @@ class LSCStreamingExactoPredictor:
             # Calcular distancia Euclidiana 2D entre hombros
             shoulder_width = np.sqrt((x11 - x12)**2 + (y11 - y12)**2)
             
+            if self.frame_count % 60 == 0:
+                 log(f"[DEBUG] Calculated Shoulder Width: {shoulder_width:.4f}")
+
             if shoulder_width < 0.001:
                 return "NO_USER"
             
