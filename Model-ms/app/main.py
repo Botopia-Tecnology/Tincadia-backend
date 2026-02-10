@@ -340,11 +340,13 @@ async def disconnect(sid):
 
 @sio.on('landmarks')
 async def handle_landmarks(sid, data):
+    # Log every single call for debugging
+    log(f"⚡ [DEBUG] handle_landmarks RECV from {sid}")
+    
     try:
         predictor = active_predictors.get(sid)
         if not predictor:
-            if LOGS_ENABLED:
-                log(f"[DEBUG] handle_landmarks: No predictor found for SID {sid}. Ignoring landmarks.")
+            log(f"⚠️ [DEBUG] handle_landmarks: No predictor found for SID {sid}. Active predictors: {list(active_predictors.keys())}")
             return
 
         # Detailed Data Inspection
