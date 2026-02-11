@@ -236,9 +236,22 @@ class LSCStreamingExactoPredictor:
         
         try:
             # --- ESTRATEGIA DE DOBLE PREDICCIÓN (Robustez ante espejado / mobile) ---
+            # 1. Copiar y Flip X
             landmarks_mirror = landmarks.copy()
             landmarks_mirror[0:100:4] = 1.0 - landmarks_mirror[0:100:4] # Pose X
             landmarks_mirror[100:226:3] = 1.0 - landmarks_mirror[100:226:3] # Hands X
+            
+            # 2. SWAP Pose Left/Right (Pares: 1-4, 2-5, 3-6, 7-8, 9-10, 11-12, 13-14, 15-16, 17-18, 19-20, 21-22, 23-24)
+            for p1, p2 in [(1,4), (2,5), (3,6), (7,8), (9,10), (11,12), (13,14), (15,16), (17,18), (19,20), (21,22), (23,24)]:
+                idx1, idx2 = p1*4, p2*4
+                temp = landmarks_mirror[idx1:idx1+4].copy()
+                landmarks_mirror[idx1:idx1+4] = landmarks_mirror[idx2:idx2+4]
+                landmarks_mirror[idx2:idx2+4] = temp
+                
+            # 3. SWAP Hands (Modelo-ms: 100-162 es Derecha, 163-225 es Izquierda)
+            rh_part = landmarks_mirror[100:163].copy()
+            landmarks_mirror[100:163] = landmarks_mirror[163:226]
+            landmarks_mirror[163:226] = rh_part
             
             # Predecir en ambas orientaciones y elegir la mejor
             res_orig = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
@@ -305,21 +318,33 @@ class LSCStreamingExactoPredictor:
                 confidence = result['confidence']
                 predicted_word = result['word']
             
-            if confidence >= 0.5:
+            # Lógica de buffer para suavizado
+            if confidence >= 0.4:
                 self.prediction_buffer.append(predicted_word)
-            elif confidence < 0.2:
+            else:
                 self.prediction_buffer.append(None)
+
+            status = 'predicting' if any(p is not None for p in self.prediction_buffer) else ('processing' if buffer_fill > 0.05 else 'uncertain')
             
+            # Log de confianza cada 10 frames para feedback visual en logs
+            if self.frame_count % 10 == 0:
+                win_text = predicted_word if confidence >= 0.4 else "None"
+                log(f"[Stream-Log] Top: {predicted_word} ({confidence:.2f}) | Win: {win_text} | status: {status} | buf: {len(self.prediction_buffer)}")
+
             final_word = None
             if len(self.prediction_buffer) >= 4:
                 valid_preds = [p for p in self.prediction_buffer if p is not None]
                 if valid_preds:
                     counts = Counter(valid_preds)
                     most_common = counts.most_common(1)[0]
+                    # Requiere 60% de coincidencia en el buffer
                     if most_common[1] >= len(self.prediction_buffer) * 0.6:
                         final_word = most_common[0]
             
-            status = 'predicting' if final_word else ('processing' if buffer_fill > 0.05 else 'uncertain')
+            # Recalcular status final si hay palabra
+            if final_word:
+                 status = 'predicting'
+                 log(f"[FINAL-WORD] {final_word} (votos: {most_common[1]}/{len(self.prediction_buffer)})")
 
             return {
                 'status': status, 'word': final_word, 'confidence': confidence,
