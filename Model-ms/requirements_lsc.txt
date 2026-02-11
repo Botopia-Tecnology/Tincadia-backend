@@ -2,7 +2,6 @@
 numpy==1.24.3
 tensorflow==2.13.0
 # PyTorch for Transformers (CPU only preferred if possible, but standard here)
-torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 transformers==4.36.0
 
 # Vision & Audio

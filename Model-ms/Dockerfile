@@ -18,6 +18,10 @@ WORKDIR /app
 COPY requirements_lsc.txt .
 
 # Instalar dependencias de Python
+# Instalar PyTorch CPU primero explícitamente (ahorra ~2GB variando la URL)
+RUN pip install --no-cache-dir torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+
+# Instalar resto de dependencias
 RUN pip install --no-cache-dir -r requirements_lsc.txt
 
 # Copiar el resto del código
