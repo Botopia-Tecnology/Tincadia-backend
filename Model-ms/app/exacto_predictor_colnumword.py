@@ -64,44 +64,54 @@ class ExactoPredictorCOLNUMWORD:
     
     def normalize_landmarks_exacto(self, coords: np.ndarray) -> np.ndarray:
         """
-        Normalización centrada en hombros (shoulder-centered) con preservación de ceros.
-        Coincide con la lógica de entrenamiento original.
+        Normalización Min-Max por componente (Pose, Mano Derecha, Mano Izquierda).
+        Coincide con la lógica de LandmarkInfo.get_fixed_landmark del export.
         """
         try:
-            # Descomponer coordenadas
-            pose_coords = coords[:100].reshape(25, 4).copy()
-            hands_coords = coords[100:].reshape(42, 3).copy()
+            # 1. Descomponer (Pose=100, RH=63, LH=63)
+            pose = coords[:100].reshape(25, 4).copy()
+            rh = coords[100:163].reshape(21, 3).copy()
+            lh = coords[163:226].reshape(21, 3).copy()
             
-            LEFT_SHOULDER = 11
-            RIGHT_SHOULDER = 12
+            def min_max_norm(parts_coords):
+                # Extraer solo x, y, z (ignorar visibilidad si existe)
+                pts = parts_coords[:, :3]
+                
+                # Si todo es cero, no normalizar
+                if np.all(pts == 0):
+                    return parts_coords
+                
+                # Calcular min-max ignorando los puntos que son exactamente cero (puntos no detectados)
+                mask = np.any(pts != 0, axis=1)
+                if not np.any(mask):
+                    return parts_coords
+                    
+                pts_active = pts[mask]
+                xmin, xmax = pts_active[:, 0].min(), pts_active[:, 0].max()
+                ymin, ymax = pts_active[:, 1].min(), pts_active[:, 1].max()
+                zmin, zmax = pts_active[:, 2].min(), pts_active[:, 2].max()
+                
+                # Evitar división por cero
+                rx = (xmax - xmin) if (xmax - xmin) > 1e-6 else 1.0
+                ry = (ymax - ymin) if (ymax - ymin) > 1e-6 else 1.0
+                rz = (zmax - zmin) if (zmax - zmin) > 1e-6 else 1.0
+                
+                # Aplicar normalización solo a puntos activos
+                parts_coords[mask, 0] = (parts_coords[mask, 0] - xmin) / rx
+                parts_coords[mask, 1] = (parts_coords[mask, 1] - ymin) / ry
+                parts_coords[mask, 2] = (parts_coords[mask, 2] - zmin) / rz
+                
+                return parts_coords
+
+            # Normalizar cada componente por separado
+            pose = min_max_norm(pose)
+            rh = min_max_norm(rh)
+            lh = min_max_norm(lh)
             
-            # Calcular centro y escala (x, y, z)
-            ls = pose_coords[LEFT_SHOULDER, :3]
-            rs = pose_coords[RIGHT_SHOULDER, :3]
-            
-            # Si no hay hombros detectados, devolver sin normalizar
-            if np.all(ls == 0) or np.all(rs == 0):
-                return coords.flatten()
-            
-            center = (ls + rs) / 2
-            shoulder_dist = np.linalg.norm(ls - rs)
-            
-            # Normalizar (x, y, z) SOLO a puntos que NO sean cero
-            pose_mask = np.any(pose_coords[:, :3] != 0, axis=1)
-            pose_coords[pose_mask, :3] -= center
-            
-            hands_mask = np.any(hands_coords != 0, axis=1)
-            hands_coords[hands_mask] -= center
-            
-            if shoulder_dist > 1e-6:
-                pose_coords[pose_mask, :3] /= shoulder_dist
-                hands_coords[hands_mask] /= shoulder_dist
-            
-            # Recomponer
-            return np.concatenate([pose_coords.flatten(), hands_coords.flatten()])
+            return np.concatenate([pose.flatten(), rh.flatten(), lh.flatten()])
             
         except Exception as e:
-            log(f"[ERROR] Normalización shoulder-centered falló: {e}")
+            log(f"[ERROR] Normalización Min-Max falló: {e}")
             return coords
     
     def predict_from_coords(self, coords_list: list, include_probabilities: bool = False) -> dict:
