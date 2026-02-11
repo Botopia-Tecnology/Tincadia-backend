@@ -1,18 +1,26 @@
+# Core ML
+numpy==1.24.3
 tensorflow==2.13.0
+# PyTorch for Transformers (CPU only preferred if possible, but standard here)
+torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+transformers==4.36.0
+
+# Vision & Audio
 mediapipe==0.10.11
-opencv-python==4.6.0.66
-numpy<2.0
+opencv-python-headless==4.6.0.66
+gTTS==2.3.2
+vosk==0.3.45
+
+# Server
 fastapi==0.95.1
 uvicorn==0.21.1
 python-multipart==0.0.6
 requests==2.31.0
-gTTS==2.3.2
-cloudinary==1.36.0
 python-socketio==5.11.0
-torch==2.1.0
-transformers==4.36.0
-vosk==0.3.45
-livekit>=0.7.0
-livekit-api>=0.4.0
 websockets>=12.0
 python-dotenv>=1.0.0
+
+# Integrations
+cloudinary==1.36.0
+livekit>=0.7.0
+livekit-api>=0.4.0
