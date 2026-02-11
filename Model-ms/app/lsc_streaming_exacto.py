@@ -63,13 +63,17 @@ class LSCStreamingExactoPredictor:
         self.landmarks_buffer = deque(maxlen=buffer_size)
         
         # Buffer para predicciones (suavizado)
-        self.prediction_buffer = deque(maxlen=10)  # Reducido de 15 a 10 para mayor agilidad
+        self.prediction_buffer = deque(maxlen=6)  # Reducido de 10 a 6 para capturar señas rápidas
         
         # Estado
         self.frame_count = 0
         self.no_user_count = 0 # Contador para auto-reset
         self.last_prediction = None
         self.last_accepted_word = None # Nuevo: Contexto de palabra aceptada
+        
+        # Tracking de Movimiento (Para distinguir señas estáticas de dinámicas)
+        self.last_wrist_pos = None  # (x, y) de la muñeca
+        self.motion_velocity = 0.0
         # Contexto y pesos
         self.current_context = None
         self.context_weights = {
@@ -283,10 +287,21 @@ class LSCStreamingExactoPredictor:
                 if len(self.prediction_buffer) > 0:
                     log("🧹 [Auto-Reset] Limpiando buffer por silencio")
                     self.prediction_buffer.clear()
+                self.last_wrist_pos = None
                 return {
                     'status': 'waiting', 'word': None, 'confidence': 0,
                     'buffer_fill': buffer_fill, 'distance_alert': distance_alert
                 }
+
+            # --- HEURÍSTICA DE MOVIMIENTO ---
+            # Wrist Pose original index: 15 (Left) o 16 (Right)
+            # 15*4 = 60, 16*4 = 64. Usaremos el promedio o el brazo más activo.
+            curr_wrist = (landmarks[60], landmarks[61]) # Wrist X, Y
+            if self.last_wrist_pos:
+                dist = np.sqrt((curr_wrist[0]-self.last_wrist_pos[0])**2 + (curr_wrist[1]-self.last_wrist_pos[1])**2)
+                # Filtro de suavizado para la velocidad (EMA)
+                self.motion_velocity = self.motion_velocity * 0.7 + dist * 0.3
+            self.last_wrist_pos = curr_wrist
 
             self.frame_count += 1
             
@@ -329,22 +344,33 @@ class LSCStreamingExactoPredictor:
             # Log de confianza cada 10 frames para feedback visual en logs
             if self.frame_count % 10 == 0:
                 win_text = predicted_word if confidence >= 0.4 else "None"
-                log(f"[Stream-Log] Top: {predicted_word} ({confidence:.2f}) | Win: {win_text} | status: {status} | buf: {len(self.prediction_buffer)}")
+                mot_text = "DYNAMIC" if self.motion_velocity > 0.02 else "STATIC"
+                log(f"[Stream-Log] Top: {predicted_word} ({confidence:.2f}) | {mot_text} (v:{self.motion_velocity:.3f}) | buf: {len(self.prediction_buffer)}")
 
             final_word = None
-            if len(self.prediction_buffer) >= 4:
+            
+            # REGLA DE DINAMISMO 1: Si la confianza es muy alta (>0.8), ganar inmediatamente
+            if confidence >= 0.8:
+                final_word = predicted_word
+                # log(f"🚀 [INSTANT-WORD] {final_word} (conf: {confidence:.2f})")
+            
+            # REGLA DE DINAMISMO 2: Votación rápida en buffer corto
+            elif len(self.prediction_buffer) >= 3:
                 valid_preds = [p for p in self.prediction_buffer if p is not None]
                 if valid_preds:
                     counts = Counter(valid_preds)
                     most_common = counts.most_common(1)[0]
-                    # Requiere 60% de coincidencia en el buffer
-                    if most_common[1] >= len(self.prediction_buffer) * 0.6:
+                    # Requiere 50% de coincidencia en el buffer reducido
+                    if most_common[1] >= len(self.prediction_buffer) * 0.5:
                         final_word = most_common[0]
             
             # Recalcular status final si hay palabra
             if final_word:
                  status = 'predicting'
-                 log(f"[FINAL-WORD] {final_word} (votos: {most_common[1]}/{len(self.prediction_buffer)})")
+                 if confidence >= 0.8:
+                     log(f"[FINAL-WORD] {final_word} (INSTANT - conf: {confidence:.2f})")
+                 else:
+                     log(f"[FINAL-WORD] {final_word} (votos: {most_common[1]}/{len(self.prediction_buffer)})")
 
             return {
                 'status': status, 'word': final_word, 'confidence': confidence,

@@ -30,8 +30,8 @@ def main():
     # (Este tiene la lógica de dual-prediction, smoothing y normalización Min-Max corregida)
     streaming_predictor = LSCStreamingPredictor(base_predictor=base_predictor)
     
-    # 3. Inicializar el detector Holistic de MediaPipe
-    detector = HolisticDetector()
+    # 3. Inicializar el detector Holistic de MediaPipe (Sincronizado con evaluar_modelo.py)
+    detector = HolisticDetector(use_face=False, model_complexity=1)
     
     # 4. Iniciar cámara
     cap = cv2.VideoCapture(0)
