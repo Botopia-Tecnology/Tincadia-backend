@@ -74,32 +74,30 @@ class ExactoPredictorCOLNUMWORD:
             lh = coords[163:226].reshape(21, 3).copy()
             
             def min_max_norm(parts_coords):
-                # Extraer solo x, y, z (ignorar visibilidad si existe)
+                # Extraer solo x, y, z
                 pts = parts_coords[:, :3]
                 
-                # Si todo es cero, no normalizar
+                # Si todo el componente es cero, no hacer nada
                 if np.all(pts == 0):
                     return parts_coords
                 
-                # Calcular min-max ignorando los puntos que son exactamente cero (puntos no detectados)
-                mask = np.any(pts != 0, axis=1)
-                if not np.any(mask):
-                    return parts_coords
-                    
-                pts_active = pts[mask]
-                xmin, xmax = pts_active[:, 0].min(), pts_active[:, 0].max()
-                ymin, ymax = pts_active[:, 1].min(), pts_active[:, 1].max()
-                zmin, zmax = pts_active[:, 2].min(), pts_active[:, 2].max()
+                # IMPORTANTE: Para coincidir 100% con LandmarkInfo.get_fixed_landmark:
+                # El min-max se calcula sobre TODOS los puntos del componente,
+                # incluyendo los ceros (siempre que el componente no sea todo ceros).
+                # Esto es clave para que la escala sea idéntica a la del entrenamiento.
+                xmin, xmax = pts[:, 0].min(), pts[:, 0].max()
+                ymin, ymax = pts[:, 1].min(), pts[:, 1].max()
+                zmin, zmax = pts[:, 2].min(), pts[:, 2].max()
                 
                 # Evitar división por cero
                 rx = (xmax - xmin) if (xmax - xmin) > 1e-6 else 1.0
                 ry = (ymax - ymin) if (ymax - ymin) > 1e-6 else 1.0
                 rz = (zmax - zmin) if (zmax - zmin) > 1e-6 else 1.0
                 
-                # Aplicar normalización solo a puntos activos
-                parts_coords[mask, 0] = (parts_coords[mask, 0] - xmin) / rx
-                parts_coords[mask, 1] = (parts_coords[mask, 1] - ymin) / ry
-                parts_coords[mask, 2] = (parts_coords[mask, 2] - zmin) / rz
+                # Aplicar normalización a todos los puntos (X, Y, Z)
+                parts_coords[:, 0] = (parts_coords[:, 0] - xmin) / rx
+                parts_coords[:, 1] = (parts_coords[:, 1] - ymin) / ry
+                parts_coords[:, 2] = (parts_coords[:, 2] - zmin) / rz
                 
                 return parts_coords
 
