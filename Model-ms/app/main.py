@@ -299,37 +299,41 @@ active_predictors = {}
 
 @sio.event
 async def connect(sid, environ):
-    log(f"🔌 [Socket.IO] Intento de conexión: {sid}")
+    print(f"🔌 [Socket.IO] Intento de conexión: {sid}")  # Always print, not log()
     try:
         # Obtener predictor compartido (ya cargado en startup)
         base_predictor = LSCEngine.get_predictor()
+        print(f"[DEBUG-CONNECT] base_predictor obtenido: {base_predictor is not None}")
         
         if base_predictor is None:
-            log(f"❌ [Socket.IO Error] El predictor NO está listo. Intentando cargar...")
+            print(f"❌ [Socket.IO Error] El predictor NO está listo. Intentando cargar...")
             base_predictor = LSCEngine.get_predictor() # Reintento carga
             if base_predictor is None:
-                log(f"❌ [Socket.IO Error] Fallo crítico: modelo inaccesible. Rechazando {sid}")
+                print(f"❌ [Socket.IO Error] Fallo crítico: modelo inaccesible. Rechazando {sid}")
                 return False
 
         # Obtener recursos LLM compartidos
         llm_model, tokenizer = LSCEngine.get_llm_resources()
+        print(f"[DEBUG-CONNECT] LLM resources: model={llm_model is not None}, tokenizer={tokenizer is not None}")
 
         # Inicializar predictor de streaming usando el predictor base compartido
-        log(f"[*] Inicializando sesión de streaming para {sid}...")
+        print(f"[*] Inicializando sesión de streaming para {sid}...")
         predictor = LSCStreamingPredictor(
             base_predictor=base_predictor,
             buffer_size=5,  # Reducido de 25 a 5 para máxima agilidad (igual al evaluador local)
             shared_llm=llm_model,
             shared_tokenizer=tokenizer
         )
+        print(f"[DEBUG-CONNECT] Predictor de streaming creado exitosamente para {sid}")
         
         active_predictors[sid] = predictor
+        print(f"[DEBUG-CONNECT] Predictor guardado en active_predictors. Total activos: {len(active_predictors)}")
+        
         await sio.emit('status', {'message': 'Connected to Python LSC Model (Optimal)'}, to=sid)
-        log(f"✅ [Socket.IO] Conexión aceptada para {sid} | Predictor: {'Híbrido (Neural+GPT2)' if predictor.context_aware_enabled else 'Solo Neural'}")
+        print(f"✅ [Socket.IO] Conexión aceptada para {sid} | Predictor: {'Híbrido (Neural+GPT2)' if predictor.context_aware_enabled else 'Solo Neural'}")
     except Exception as e:
-        if LOGS_ENABLED:
-            print(f"❌ [Socket.IO Error] Excepción fatal en connect para {sid}: {e}")
-            traceback.print_exc()
+        print(f"❌ [Socket.IO Error] Excepción fatal en connect para {sid}: {e}")
+        traceback.print_exc()
         return False
 
 @sio.event
@@ -340,42 +344,46 @@ async def disconnect(sid):
 
 @sio.on('landmarks')
 async def handle_landmarks(sid, data):
-    # Log every single call for debugging
-    log(f"⚡ [DEBUG] handle_landmarks RECV from {sid}")
+    # ALWAYS log cada llamada para debugging crítico
+    print(f"⚡ [LANDMARKS-RECV] Evento recibido desde SID: {sid}")
     
     try:
         predictor = active_predictors.get(sid)
+        print(f"[LANDMARKS-CHECK] Predictor encontrado: {predictor is not None}")
+        
         if not predictor:
-            log(f"⚠️ [DEBUG] handle_landmarks: No predictor found for SID {sid}. Active predictors: {list(active_predictors.keys())}")
+            print(f"⚠️ [ERROR] No hay predictor para {sid}. Active: {list(active_predictors.keys())}")
             return
 
-        # Detailed Data Inspection
-        if predictor.frame_count % 30 == 0:
-             log(f"[DEBUG] handle_landmarks RAW: type={type(data)}")
+        # Inspección detallada de datos recibidos
+        print(f"[LANDMARKS-DATA] Tipo de data recibida: {type(data)}")
+        print(f"[LANDMARKS-DATA] Contenido (primeros 200 chars): {str(data)[:200]}")
              
         # Extraer datos de landmarks
         landmarks_data = data.get('data') if isinstance(data, dict) else data
         
-        if predictor.frame_count % 30 == 0:
-             log(f"[DEBUG] handle_landmarks EXTRACTED: type={type(landmarks_data)} len={len(landmarks_data) if landmarks_data else 'None'}")
-             if isinstance(landmarks_data, list) and len(landmarks_data) > 0:
-                 log(f"[DEBUG] Sample Recv: {landmarks_data[:5]}...")
+        print(f"[LANDMARKS-EXTRACT] Tipo extraído: {type(landmarks_data)}")
+        print(f"[LANDMARKS-EXTRACT] Longitud: {len(landmarks_data) if landmarks_data else 'None'}")
+        
+        if isinstance(landmarks_data, list) and len(landmarks_data) > 0:
+            print(f"[LANDMARKS-SAMPLE] Primeros 5 valores: {landmarks_data[:5]}")
+            print(f"[LANDMARKS-SAMPLE] Últimos 5 valores: {landmarks_data[-5:]}")
 
         if not landmarks_data or len(landmarks_data) != 226:
-            if LOGS_ENABLED:
-                log(f"❌ [Socket.IO Warning] Datos de landmarks inválidos para {sid}. Len: {len(landmarks_data) if landmarks_data else 'None'}")
+            print(f"❌ [ERROR-VALIDATION] Landmarks inválidos. Len: {len(landmarks_data) if landmarks_data else 'None'}, Esperado: 226")
             return
 
+        print(f"[LANDMARKS-OK] Convirtiendo a numpy array...")
         landmarks = np.array(landmarks_data, dtype=np.float32)
+        print(f"[LANDMARKS-OK] Array creado. Shape: {landmarks.shape}, dtype: {landmarks.dtype}")
         
         # Predecir usando buffer de streaming (226 features - shoulder-centered normalization)
+        print(f"[LANDMARKS-PREDICT] Llamando a predictor.add_landmarks()...")
         result = predictor.add_landmarks(landmarks)
+        print(f"[LANDMARKS-PREDICT] Resultado recibido: {result is not None}")
 
-        
         if result:
-            # Throttle logs for emission
-            if predictor.frame_count % 30 == 0:
-                 log(f"[DEBUG] Emitting prediction to {sid}: {result.get('word')} ({result.get('confidence')}) status={result.get('status')}")
+            print(f"[LANDMARKS-RESULT] word={result.get('word')}, conf={result.get('confidence'):.3f}, status={result.get('status')}")
 
             await sio.emit('prediction', {
                 "word": result['word'],
@@ -387,17 +395,17 @@ async def handle_landmarks(sid, data):
                 "context_changed": result.get('context_changed', False),
                 "distance_alert": result.get('distance_alert')
             }, to=sid)
+            print(f"[LANDMARKS-EMIT] Predicción enviada al cliente {sid}")
             
-            # Silenciado para enfocarse exclusivamente en los logs de inteligencia GPT-2
-            if LOGS_ENABLED and result['word'] and result['confidence'] >= 0.5:
-                # last_w = result.get('last_accepted_word', 'Ninguna')
-                log(f"✨ [Streaming] Predicción: {result['word']} ({result['confidence']:.2f})")
+            # Log de predicciones exitosas
+            if result['word'] and result['confidence'] >= 0.5:
+                print(f"✨ [PREDICCIÓN-EXITOSA] {result['word']} ({result['confidence']:.2f})")
         else:
-             if predictor.frame_count % 30 == 0:
-                 log(f"[DEBUG] add_landmarks returned None/Empty for {sid}")
+            print(f"[LANDMARKS-WARN] add_landmarks retornó None/Empty para {sid}")
 
     except Exception as e:
-        log(f"[Socket.IO Error] Processing landmarks: {e}")
+        print(f"💥 [EXCEPTION-LANDMARKS] Error procesando: {e}")
+        traceback.print_exc()
 
 @sio.on('reset')
 async def handle_reset(sid):
