@@ -223,38 +223,27 @@ class LSCStreamingExactoPredictor:
         """
         Añade landmarks al buffer usando predictor exacto.
         """
-        # Log de entrada SIEMPRE (no condicional)
+        # Log de entrada SIEMPRE
         print(f"[ADD_LANDMARKS-START] Llamada recibida. Shape: {landmarks.shape if hasattr(landmarks, 'shape') else 'NO SHAPE'}")
         
         # Validación básica de forma
         if landmarks.shape[0] != 226:
             print(f"❌ [ADD_LANDMARKS-ERROR] Invalid landmarks shape: {landmarks.shape}. Expected (226,)")
             return {
-                'status': 'error',
-                'word': None,
-                'confidence': 0,
+                'status': 'error', 'word': None, 'confidence': 0,
                 'message': f'Invalid landmarks shape: {landmarks.shape}'
             }
         
-        # --- ESTRATEGIA DE DOBLE PREDICCIÓN (Robustez ante espejado / mobile) ---
-        # Creamos una versión espejada de los landmarks (volteando X: 1.0 - x)
-        landmarks_mirror = landmarks.copy()
-        
-        # 1. Voltear X en Pose (indices 0, 4, 8... cada 4)
-        landmarks_mirror[0:100:4] = 1.0 - landmarks_mirror[0:100:4]
-        
-        # 2. Voltear X en Manos (indices 100, 103... cada 3)
-        landmarks_mirror[100:226:3] = 1.0 - landmarks_mirror[100:226:3]
-        
-        # Predecir usando landmarks originales
         try:
-            # log(f"[ADD_LANDMARKS-PREDICT] Probando orientación ORIGINAL...")
-            res_orig = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
+            # --- ESTRATEGIA DE DOBLE PREDICCIÓN (Robustez ante espejado / mobile) ---
+            landmarks_mirror = landmarks.copy()
+            landmarks_mirror[0:100:4] = 1.0 - landmarks_mirror[0:100:4] # Pose X
+            landmarks_mirror[100:226:3] = 1.0 - landmarks_mirror[100:226:3] # Hands X
             
-            # log(f"[ADD_LANDMARKS-PREDICT] Probando orientación ESPEJO...")
+            # Predecir en ambas orientaciones y elegir la mejor
+            res_orig = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
             res_mirr = self.exacto_predictor.predict_from_coords(landmarks_mirror.tolist(), include_probabilities=True)
             
-            # Elegir el que tenga mayor confianza
             conf_orig = res_orig.get('confidence', 0)
             conf_mirr = res_mirr.get('confidence', 0)
             
@@ -266,156 +255,83 @@ class LSCStreamingExactoPredictor:
                 result = res_orig
                 if self.frame_count % 30 == 0:
                     log(f"📸 [Standard-Match] Usando versión ORIGINAL (conf: {conf_orig:.2f} vs {conf_mirr:.2f})")
+
+            # --- PROCESAMIENTO GENERAL ---
+            distance_alert = self._check_distance(landmarks)
+            buffer_fill = len(self.landmarks_buffer) / self.buffer_size
+            self.landmarks_buffer.append(landmarks)
             
-            # Si ambos son muy bajos y estamos en fase de depuración, avisar
-            if conf_orig < 0.1 and conf_mirr < 0.1 and self.frame_count % 60 == 0:
-                log(f"⚠️ [Low-Conf] Ambas orientaciones fallan (Max: {max(conf_orig, conf_mirr):.2f})")
+            if distance_alert in ["NO_USER", "TOO_FAR"]:
+                self.no_user_count += 1
+            else:
+                self.no_user_count = 0
                 
-        except Exception as e:
-            print(f"💥 [ADD_LANDMARKS-EXCEPTION] Error en dual-prediction: {e}")
-            return {'status': 'error', 'word': None, 'confidence': 0}
-        # -----------------------------------------------------------------------
-        
-        # Calcular variables necesarias
-        distance_alert = self._check_distance(landmarks)
-        buffer_fill = len(self.landmarks_buffer) / self.buffer_size
+            if self.no_user_count > 5:
+                if len(self.prediction_buffer) > 0:
+                    log("🧹 [Auto-Reset] Limpiando buffer por silencio")
+                    self.prediction_buffer.clear()
+                return {
+                    'status': 'waiting', 'word': None, 'confidence': 0,
+                    'buffer_fill': buffer_fill, 'distance_alert': distance_alert
+                }
 
-        # Añadir al buffer
-        self.landmarks_buffer.append(landmarks)
-        
-        print(f"[ADD_LANDMARKS-BUFFER] buffer_len={len(self.landmarks_buffer)} fill={buffer_fill:.2f} dist={distance_alert}")
-
-        # Determinar si hay usuario
-        if distance_alert in ["NO_USER", "TOO_FAR"]:
-            self.no_user_count += 1
-        else:
-            self.no_user_count = 0
+            self.frame_count += 1
             
-        # Auto-reset si no hay nadie por un instante (aprox 5 frames de silencio)
-        if self.no_user_count > 5:
-            if len(self.prediction_buffer) > 0:
-                log("🧹 [Auto-Reset] Limpiando buffer por silencio")
-                self.prediction_buffer.clear()
-            
-            if self.frame_count % 30 == 0:
-                 log(f"[DEBUG] NO_USER detected (count={self.no_user_count}). Returning status='no_user'")
-
-            return {
-                'status': 'no_user',
-                'word': None,
-                'confidence': 0,
-                'buffer_fill': buffer_fill,
-                'distance_alert': distance_alert
-            }
+            if self.context_aware_enabled and self.frame_count % 30 == 0:
+                self._refresh_llm_cache()
 
             if result['status'] != 'ok':
-                print(f"[ADD_LANDMARKS-PREDICTOR-ERROR] status={result['status']} message={result.get('message', 'No message')}")
-                return {
-                    'status': 'error',
-                    'word': None,
-                    'confidence': 0,
-                    'buffer_fill': buffer_fill
-                }
-            
-            # 2. LOG DIAGNÓSTICO: Top 3 cada 30 frames
-            self.frame_count += 1
-            if self.frame_count % 30 == 0:
-                probs = np.array(result['probabilities'])
-                top_indices = np.argsort(probs)[-3:][::-1]
-                classes_map = self.exacto_predictor.config["classes"]
-                top_str = ", ".join([f"{classes_map.get(str(i), '??')}: {probs[i]:.2f}" for i in top_indices])
-                log(f"🔍 [Top-3 Candidates] {top_str}")
+                return {'status': 'error', 'word': None, 'confidence': 0, 'buffer_fill': buffer_fill}
 
-            # Aplicar lógica de contexto inteligente (GPT-2)
-            # Throttle debug logs
-            if self.frame_count % 60 == 0:
-                log(f"🔍 [Status] word_history: {list(self.word_history)} | context: {self.current_context}")
-            
+            # Lógica de Smoothing y Confianza
             if self.context_aware_enabled:
-                # 1. Obtener base
                 raw_probs = np.array(result['probabilities'])
                 original_idx = np.argmax(raw_probs)
                 base_confidence = raw_probs[original_idx]
                 
-                # 2. IA Boost (Lingüístico - GPT2)
                 boosted_probs = self._apply_llm_boost(raw_probs)
-                
-                # 3. Context Boost (Categoría - Colores, Letras, etc)
                 boosted_probs = self._apply_context_boost(boosted_probs)
+                boosted_probs = boosted_probs / (np.sum(boosted_probs) + 1e-9)
                 
-                # 4. Normalizar y obtener final
-                boosted_probs = boosted_probs / np.sum(boosted_probs)
                 predicted_idx = np.argmax(boosted_probs)
                 confidence = boosted_probs[predicted_idx]
                 
-                # SEGURIDAD: Si el modelo base es demasiado bajo (< 0.15), ignoramos IA
                 if base_confidence < 0.15:
                     predicted_idx = original_idx
                     confidence = base_confidence
 
                 predicted_word = self.exacto_predictor.config["classes"].get(str(predicted_idx), f"Clase_{predicted_idx}")
-                
-                if predicted_idx != original_idx and (confidence >= 0.4 or self.frame_count % 60 == 0):
-                    orig_word = self.exacto_predictor.config["classes"].get(str(original_idx), "??")
-                    # log(f"✨ [Smart Boost] '{orig_word}' ({base_confidence:.2f}) -> '{predicted_word}' ({confidence:.2f}) [Ctx: {self.current_context}]")
-                
-                # --- LÓGICA FAST-BREAK (Antipegado) ---
-                # Si detectamos una seña NUEVA con mucha confianza, limpiamos la vieja del buffer
-                if len(self.prediction_buffer) > 0:
-                    counts = Counter(self.prediction_buffer)
-                    last_majority_word = counts.most_common(1)[0][0]
-                    if predicted_word != last_majority_word and confidence > 0.7:
-                        log(f"🚀 [Fast-Break] Detectado cambio rápido: {last_majority_word} -> {predicted_word}")
-                        self.prediction_buffer.clear() 
-                # --------------------------------------
             else:
                 confidence = result['confidence']
                 predicted_word = result['word']
             
-            # Filtrar por confianza - Mantener en 0.5 para el buffer, pero loguear el top 3 arriba
             if confidence >= 0.5:
                 self.prediction_buffer.append(predicted_word)
-            else:
-                # Si la confianza es muy baja, añadimos None para ir vaciando el buffer de suavizado
-                if confidence < 0.2:
-                    self.prediction_buffer.append(None)
+            elif confidence < 0.2:
+                self.prediction_buffer.append(None)
             
-            # Suavizado (Smoothing) con Voto Mayoritario
             final_word = None
-            if len(self.prediction_buffer) >= 4:  # Aumentado de 2 a 4 para mayor estabilidad (accuracy)
-                # Obtener la palabra más común en las últimas N predicciones
-                # Filtrar valores None
+            if len(self.prediction_buffer) >= 4:
                 valid_preds = [p for p in self.prediction_buffer if p is not None]
                 if valid_preds:
                     counts = Counter(valid_preds)
                     most_common = counts.most_common(1)[0]
-                    
-                    # Si la más común es suficientemente dominante (60% del buffer actual)
                     if most_common[1] >= len(self.prediction_buffer) * 0.6:
                         final_word = most_common[0]
             
-            # Determinar estatus
-            context_changed = False
-            if final_word:
-                status = 'predicting'
-            elif buffer_fill > 0.05:
-                status = 'processing'
-            else:
-                status = 'uncertain'
+            status = 'predicting' if final_word else ('processing' if buffer_fill > 0.05 else 'uncertain')
 
             return {
-                'status': status,
-                'word': final_word,
-                'confidence': confidence,
-                'buffer_fill': buffer_fill,
-                'current_context': self.current_context,
-                'last_accepted_word': self.last_accepted_word,
-                'context_changed': context_changed,
+                'status': status, 'word': final_word, 'confidence': confidence,
+                'buffer_fill': buffer_fill, 'current_context': self.current_context,
+                'last_accepted_word': self.last_accepted_word, 'context_changed': False,
                 'distance_alert': distance_alert
             }
             
         except Exception as e:
-            log(f"[ERROR] Prediction failed: {e}")
+            import traceback
+            print(f"💥 [ADD_LANDMARKS-ERROR] {e}")
+            traceback.print_exc()
             return {'status': 'error', 'word': None, 'confidence': 0, 'distance_alert': None}
 
     def _check_distance(self, landmarks: np.ndarray) -> Optional[str]:
