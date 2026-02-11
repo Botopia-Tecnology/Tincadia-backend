@@ -255,15 +255,12 @@ class LSCStreamingExactoPredictor:
                 if mirrored[i] != 0:
                     mirrored[i] = 1.0 - mirrored[i]
             
-            # Intercambiar manos en el vector final
-            # Mano derecha (100-163) pasa a ser mano izquierda y viceversa
-            rh_data = mirrored[100:163].copy()
-            lh_data = mirrored[163:226].copy()
-            mirrored[100:163] = lh_data
-            mirrored[163:226] = rh_data
+            # No intercambiamos las manos - solo espejamos las coordenadas X
+            # El modelo fue entrenado con este comportamiento
             
             landmarks = mirrored
             # log("🔄 [Mirror] Landmarks espejados (Dominancia derecha detectada)")
+
 
         # 1.5 Calculo de variables necesarias (Fix UnboundLocalError)
         distance_alert = self._check_distance(landmarks)
