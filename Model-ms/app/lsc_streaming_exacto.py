@@ -236,43 +236,22 @@ class LSCStreamingExactoPredictor:
                 'message': f'Invalid landmarks shape: {landmarks.shape}'
             }
         
-        # 1. Lógica de Espejo (Mirroring)
-        # Basado en la lógica del evaluador local que ayuda a la compatibilidad.
-        # Si detecta mano derecha pero no izquierda, invertimos las coordenadas X.
-        # Pose landmarks: x es la primera coordenada de cada grupo de 4.
-        # Hands landmarks: x es la primera coordenada de cada grupo de 3.
+        # NOTA: El frontend debe hacer el espejo del frame si detecta solo mano derecha
+        # Similar a como lo hace el evaluador local:
+        #   if mano_derecha_activa and not mano_izquierda_activa:
+        #       frame = cv2.flip(frame, 1)
+        #       results = holistic.detect_holistic(frame)
+        # 
+        # NO intentamos espejar coordenadas manualmente aquí.
         
-        has_left = np.any(landmarks[163:226] != 0)
-        has_right = np.any(landmarks[100:163] != 0)
-        
-        if has_right and not has_left:
-            # Espejar coordenadas X (1 - x)
-            mirrored = landmarks.copy()
-            # Pose X indices: 0, 4, 8, ... 96
-            for i in range(0, 100, 4):
-                if mirrored[i] != 0:
-                    mirrored[i] = 1.0 - mirrored[i]
-            # Hands X indices: 100, 103, ... 223
-            for i in range(100, 226, 3):
-                if mirrored[i] != 0:
-                    mirrored[i] = 1.0 - mirrored[i]
-            
-            # No intercambiamos las manos - solo espejamos las coordenadas X
-            # El modelo fue entrenado con este comportamiento
-            
-            landmarks = mirrored
-            # log("🔄 [Mirror] Landmarks espejados (Dominancia derecha detectada)")
-
-
-        # 1.5 Calculo de variables necesarias (Fix UnboundLocalError)
+        # Calcular variables necesarias
         distance_alert = self._check_distance(landmarks)
         buffer_fill = len(self.landmarks_buffer) / self.buffer_size
 
         # Añadir al buffer
         self.landmarks_buffer.append(landmarks)
         
-        if self.frame_count % 30 == 0:
-             log(f"[DEBUG] add_landmarks: buffer_len={len(self.landmarks_buffer)} fill={buffer_fill:.2f} dist={distance_alert}")
+        print(f"[ADD_LANDMARKS-BUFFER] buffer_len={len(self.landmarks_buffer)} fill={buffer_fill:.2f} dist={distance_alert}")
 
         # Determinar si hay usuario
         if distance_alert in ["NO_USER", "TOO_FAR"]:
