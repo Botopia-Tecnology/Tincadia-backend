@@ -223,10 +223,12 @@ class LSCStreamingExactoPredictor:
         """
         Añade landmarks al buffer usando predictor exacto.
         """
+        # Log de entrada SIEMPRE (no condicional)
+        print(f"[ADD_LANDMARKS-START] Llamada recibida. Shape: {landmarks.shape if hasattr(landmarks, 'shape') else 'NO SHAPE'}")
+        
         # Validación básica de forma
         if landmarks.shape[0] != 226:
-            if LOGS_ENABLED:
-                log(f"❌ [Predictor Error] Invalid landmarks shape: {landmarks.shape}. Expected (226,)")
+            print(f"❌ [ADD_LANDMARKS-ERROR] Invalid landmarks shape: {landmarks.shape}. Expected (226,)")
             return {
                 'status': 'error',
                 'word': None,
@@ -298,11 +300,12 @@ class LSCStreamingExactoPredictor:
         # Predecir usando landmarks actuales (con probabilidades para contexto)
         try:
             # Usar predictor exacto pidiendo todas las probabilidades
+            print(f"[ADD_LANDMARKS-CALLING-PREDICTOR] Llamando a exacto_predictor.predict_from_coords()...")
             result = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
+            print(f"[ADD_LANDMARKS-PREDICTOR-RESULT] Status: {result.get('status')}")
             
             if result['status'] != 'ok':
-                if LOGS_ENABLED:
-                    log(f"[DEBUG] ExactoPredictor error: status={result['status']} message={result.get('message', 'No message')}")
+                print(f"[ADD_LANDMARKS-PREDICTOR-ERROR] status={result['status']} message={result.get('message', 'No message')}")
                 return {
                     'status': 'error',
                     'word': None,
