@@ -368,8 +368,9 @@ async def handle_landmarks(sid, data):
 
         landmarks = np.array(landmarks_data, dtype=np.float32)
         
-        # Predecir usando buffer de streaming (452 features)
+        # Predecir usando buffer de streaming (226 features - shoulder-centered normalization)
         result = predictor.add_landmarks(landmarks)
+
         
         if result:
             # Throttle logs for emission
