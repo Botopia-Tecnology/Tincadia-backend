@@ -236,13 +236,45 @@ class LSCStreamingExactoPredictor:
                 'message': f'Invalid landmarks shape: {landmarks.shape}'
             }
         
-        # NOTA: El frontend debe hacer el espejo del frame si detecta solo mano derecha
-        # Similar a como lo hace el evaluador local:
-        #   if mano_derecha_activa and not mano_izquierda_activa:
-        #       frame = cv2.flip(frame, 1)
-        #       results = holistic.detect_holistic(frame)
-        # 
-        # NO intentamos espejar coordenadas manualmente aquí.
+        # --- ESTRATEGIA DE DOBLE PREDICCIÓN (Robustez ante espejado / mobile) ---
+        # Creamos una versión espejada de los landmarks (volteando X: 1.0 - x)
+        landmarks_mirror = landmarks.copy()
+        
+        # 1. Voltear X en Pose (indices 0, 4, 8... cada 4)
+        landmarks_mirror[0:100:4] = 1.0 - landmarks_mirror[0:100:4]
+        
+        # 2. Voltear X en Manos (indices 100, 103... cada 3)
+        landmarks_mirror[100:226:3] = 1.0 - landmarks_mirror[100:226:3]
+        
+        # Predecir usando landmarks originales
+        try:
+            # log(f"[ADD_LANDMARKS-PREDICT] Probando orientación ORIGINAL...")
+            res_orig = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
+            
+            # log(f"[ADD_LANDMARKS-PREDICT] Probando orientación ESPEJO...")
+            res_mirr = self.exacto_predictor.predict_from_coords(landmarks_mirror.tolist(), include_probabilities=True)
+            
+            # Elegir el que tenga mayor confianza
+            conf_orig = res_orig.get('confidence', 0)
+            conf_mirr = res_mirr.get('confidence', 0)
+            
+            if conf_mirr > conf_orig:
+                result = res_mirr
+                if self.frame_count % 30 == 0:
+                    log(f"🔄 [Mirror-Match] Usando versión ESPEJADA (conf: {conf_mirr:.2f} vs {conf_orig:.2f})")
+            else:
+                result = res_orig
+                if self.frame_count % 30 == 0:
+                    log(f"📸 [Standard-Match] Usando versión ORIGINAL (conf: {conf_orig:.2f} vs {conf_mirr:.2f})")
+            
+            # Si ambos son muy bajos y estamos en fase de depuración, avisar
+            if conf_orig < 0.1 and conf_mirr < 0.1 and self.frame_count % 60 == 0:
+                log(f"⚠️ [Low-Conf] Ambas orientaciones fallan (Max: {max(conf_orig, conf_mirr):.2f})")
+                
+        except Exception as e:
+            print(f"💥 [ADD_LANDMARKS-EXCEPTION] Error en dual-prediction: {e}")
+            return {'status': 'error', 'word': None, 'confidence': 0}
+        # -----------------------------------------------------------------------
         
         # Calcular variables necesarias
         distance_alert = self._check_distance(landmarks)
@@ -276,13 +308,6 @@ class LSCStreamingExactoPredictor:
                 'distance_alert': distance_alert
             }
 
-        # Predecir usando landmarks actuales (con probabilidades para contexto)
-        try:
-            # Usar predictor exacto pidiendo todas las probabilidades
-            print(f"[ADD_LANDMARKS-CALLING-PREDICTOR] Llamando a exacto_predictor.predict_from_coords()...")
-            result = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
-            print(f"[ADD_LANDMARKS-PREDICTOR-RESULT] Status: {result.get('status')}")
-            
             if result['status'] != 'ok':
                 print(f"[ADD_LANDMARKS-PREDICTOR-ERROR] status={result['status']} message={result.get('message', 'No message')}")
                 return {
@@ -430,13 +455,13 @@ class LSCStreamingExactoPredictor:
             if shoulder_width < 0.001:
                 return "NO_USER"
             
-            # Umbrales basados en pruebas empíricas (coordenadas normalizadas 0-1)
-            # 0.15 = Muy lejos
-            # 0.45 = Muy cerca
+            # Umbrales basados en uso móvil real (celular en mano)
+            # 0.10 = Muy lejos
+            # 0.85 = Muy cerca (permitimos que casi ocupen toda la pantalla)
             
-            if shoulder_width < 0.18:
+            if shoulder_width < 0.10:
                 return "TOO_FAR"
-            elif shoulder_width > 0.50:
+            elif shoulder_width > 0.85:
                 return "TOO_CLOSE"
             
             return "OK"
