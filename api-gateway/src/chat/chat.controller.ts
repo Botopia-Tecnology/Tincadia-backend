@@ -143,9 +143,9 @@ export class ChatController {
     @ApiResponse({ status: 200, description: 'Contacto eliminado' })
     deleteContact(
         @Param('contactId') contactId: string,
-        @Body() dto: { ownerId: string },
+        @Query('ownerId') ownerId: string,
     ) {
-        return this.client.send('delete_contact', { contactId, ownerId: dto.ownerId });
+        return this.client.send('delete_contact', { contactId, ownerId });
     }
 
     @Post('calls/interpreters')
