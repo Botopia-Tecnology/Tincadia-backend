@@ -275,7 +275,7 @@ export class ChatService {
 
                         this.notificationsService.sendPushNotification(
                             recipient.push_token,
-                            isCall ? '📞 Llamada Entrante' : (notifTitle || 'Nuevo Mensaje'),
+                            isCall ? `📞 Llamada de ${senderName}` : (notifTitle || 'Nuevo Mensaje'),
                             isCall
                                 ? 'Toca para contestar...'
                                 : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
@@ -769,7 +769,8 @@ export class ChatService {
                 this.logger.warn(`Skipping transcription trigger: ${err.message}`);
             }
 
-            return { token };
+            const livekitUrl = process.env.LIVEKIT_URL || 'wss://tincadia-app-ox25ibzw.livekit.cloud';
+            return { token, url: livekitUrl };
         } catch (error) {
             this.logger.error(`Error generating token: ${error.message}`);
             throw new BadRequestException('Error al generar token de video');

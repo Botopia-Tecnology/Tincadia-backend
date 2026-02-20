@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("VoskAgent")
 
 # Configuration
-LIVEKIT_URL = os.getenv("LIVEKIT_URL", "wss://tincadia-azanv2gh.livekit.cloud")
+LIVEKIT_URL = os.getenv("LIVEKIT_URL", "wss://tincadia-app-ox25ibzw.livekit.cloud")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 AGENT_IDENTITY_PREFIX = "transcriber-"
