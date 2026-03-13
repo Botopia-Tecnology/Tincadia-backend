@@ -63,13 +63,17 @@ class LSCStreamingExactoPredictor:
         self.landmarks_buffer = deque(maxlen=buffer_size)
         
         # Buffer para predicciones (suavizado)
-        self.prediction_buffer = deque(maxlen=10)  # Reducido de 15 a 10 para mayor agilidad
+        self.prediction_buffer = deque(maxlen=6)  # Reducido de 10 a 6 para capturar señas rápidas
         
         # Estado
         self.frame_count = 0
         self.no_user_count = 0 # Contador para auto-reset
         self.last_prediction = None
         self.last_accepted_word = None # Nuevo: Contexto de palabra aceptada
+        
+        # Tracking de Movimiento (Para distinguir señas estáticas de dinámicas)
+        self.last_wrist_pos = None  # (x, y) de la muñeca
+        self.motion_velocity = 0.0
         # Contexto y pesos
         self.current_context = None
         self.context_weights = {
@@ -223,195 +227,162 @@ class LSCStreamingExactoPredictor:
         """
         Añade landmarks al buffer usando predictor exacto.
         """
+        # Log de entrada SIEMPRE
+        print(f"[ADD_LANDMARKS-START] Llamada recibida. Shape: {landmarks.shape if hasattr(landmarks, 'shape') else 'NO SHAPE'}")
+        
         # Validación básica de forma
         if landmarks.shape[0] != 226:
-            if LOGS_ENABLED:
-                log(f"❌ [Predictor Error] Invalid landmarks shape: {landmarks.shape}. Expected (226,)")
+            print(f"❌ [ADD_LANDMARKS-ERROR] Invalid landmarks shape: {landmarks.shape}. Expected (226,)")
             return {
-                'status': 'error',
-                'word': None,
-                'confidence': 0,
+                'status': 'error', 'word': None, 'confidence': 0,
                 'message': f'Invalid landmarks shape: {landmarks.shape}'
             }
         
-        # 1. Lógica de Espejo (Mirroring)
-        # Basado en la lógica del evaluador local que ayuda a la compatibilidad.
-        # Si detecta mano derecha pero no izquierda, invertimos las coordenadas X.
-        # Pose landmarks: x es la primera coordenada de cada grupo de 4.
-        # Hands landmarks: x es la primera coordenada de cada grupo de 3.
-        
-        has_left = np.any(landmarks[163:226] != 0)
-        has_right = np.any(landmarks[100:163] != 0)
-        
-        if has_right and not has_left:
-            # Espejar coordenadas X (1 - x)
-            mirrored = landmarks.copy()
-            # Pose X indices: 0, 4, 8, ... 96
-            for i in range(0, 100, 4):
-                if mirrored[i] != 0:
-                    mirrored[i] = 1.0 - mirrored[i]
-            # Hands X indices: 100, 103, ... 223
-            for i in range(100, 226, 3):
-                if mirrored[i] != 0:
-                    mirrored[i] = 1.0 - mirrored[i]
-            
-            # Intercambiar manos en el vector final
-            # Mano derecha (100-163) pasa a ser mano izquierda y viceversa
-            rh_data = mirrored[100:163].copy()
-            lh_data = mirrored[163:226].copy()
-            mirrored[100:163] = lh_data
-            mirrored[163:226] = rh_data
-            
-            landmarks = mirrored
-            # log("🔄 [Mirror] Landmarks espejados (Dominancia derecha detectada)")
-
-        # 1.5 Calculo de variables necesarias (Fix UnboundLocalError)
-        distance_alert = self._check_distance(landmarks)
-        buffer_fill = len(self.landmarks_buffer) / self.buffer_size
-
-        # Añadir al buffer
-        self.landmarks_buffer.append(landmarks)
-        
-        if self.frame_count % 30 == 0:
-             log(f"[DEBUG] add_landmarks: buffer_len={len(self.landmarks_buffer)} fill={buffer_fill:.2f} dist={distance_alert}")
-
-        # Determinar si hay usuario
-        if distance_alert in ["NO_USER", "TOO_FAR"]:
-            self.no_user_count += 1
-        else:
-            self.no_user_count = 0
-            
-        # Auto-reset si no hay nadie por un instante (aprox 5 frames de silencio)
-        if self.no_user_count > 5:
-            if len(self.prediction_buffer) > 0:
-                log("🧹 [Auto-Reset] Limpiando buffer por silencio")
-                self.prediction_buffer.clear()
-            
-            if self.frame_count % 30 == 0:
-                 log(f"[DEBUG] NO_USER detected (count={self.no_user_count}). Returning status='no_user'")
-
-            return {
-                'status': 'no_user',
-                'word': None,
-                'confidence': 0,
-                'buffer_fill': buffer_fill,
-                'distance_alert': distance_alert
-            }
-
-        # Predecir usando landmarks actuales (con probabilidades para contexto)
         try:
-            # Usar predictor exacto pidiendo todas las probabilidades
-            result = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
+            # --- ESTRATEGIA DE DOBLE PREDICCIÓN (Robustez ante espejado / mobile) ---
+            # 1. Copiar y Flip X
+            landmarks_mirror = landmarks.copy()
+            landmarks_mirror[0:100:4] = 1.0 - landmarks_mirror[0:100:4] # Pose X
+            landmarks_mirror[100:226:3] = 1.0 - landmarks_mirror[100:226:3] # Hands X
             
-            if result['status'] != 'ok':
-                if LOGS_ENABLED:
-                    log(f"[DEBUG] ExactoPredictor error: status={result['status']} message={result.get('message', 'No message')}")
-                return {
-                    'status': 'error',
-                    'word': None,
-                    'confidence': 0,
-                    'buffer_fill': buffer_fill
-                }
+            # 2. SWAP Pose Left/Right (Pares: 1-4, 2-5, 3-6, 7-8, 9-10, 11-12, 13-14, 15-16, 17-18, 19-20, 21-22, 23-24)
+            for p1, p2 in [(1,4), (2,5), (3,6), (7,8), (9,10), (11,12), (13,14), (15,16), (17,18), (19,20), (21,22), (23,24)]:
+                idx1, idx2 = p1*4, p2*4
+                temp = landmarks_mirror[idx1:idx1+4].copy()
+                landmarks_mirror[idx1:idx1+4] = landmarks_mirror[idx2:idx2+4]
+                landmarks_mirror[idx2:idx2+4] = temp
+                
+            # 3. SWAP Hands (Modelo-ms: 100-162 es Derecha, 163-225 es Izquierda)
+            rh_part = landmarks_mirror[100:163].copy()
+            landmarks_mirror[100:163] = landmarks_mirror[163:226]
+            landmarks_mirror[163:226] = rh_part
             
-            # 2. LOG DIAGNÓSTICO: Top 3 cada 30 frames
-            self.frame_count += 1
-            if self.frame_count % 30 == 0:
-                probs = np.array(result['probabilities'])
-                top_indices = np.argsort(probs)[-3:][::-1]
-                classes_map = self.exacto_predictor.config["classes"]
-                top_str = ", ".join([f"{classes_map.get(str(i), '??')}: {probs[i]:.2f}" for i in top_indices])
-                log(f"🔍 [Top-3 Candidates] {top_str}")
+            # Predecir en ambas orientaciones y elegir la mejor
+            res_orig = self.exacto_predictor.predict_from_coords(landmarks.tolist(), include_probabilities=True)
+            res_mirr = self.exacto_predictor.predict_from_coords(landmarks_mirror.tolist(), include_probabilities=True)
+            
+            conf_orig = res_orig.get('confidence', 0)
+            conf_mirr = res_mirr.get('confidence', 0)
+            
+            if conf_mirr > conf_orig:
+                result = res_mirr
+                if self.frame_count % 30 == 0:
+                    log(f"🔄 [Mirror-Match] Usando versión ESPEJADA (conf: {conf_mirr:.2f} vs {conf_orig:.2f})")
+            else:
+                result = res_orig
+                if self.frame_count % 30 == 0:
+                    log(f"📸 [Standard-Match] Usando versión ORIGINAL (conf: {conf_orig:.2f} vs {conf_mirr:.2f})")
 
-            # Aplicar lógica de contexto inteligente (GPT-2)
-            # Throttle debug logs
-            if self.frame_count % 60 == 0:
-                log(f"🔍 [Status] word_history: {list(self.word_history)} | context: {self.current_context}")
+            # --- PROCESAMIENTO GENERAL ---
+            distance_alert = self._check_distance(landmarks)
+            buffer_fill = len(self.landmarks_buffer) / self.buffer_size
+            self.landmarks_buffer.append(landmarks)
             
+            if distance_alert in ["NO_USER", "TOO_FAR"]:
+                self.no_user_count += 1
+            else:
+                self.no_user_count = 0
+                
+            if self.no_user_count > 5:
+                if len(self.prediction_buffer) > 0:
+                    log("🧹 [Auto-Reset] Limpiando buffer por silencio")
+                    self.prediction_buffer.clear()
+                self.last_wrist_pos = None
+                return {
+                    'status': 'waiting', 'word': None, 'confidence': 0,
+                    'buffer_fill': buffer_fill, 'distance_alert': distance_alert
+                }
+
+            # --- HEURÍSTICA DE MOVIMIENTO ---
+            # Wrist Pose original index: 15 (Left) o 16 (Right)
+            # 15*4 = 60, 16*4 = 64. Usaremos el promedio o el brazo más activo.
+            curr_wrist = (landmarks[60], landmarks[61]) # Wrist X, Y
+            if self.last_wrist_pos:
+                dist = np.sqrt((curr_wrist[0]-self.last_wrist_pos[0])**2 + (curr_wrist[1]-self.last_wrist_pos[1])**2)
+                # Filtro de suavizado para la velocidad (EMA)
+                self.motion_velocity = self.motion_velocity * 0.7 + dist * 0.3
+            self.last_wrist_pos = curr_wrist
+
+            self.frame_count += 1
+            
+            if self.context_aware_enabled and self.frame_count % 30 == 0:
+                self._refresh_llm_cache()
+
+            if result['status'] != 'ok':
+                return {'status': 'error', 'word': None, 'confidence': 0, 'buffer_fill': buffer_fill}
+
+            # Lógica de Smoothing y Confianza
             if self.context_aware_enabled:
-                # 1. Obtener base
                 raw_probs = np.array(result['probabilities'])
                 original_idx = np.argmax(raw_probs)
                 base_confidence = raw_probs[original_idx]
                 
-                # 2. IA Boost (Lingüístico - GPT2)
                 boosted_probs = self._apply_llm_boost(raw_probs)
-                
-                # 3. Context Boost (Categoría - Colores, Letras, etc)
                 boosted_probs = self._apply_context_boost(boosted_probs)
+                boosted_probs = boosted_probs / (np.sum(boosted_probs) + 1e-9)
                 
-                # 4. Normalizar y obtener final
-                boosted_probs = boosted_probs / np.sum(boosted_probs)
                 predicted_idx = np.argmax(boosted_probs)
                 confidence = boosted_probs[predicted_idx]
                 
-                # SEGURIDAD: Si el modelo base es demasiado bajo (< 0.15), ignoramos IA
                 if base_confidence < 0.15:
                     predicted_idx = original_idx
                     confidence = base_confidence
 
                 predicted_word = self.exacto_predictor.config["classes"].get(str(predicted_idx), f"Clase_{predicted_idx}")
-                
-                if predicted_idx != original_idx and (confidence >= 0.4 or self.frame_count % 60 == 0):
-                    orig_word = self.exacto_predictor.config["classes"].get(str(original_idx), "??")
-                    # log(f"✨ [Smart Boost] '{orig_word}' ({base_confidence:.2f}) -> '{predicted_word}' ({confidence:.2f}) [Ctx: {self.current_context}]")
-                
-                # --- LÓGICA FAST-BREAK (Antipegado) ---
-                # Si detectamos una seña NUEVA con mucha confianza, limpiamos la vieja del buffer
-                if len(self.prediction_buffer) > 0:
-                    counts = Counter(self.prediction_buffer)
-                    last_majority_word = counts.most_common(1)[0][0]
-                    if predicted_word != last_majority_word and confidence > 0.7:
-                        log(f"🚀 [Fast-Break] Detectado cambio rápido: {last_majority_word} -> {predicted_word}")
-                        self.prediction_buffer.clear() 
-                # --------------------------------------
             else:
                 confidence = result['confidence']
                 predicted_word = result['word']
             
-            # Filtrar por confianza - Mantener en 0.5 para el buffer, pero loguear el top 3 arriba
-            if confidence >= 0.5:
+            # Lógica de buffer para suavizado
+            if confidence >= 0.4:
                 self.prediction_buffer.append(predicted_word)
             else:
-                # Si la confianza es muy baja, añadimos None para ir vaciando el buffer de suavizado
-                if confidence < 0.2:
-                    self.prediction_buffer.append(None)
+                self.prediction_buffer.append(None)
+
+            status = 'predicting' if any(p is not None for p in self.prediction_buffer) else ('processing' if buffer_fill > 0.05 else 'uncertain')
             
-            # Suavizado (Smoothing) con Voto Mayoritario
+            # Log de confianza cada 10 frames para feedback visual en logs
+            if self.frame_count % 10 == 0:
+                win_text = predicted_word if confidence >= 0.4 else "None"
+                mot_text = "DYNAMIC" if self.motion_velocity > 0.02 else "STATIC"
+                log(f"[Stream-Log] Top: {predicted_word} ({confidence:.2f}) | {mot_text} (v:{self.motion_velocity:.3f}) | buf: {len(self.prediction_buffer)}")
+
             final_word = None
-            if len(self.prediction_buffer) >= 4:  # Aumentado de 2 a 4 para mayor estabilidad (accuracy)
-                # Obtener la palabra más común en las últimas N predicciones
-                # Filtrar valores None
+            
+            # REGLA DE DINAMISMO 1: Si la confianza es muy alta (>0.8), ganar inmediatamente
+            if confidence >= 0.8:
+                final_word = predicted_word
+                # log(f"🚀 [INSTANT-WORD] {final_word} (conf: {confidence:.2f})")
+            
+            # REGLA DE DINAMISMO 2: Votación rápida en buffer corto
+            elif len(self.prediction_buffer) >= 3:
                 valid_preds = [p for p in self.prediction_buffer if p is not None]
                 if valid_preds:
                     counts = Counter(valid_preds)
                     most_common = counts.most_common(1)[0]
-                    
-                    # Si la más común es suficientemente dominante (60% del buffer actual)
-                    if most_common[1] >= len(self.prediction_buffer) * 0.6:
+                    # Requiere 50% de coincidencia en el buffer reducido
+                    if most_common[1] >= len(self.prediction_buffer) * 0.5:
                         final_word = most_common[0]
             
-            # Determinar estatus
-            context_changed = False
+            # Recalcular status final si hay palabra
             if final_word:
-                status = 'predicting'
-            elif buffer_fill > 0.05:
-                status = 'processing'
-            else:
-                status = 'uncertain'
+                 status = 'predicting'
+                 if confidence >= 0.8:
+                     log(f"[FINAL-WORD] {final_word} (INSTANT - conf: {confidence:.2f})")
+                 else:
+                     log(f"[FINAL-WORD] {final_word} (votos: {most_common[1]}/{len(self.prediction_buffer)})")
 
             return {
-                'status': status,
-                'word': final_word,
-                'confidence': confidence,
-                'buffer_fill': buffer_fill,
-                'current_context': self.current_context,
-                'last_accepted_word': self.last_accepted_word,
-                'context_changed': context_changed,
+                'status': status, 'word': final_word, 'confidence': confidence,
+                'buffer_fill': buffer_fill, 'current_context': self.current_context,
+                'last_accepted_word': self.last_accepted_word, 'context_changed': False,
                 'distance_alert': distance_alert
             }
             
         except Exception as e:
-            log(f"[ERROR] Prediction failed: {e}")
+            import traceback
+            print(f"💥 [ADD_LANDMARKS-ERROR] {e}")
+            traceback.print_exc()
             return {'status': 'error', 'word': None, 'confidence': 0, 'distance_alert': None}
 
     def _check_distance(self, landmarks: np.ndarray) -> Optional[str]:
@@ -451,13 +422,13 @@ class LSCStreamingExactoPredictor:
             if shoulder_width < 0.001:
                 return "NO_USER"
             
-            # Umbrales basados en pruebas empíricas (coordenadas normalizadas 0-1)
-            # 0.15 = Muy lejos
-            # 0.45 = Muy cerca
+            # Umbrales basados en uso móvil real (celular en mano)
+            # 0.10 = Muy lejos
+            # 0.85 = Muy cerca (permitimos que casi ocupen toda la pantalla)
             
-            if shoulder_width < 0.18:
+            if shoulder_width < 0.10:
                 return "TOO_FAR"
-            elif shoulder_width > 0.50:
+            elif shoulder_width > 0.85:
                 return "TOO_CLOSE"
             
             return "OK"
