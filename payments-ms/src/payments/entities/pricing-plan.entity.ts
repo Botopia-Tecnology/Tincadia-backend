@@ -53,6 +53,9 @@ export class PricingPlan {
     @Column({ name: 'billing_interval_months', type: 'int', default: 1 })
     billingIntervalMonths: number;
 
+    @Column('jsonb', { nullable: true, default: {} })
+    features: any;
+
     @Column({ default: 0 })
     order: number;
 }
