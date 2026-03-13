@@ -46,19 +46,12 @@ export class PricingPlan {
     @Column('jsonb', { default: [] })
     excludes: string[];
 
-    @Column('jsonb', { default: {} })
-    features: any;
-
     @Column({ name: 'is_active', default: true })
     isActive: boolean;
 
     // Billing interval in months: 1=monthly, 2=bimonthly, 3=quarterly, 6=semiannual, 12=annual
     @Column({ name: 'billing_interval_months', type: 'int', default: 1 })
     billingIntervalMonths: number;
-
-    // Trial period in days (0 or null = no trial)
-    @Column({ name: 'trial_period_days', type: 'int', nullable: true, default: 0 })
-    trialPeriodDays: number;
 
     @Column({ default: 0 })
     order: number;

@@ -1,36 +1,29 @@
 import { Injectable, NotFoundException, Logger, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { RpcException } from '@nestjs/microservices';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './entities/payment.entity';
 import { PricingPlan } from './entities/pricing-plan.entity';
-import { Course } from './entities/course.entity';
-import { Subscription, SubscriptionStatus } from '../subscriptions/entities/subscription.entity';
-
+import { Subscription } from '../subscriptions/entities/subscription.entity';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { UpdatePaymentDto } from './dto/update-payment.dto';
 import { PaymentQueryDto } from './dto/payment-query.dto';
 import { WompiService } from '../wompi/wompi.service';
 import { WompiEventDto } from './dto/wompi-event.dto';
-import { PurchasesService } from './purchases.service';
 
 @Injectable()
 export class PaymentsService {
     private readonly logger = new Logger(PaymentsService.name);
 
-    constructor(
-        @InjectRepository(Payment)
-        private readonly paymentRepository: Repository<Payment>,
+  constructor(
+    @InjectRepository(Payment)
+    private readonly paymentRepository: Repository<Payment>,
         @InjectRepository(PricingPlan)
         private readonly pricingPlanRepository: Repository<PricingPlan>,
-        @InjectRepository(Course)
-        private readonly courseRepository: Repository<Course>,
         @InjectRepository(Subscription)
         private readonly subscriptionRepository: Repository<Subscription>,
         private readonly wompiService: WompiService,
         private readonly configService: ConfigService,
-        private readonly purchasesService: PurchasesService,
     ) { }
 
     /**
@@ -87,139 +80,90 @@ export class PaymentsService {
      * SEGURIDAD: El precio se obtiene de la base de datos, NO del frontend
      */
     async initiatePayment(data: CreatePaymentDto) {
-        this.logger.log(`[initiatePayment] Data received: ${JSON.stringify(data)}`);
+        // 1. Buscar el plan en la base de datos para obtener el precio REAL
+        const pricingPlan = await this.pricingPlanRepository.findOne({
+            where: { id: data.planId }
+        });
 
-        try {
-            let amountInCents = 0;
-            let reference = '';
-            let planName = '';
-
-            // 1. Determine price based on product type
-            // Enhanced check: if it's explicitly COURSE, OR if plan info indicates course purchase
-            if ((data.productType === 'COURSE' || data.planType === 'course_access' || data.planId === 'course_purchase') && data.productId) {
-                // Course purchase logic - fetch price from database
-                const course = await this.courseRepository.findOne({
-                    where: { id: data.productId }
-                });
-
-                if (!course) {
-                    throw new NotFoundException(`Curso no encontrado: ${data.productId}`);
-                }
-
-                if (!course.isPaid) {
-                    throw new BadRequestException('Este curso es gratuito y no requiere pago');
-                }
-
-                amountInCents = Number(course.priceCents);
-                if (!amountInCents || amountInCents < 100) {
-                    throw new BadRequestException('El curso no tiene un precio válido configurado');
-                }
-
-                planName = `Curso: ${course.title}`;
-            } else {
-                // Existing Plan Logic (Subscription)
-                if (data.planId === 'course_purchase') {
-                    // Safety net: if we reached here with 'course_purchase' but failed the first check (e.g. missing productId),
-                    // we should fail gracefully instead of querying DB with invalid UUID
-                    throw new BadRequestException('Para comprar un curso se requiere productId');
-                }
-
-                const pricingPlan = await this.pricingPlanRepository.findOne({
-                    where: { id: data.planId }
-                });
-
-                if (!pricingPlan) {
-                    this.logger.warn(`Plan not found: ${data.planId}`);
-                    throw new NotFoundException(`Plan no encontrado: ${data.planId}`);
-                }
-
-                if (pricingPlan.isFree) {
-                    throw new BadRequestException('Este plan es gratuito y no requiere pago');
-                }
-
-                amountInCents = data.billingCycle === 'anual'
-                    ? Number(pricingPlan.priceAnnualInCents)
-                    : Number(pricingPlan.priceMonthlyInCents);
-
-                planName = pricingPlan.name;
-
-                if (pricingPlan.planType && pricingPlan.planType !== data.planType) {
-                    throw new ForbiddenException('Tipo de plan no coincide');
-                }
-            }
-
-            if (!amountInCents || amountInCents < 100) {
-                throw new BadRequestException('El precio no es válido');
-            }
-
-            // 2. Generate Reference
-            reference = this.wompiService.generateReference();
-
-            // 3. Create Pending Payment
-            // Note: planId must be a valid UUID if provided, unless it's null.
-            const isCourse = (data.productType === 'COURSE' || data.planType === 'course_access' || data.planId === 'course_purchase');
-
-            // When buying a course, we set planId to null to avoid FK constraint/UUID errors
-            const planIdToSave = isCourse ? undefined : (data.planId || undefined);
-
-            const payment = this.paymentRepository.create({
-                userId: data.userId || undefined,
-                amountInCents,
-                currency: 'COP',
-                plan: data.planType || 'COURSE',
-                planId: planIdToSave,
-                productType: isCourse ? 'COURSE' : (data.productType || 'PLAN'),
-                productId: data.productId,
-                status: PaymentStatus.PENDING,
-                reference,
-                customerEmail: data.customerEmail,
-                customerName: data.customerName,
-                customerPhone: data.customerPhone,
-                customerLegalId: data.customerLegalId,
-                customerLegalIdType: data.customerLegalIdType,
-            });
-
-            await this.paymentRepository.save(payment);
-
-            // 4. Prepare Widget Config
-            const defaultRedirectUrl = this.configService.get<string>(
-                'WOMPI_REDIRECT_URL',
-                'https://www.tincadia.com/pagos/respuesta'
-            );
-            const redirectUrl = data.redirectUrl || defaultRedirectUrl;
-
-            const widgetConfig = this.wompiService.prepareWidgetConfig({
-                reference,
-                amountInCents,
-                currency: 'COP',
-                customerEmail: data.customerEmail,
-                customerFullName: data.customerName,
-                customerPhoneNumber: data.customerPhone,
-                customerPhonePrefix: data.customerPhonePrefix,
-                customerLegalId: data.customerLegalId,
-                customerLegalIdType: data.customerLegalIdType,
-                redirectUrl,
-                plan: data.planType || 'Individual Course',
-            });
-
-            this.logger.log(`Payment initiated: ${reference} for ${amountInCents} (Product: ${data.productType || 'PLAN'})`);
-
-            return {
-                paymentId: payment.id,
-                reference,
-                widgetConfig,
-                widgetScriptUrl: this.wompiService.getWidgetScriptUrl(),
-                checkoutUrl: this.wompiService.getCheckoutUrl(),
-            };
-        } catch (error) {
-            this.logger.error(`[initiatePayment] Error initiating payment: ${error.message}`, error.stack);
-            // Throw RpcException to ensure the message reaches the gateway/frontend
-            throw new RpcException({
-                statusCode: 400,
-                message: `Payment Init Failed: ${error.message}`,
-                error: 'Bad Request'
-            });
+        if (!pricingPlan) {
+            this.logger.warn(`Plan not found: ${data.planId}`);
+            throw new NotFoundException(`Plan no encontrado: ${data.planId}`);
         }
+
+        // 2. Validar que el plan no sea gratuito
+        if (pricingPlan.isFree) {
+            this.logger.warn(`Attempted to pay for free plan: ${data.planId}`);
+            throw new BadRequestException('Este plan es gratuito y no requiere pago');
+        }
+
+        // 3. Obtener el precio según el ciclo de facturación
+        const amountInCents = data.billingCycle === 'anual'
+            ? Number(pricingPlan.priceAnnualInCents)
+            : Number(pricingPlan.priceMonthlyInCents);
+
+        if (!amountInCents || amountInCents < 100) {
+            this.logger.error(`Invalid price for plan ${data.planId}: ${amountInCents}`);
+            throw new BadRequestException('El plan no tiene un precio válido configurado');
+        }
+
+        // 4. Validar que el planType coincida (seguridad adicional)
+        if (pricingPlan.planType && pricingPlan.planType !== data.planType) {
+            this.logger.warn(`Plan type mismatch: expected ${pricingPlan.planType}, got ${data.planType}`);
+            throw new ForbiddenException('Tipo de plan no coincide');
+        }
+
+        // 5. Generar referencia única
+        const reference = this.wompiService.generateReference();
+
+        // 6. Crear registro de pago pendiente con el precio de la BD
+        const payment = this.paymentRepository.create({
+            userId: data.userId,
+            amountInCents,
+            currency: 'COP',
+            plan: data.planType,
+            planId: data.planId, // Store plan ID for subscription creation
+            status: PaymentStatus.PENDING,
+            reference,
+            customerEmail: data.customerEmail,
+            customerName: data.customerName,
+            customerPhone: data.customerPhone,
+            customerLegalId: data.customerLegalId,
+            customerLegalIdType: data.customerLegalIdType,
+        });
+
+        await this.paymentRepository.save(payment);
+
+        // 7. Preparar configuración del widget con el precio correcto
+        // URL de redirección: usar la del frontend si viene, sino usar la configurada en el backend
+        const defaultRedirectUrl = this.configService.get<string>(
+            'WOMPI_REDIRECT_URL',
+            'https://www.tincadia.com/pagos/respuesta'
+        );
+        const redirectUrl = data.redirectUrl || defaultRedirectUrl;
+
+        const widgetConfig = this.wompiService.prepareWidgetConfig({
+            reference,
+            amountInCents, // Precio de la BD, no del frontend
+            currency: 'COP',
+            customerEmail: data.customerEmail,
+            customerFullName: data.customerName,
+            customerPhoneNumber: data.customerPhone,
+            customerPhonePrefix: data.customerPhonePrefix,
+            customerLegalId: data.customerLegalId,
+            customerLegalIdType: data.customerLegalIdType,
+            redirectUrl,
+            plan: data.planType,
+        });
+
+        this.logger.log(`Payment initiated: ${reference} for ${amountInCents} centavos (plan: ${pricingPlan.name})`);
+
+        return {
+            paymentId: payment.id,
+            reference,
+            widgetConfig,
+            widgetScriptUrl: this.wompiService.getWidgetScriptUrl(),
+            checkoutUrl: this.wompiService.getCheckoutUrl(),
+        };
     }
 
     /**
@@ -278,41 +222,12 @@ export class PaymentsService {
 
         this.logger.log(`Payment ${payment.reference} updated to status: ${payment.status}`);
 
-        // If payment is APPROVED
-        if (transaction.status === 'APPROVED') {
-            if (payment.productType === 'COURSE' && payment.productId) {
-                await this.createPurchaseFromPayment(payment);
-            } else if (transaction.payment_method_type === 'CARD') {
-                // Existing subscription logic for PLAN
-                await this.createSubscriptionFromPayment(payment, transaction);
-            }
+        // If payment is APPROVED and uses CARD, create subscription for recurring payments
+        if (transaction.status === 'APPROVED' && transaction.payment_method_type === 'CARD') {
+            await this.createSubscriptionFromPayment(payment, transaction);
         }
 
         return { received: true };
-    }
-
-    /**
-     * Create purchase record after successful one-time payment
-     */
-    private async createPurchaseFromPayment(payment: Payment) {
-        if (!payment.productId) {
-            this.logger.error(`Cannot create purchase for payment ${payment.id}: Missing productId`);
-            return;
-        }
-
-        try {
-            await this.purchasesService.create({
-                userId: payment.userId,
-                productId: payment.productId,
-                productType: payment.productType || 'COURSE',
-                paymentId: payment.id,
-                priceInCents: payment.amountInCents,
-                currency: payment.currency,
-            });
-            this.logger.log(`Purchase record created for user ${payment.userId}, product ${payment.productId}`);
-        } catch (error) {
-            this.logger.error(`Failed to create purchase record: ${error.message}`, error.stack);
-        }
     }
 
     /**
@@ -335,47 +250,19 @@ export class PaymentsService {
                 return;
             }
 
-            // Get billing interval and trial period from plan configuration
+            // Get billing interval from plan configuration
             let billingIntervalMonths = 1; // Default to monthly
-            let trialPeriodDays = 0;
             if (payment.planId) {
                 const plan = await this.pricingPlanRepository.findOne({ where: { id: payment.planId } });
-                if (plan) {
-                    if (plan.billingIntervalMonths) {
-                        billingIntervalMonths = plan.billingIntervalMonths;
-                    }
-                    if (plan.trialPeriodDays) {
-                        trialPeriodDays = plan.trialPeriodDays;
-                    }
+                if (plan?.billingIntervalMonths) {
+                    billingIntervalMonths = plan.billingIntervalMonths;
                 }
             }
 
-            // Calculate dates
+            // Calculate period dates based on plan's billing interval
             const now = new Date();
-            let currentPeriodStart = now;
-            let nextChargeAt = now;
-            let status: SubscriptionStatus = 'active';
-
-            if (trialPeriodDays > 0) {
-                // If trial, period starts now but charging starts after trial
-                status = 'trialing'; // Assuming 'trialing' is a valid status in your system enum/types
-                // The trial ends in X days
-                const trialEnd = new Date(now);
-                trialEnd.setDate(trialEnd.getDate() + trialPeriodDays);
-
-                // For a trial, the "current period" of the subscription (access) starts now
-                // but the "billing" period really starts when the trial ends.
-                // However, usually currentPeriodEnd tracks when access might be revoked if not paid.
-                // Let's set currentPeriodEnd to trialEnd for now.
-                currentPeriodStart = now;
-                nextChargeAt = trialEnd;
-                // The first billing cycle will start at trialEnd
-            } else {
-                // Normal flow
-                const periodEnd = new Date(now);
-                periodEnd.setMonth(periodEnd.getMonth() + billingIntervalMonths);
-                nextChargeAt = periodEnd;
-            }
+            const periodEnd = new Date(now);
+            periodEnd.setMonth(periodEnd.getMonth() + billingIntervalMonths);
 
             // Determine billing cycle label
             const billingCycle = billingIntervalMonths >= 12 ? 'annual' : 'monthly';
@@ -390,17 +277,17 @@ export class PaymentsService {
                 paymentSourceId: transaction.payment_source_id,
                 cardLastFour,
                 cardBrand,
-                status,
+                status: 'active',
                 billingCycle,
                 amountCents: payment.amountInCents,
-                currentPeriodStart,
-                currentPeriodEnd: nextChargeAt, // For trial, this is trial end. For normal, this is next charge.
-                nextChargeAt,
+                currentPeriodStart: now,
+                currentPeriodEnd: periodEnd,
+                nextChargeAt: periodEnd,
                 lastPaymentReference: payment.reference,
             });
 
             await this.subscriptionRepository.save(subscription);
-            this.logger.log(`✅ Created subscription ${subscription.id} for user ${payment.userId} with ${billingIntervalMonths} month interval. Trial: ${trialPeriodDays} days.`);
+            this.logger.log(`✅ Created subscription ${subscription.id} for user ${payment.userId} with ${billingIntervalMonths} month interval`);
         } catch (error) {
             this.logger.error(`Failed to create subscription for payment ${payment.reference}:`, error);
             // Don't throw - payment was successful, subscription creation is secondary
@@ -447,12 +334,8 @@ export class PaymentsService {
                 this.logger.log(`Payment ${payment.reference} verified and updated: ${payment.status}`);
 
                 // If payment is APPROVED and uses CARD, create subscription for recurring payments
-                if (txData.status === 'APPROVED') {
-                    if (payment.productType === 'COURSE' && payment.productId) {
-                        await this.createPurchaseFromPayment(payment);
-                    } else if (txData.payment_method_type === 'CARD') {
-                        await this.createSubscriptionFromPayment(payment, txData);
-                    }
+                if (txData.status === 'APPROVED' && txData.payment_method_type === 'CARD') {
+                    await this.createSubscriptionFromPayment(payment, txData);
                 }
             }
 
@@ -462,40 +345,40 @@ export class PaymentsService {
         throw new NotFoundException('Transaction not found');
     }
 
-    async create(data: CreatePaymentDto) {
+  async create(data: CreatePaymentDto) {
         return this.initiatePayment(data);
+  }
+
+  async findAll(query: PaymentQueryDto) {
+    const { userId, status, limit = 50, page = 1 } = query;
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    if (userId) where.userId = userId;
+    if (status) where.status = status;
+
+    const [items, total] = await this.paymentRepository.findAndCount({
+      where,
+      order: { createdAt: 'DESC' },
+      take: limit,
+      skip,
+    });
+
+    return {
+      items,
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async findOne(id: string) {
+    const payment = await this.paymentRepository.findOne({ where: { id } });
+    if (!payment) {
+      throw new NotFoundException(`Payment with ID ${id} not found`);
     }
-
-    async findAll(query: PaymentQueryDto) {
-        const { userId, status, limit = 50, page = 1 } = query;
-        const skip = (page - 1) * limit;
-
-        const where: any = {};
-        if (userId) where.userId = userId;
-        if (status) where.status = status;
-
-        const [items, total] = await this.paymentRepository.findAndCount({
-            where,
-            order: { createdAt: 'DESC' },
-            take: limit,
-            skip,
-        });
-
-        return {
-            items,
-            total,
-            page,
-            limit,
-        };
-    }
-
-    async findOne(id: string) {
-        const payment = await this.paymentRepository.findOne({ where: { id } });
-        if (!payment) {
-            throw new NotFoundException(`Payment with ID ${id} not found`);
-        }
-        return payment;
-    }
+    return payment;
+  }
 
     async findByReference(reference: string) {
         const payment = await this.paymentRepository.findOne({ where: { reference } });
@@ -505,16 +388,16 @@ export class PaymentsService {
         return payment;
     }
 
-    async update(id: string, data: UpdatePaymentDto) {
+  async update(id: string, data: UpdatePaymentDto) {
         await this.findOne(id);
-        await this.paymentRepository.update(id, data);
-        return this.findOne(id);
-    }
+    await this.paymentRepository.update(id, data);
+    return this.findOne(id);
+  }
 
-    async remove(id: string) {
-        const payment = await this.findOne(id);
-        return this.paymentRepository.remove(payment);
-    }
+  async remove(id: string) {
+    const payment = await this.findOne(id);
+    return this.paymentRepository.remove(payment);
+  }
 
     /**
      * Obtiene configuración pública de Wompi para el frontend
