@@ -167,8 +167,26 @@ export class ContentController {
 
     // --- Landing Page Config ---
 
-    @Get('landing-config')
+    @Get('landing')
     @ApiOperation({ summary: 'Get all landing page configurations' })
+    async getLanding() {
+        return this.client.send('get_landing_config', {});
+    }
+
+    @Post('landing')
+    @ApiOperation({ summary: 'Create or update landing page config' })
+    async createLandingConfig(@Body() data: { key: string; value: string; description?: string }) {
+        return this.client.send('update_landing_config', data);
+    }
+
+    @Delete('landing/:key')
+    @ApiOperation({ summary: 'Delete landing page config' })
+    async deleteLandingConfigById(@Param('key') key: string) {
+        return this.client.send('delete_landing_config', { key });
+    }
+
+    @Get('landing-config')
+    @ApiOperation({ summary: 'Get all landing page configurations (Legacy)' })
     async getLandingConfig() {
         return this.client.send('get_landing_config', {});
     }
@@ -183,5 +201,69 @@ export class ContentController {
     @ApiOperation({ summary: 'Update landing page config' })
     async updateLandingConfig(@Body() data: { key: string; value: string; description?: string }) {
         return this.client.send('update_landing_config', data);
+    }
+
+    // --- Testimonials ---
+
+    @Get('testimonials')
+    @ApiOperation({ summary: 'Get all testimonials' })
+    async getTestimonials() {
+        return this.client.send('get_testimonials', {});
+    }
+
+    @Get('testimonials/:id')
+    @ApiOperation({ summary: 'Get testimonial by id' })
+    async getTestimonial(@Param('id') id: string) {
+        return this.client.send('get_testimonial', { id });
+    }
+
+    @Post('testimonials')
+    @ApiOperation({ summary: 'Create testimonial' })
+    async createTestimonial(@Body() data: any) {
+        return this.client.send('create_testimonial', data);
+    }
+
+    @Put('testimonials/:id')
+    @ApiOperation({ summary: 'Update testimonial' })
+    async updateTestimonial(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('update_testimonial', { ...data, id });
+    }
+
+    @Delete('testimonials/:id')
+    @ApiOperation({ summary: 'Delete testimonial' })
+    async deleteTestimonial(@Param('id') id: string) {
+        return this.client.send('delete_testimonial', { id });
+    }
+
+    // --- FAQs ---
+
+    @Get('faqs')
+    @ApiOperation({ summary: 'Get all faqs' })
+    async getFaqs() {
+        return this.client.send('get_faqs', {});
+    }
+
+    @Get('faqs/:id')
+    @ApiOperation({ summary: 'Get faq by id' })
+    async getFaq(@Param('id') id: string) {
+        return this.client.send('get_faq', { id });
+    }
+
+    @Post('faqs')
+    @ApiOperation({ summary: 'Create faq' })
+    async createFaq(@Body() data: any) {
+        return this.client.send('create_faq', data);
+    }
+
+    @Put('faqs/:id')
+    @ApiOperation({ summary: 'Update faq' })
+    async updateFaq(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('update_faq', { ...data, id });
+    }
+
+    @Delete('faqs/:id')
+    @ApiOperation({ summary: 'Delete faq' })
+    async deleteFaq(@Param('id') id: string) {
+        return this.client.send('delete_faq', { id });
     }
 }
