@@ -156,9 +156,4 @@ export class ContentController {
             )
         };
     }
-
-    @MessagePattern('getUploadSignature')
-    getUploadSignature(@Payload() data: any) {
-        return this.cloudinaryService.getUploadSignature(data || {});
-    }
 }

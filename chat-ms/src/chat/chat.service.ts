@@ -769,7 +769,11 @@ export class ChatService {
                 this.logger.warn(`Skipping transcription trigger: ${err.message}`);
             }
 
-            const livekitUrl = process.env.LIVEKIT_URL || 'wss://tincadia-app-ox25ibzw.livekit.cloud';
+            const livekitUrl = process.env.LIVEKIT_URL;
+            if (!livekitUrl) {
+                this.logger.error('LIVEKIT_URL not found in environment variables');
+                throw new BadRequestException('Servicio de video no configurado correctamente');
+            }
             return { token, url: livekitUrl };
         } catch (error) {
             this.logger.error(`Error generating token: ${error.message}`);

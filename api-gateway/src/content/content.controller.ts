@@ -1,17 +1,13 @@
-import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param, Query, Headers } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param, Query } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { firstValueFrom } from 'rxjs';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { PaymentsService } from '../payments/payments.service';
 // ...
 @Controller('content')
 @ApiTags('content')
 export class ContentController {
     constructor(
         @Inject('CONTENT_SERVICE') private readonly client: ClientProxy,
-        @Inject('AUTH_SERVICE') private readonly authClient: ClientProxy,
-        private readonly paymentsService: PaymentsService,
     ) { }
 
     @Get('courses')
@@ -45,8 +41,6 @@ export class ContentController {
         return this.client.send('deleteCategory', id);
     }
 
-
-
     // --- Course ---
 
     @Post('courses')
@@ -69,41 +63,9 @@ export class ContentController {
 
     @Get('courses/:id')
     @ApiOperation({ summary: 'Get course by id' })
-    async findOne(
-        @Param('id') id: string,
-        @Headers('authorization') authHeader: string
-    ) {
-        let hasAccess = false;
-
-        if (authHeader) {
-            try {
-                const token = authHeader.replace('Bearer ', '');
-                // Verify token using Auth Service
-                const authResult = await firstValueFrom(
-                    this.authClient.send('verify_token', { token })
-                );
-
-                if (authResult?.user?.id) {
-                    // Check subscription permissions
-                    hasAccess = await this.paymentsService.hasPermission(
-                        authResult.user.id,
-                        'ACCESS_COURSES'
-                    );
-
-                    // If no subscription access, check if user purchased the specific course
-                    if (!hasAccess) {
-                        hasAccess = await this.paymentsService.hasPurchasedProduct(
-                            authResult.user.id,
-                            id
-                        );
-                    }
-                }
-            } catch (error) {
-                // Token invalid or service error, treat as no access
-            }
-        }
-
-        return this.client.send('findOneCourse', { id, hasAccess });
+    async findOne(@Param('id') id: string, @Query('hasAccess') hasAccess?: string) {
+        const paidAccess = hasAccess === 'true';
+        return this.client.send('findOneCourse', { id, hasAccess: paidAccess });
     }
 
     // --- Module ---
@@ -203,16 +165,28 @@ export class ContentController {
         });
     }
 
-    @Get('cloudinary/signature')
-    @ApiOperation({ summary: 'Get Cloudinary upload signature' })
-    async getUploadSignature(@Query() params: any) {
-        return this.client.send('getUploadSignature', params);
-    }
-
     // --- Landing Page Config ---
 
-    @Get('landing-config')
+    @Get('landing')
     @ApiOperation({ summary: 'Get all landing page configurations' })
+    async getLanding() {
+        return this.client.send('get_landing_config', {});
+    }
+
+    @Post('landing')
+    @ApiOperation({ summary: 'Create or update landing page config' })
+    async createLandingConfig(@Body() data: { key: string; value: string; description?: string }) {
+        return this.client.send('update_landing_config', data);
+    }
+
+    @Delete('landing/:key')
+    @ApiOperation({ summary: 'Delete landing page config' })
+    async deleteLandingConfigById(@Param('key') key: string) {
+        return this.client.send('delete_landing_config', { key });
+    }
+
+    @Get('landing-config')
+    @ApiOperation({ summary: 'Get all landing page configurations (Legacy)' })
     async getLandingConfig() {
         return this.client.send('get_landing_config', {});
     }
@@ -227,12 +201,6 @@ export class ContentController {
     @ApiOperation({ summary: 'Update landing page config' })
     async updateLandingConfig(@Body() data: { key: string; value: string; description?: string }) {
         return this.client.send('update_landing_config', data);
-    }
-
-    @Delete('landing-config/:key')
-    @ApiOperation({ summary: 'Delete landing page config by key' })
-    async deleteLandingConfig(@Param('key') key: string) {
-        return this.client.send('delete_landing_config', { key });
     }
 
     // --- Testimonials ---
@@ -250,15 +218,15 @@ export class ContentController {
     }
 
     @Post('testimonials')
-    @ApiOperation({ summary: 'Create a new testimonial' })
-    async createTestimonial(@Body() data: { authorName: string; authorRole: string; quote: string; rating?: number; order?: number }) {
+    @ApiOperation({ summary: 'Create testimonial' })
+    async createTestimonial(@Body() data: any) {
         return this.client.send('create_testimonial', data);
     }
 
     @Put('testimonials/:id')
     @ApiOperation({ summary: 'Update testimonial' })
-    async updateTestimonial(@Param('id') id: string, @Body() data: { authorName?: string; authorRole?: string; quote?: string; rating?: number; order?: number }) {
-        return this.client.send('update_testimonial', { id, ...data });
+    async updateTestimonial(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('update_testimonial', { ...data, id });
     }
 
     @Delete('testimonials/:id')
@@ -270,31 +238,31 @@ export class ContentController {
     // --- FAQs ---
 
     @Get('faqs')
-    @ApiOperation({ summary: 'Get all FAQs' })
+    @ApiOperation({ summary: 'Get all faqs' })
     async getFaqs() {
         return this.client.send('get_faqs', {});
     }
 
     @Get('faqs/:id')
-    @ApiOperation({ summary: 'Get FAQ by id' })
+    @ApiOperation({ summary: 'Get faq by id' })
     async getFaq(@Param('id') id: string) {
         return this.client.send('get_faq', { id });
     }
 
     @Post('faqs')
-    @ApiOperation({ summary: 'Create a new FAQ' })
-    async createFaq(@Body() data: { question: string; answer: string; order?: number }) {
+    @ApiOperation({ summary: 'Create faq' })
+    async createFaq(@Body() data: any) {
         return this.client.send('create_faq', data);
     }
 
     @Put('faqs/:id')
-    @ApiOperation({ summary: 'Update FAQ' })
-    async updateFaq(@Param('id') id: string, @Body() data: { question?: string; answer?: string; order?: number }) {
-        return this.client.send('update_faq', { id, ...data });
+    @ApiOperation({ summary: 'Update faq' })
+    async updateFaq(@Param('id') id: string, @Body() data: any) {
+        return this.client.send('update_faq', { ...data, id });
     }
 
     @Delete('faqs/:id')
-    @ApiOperation({ summary: 'Delete FAQ' })
+    @ApiOperation({ summary: 'Delete faq' })
     async deleteFaq(@Param('id') id: string) {
         return this.client.send('delete_faq', { id });
     }

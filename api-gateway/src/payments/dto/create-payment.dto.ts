@@ -72,18 +72,4 @@ export class InitiatePaymentDto {
     @IsString()
     @IsOptional()
     redirectUrl?: string;
-
-    @ApiPropertyOptional({ description: 'Product Type (e.g., COURSE)' })
-    @IsString()
-    @IsOptional()
-    productType?: string;
-
-    @ApiPropertyOptional({ description: 'Product ID (e.g., Course ID)' })
-    @IsString()
-    @IsOptional()
-    productId?: string;
-
-    @ApiPropertyOptional({ description: 'Amount in cents (for one-time purchases)' })
-    @IsOptional()
-    amountInCents?: number;
 }
