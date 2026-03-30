@@ -164,9 +164,21 @@ export class WompiService {
             .digest('hex')
             .toUpperCase();
 
-        this.logger.debug(`Event validation - Calculated: ${calculatedChecksum}, Received: ${receivedChecksum}`);
+        const receivedUpper = receivedChecksum.toUpperCase();
+        const isValid = calculatedChecksum === receivedUpper;
 
-        return calculatedChecksum === receivedChecksum.toUpperCase();
+        if (isValid) {
+            this.logger.log(`✅ Event signature valid`);
+        } else {
+            this.logger.warn(
+                `❌ Event signature MISMATCH — ` +
+                `calculated: ${calculatedChecksum}, ` +
+                `received: ${receivedUpper}. ` +
+                `Check that WOMPI_EVENTS_SECRET matches the one configured in the Wompi dashboard.`
+            );
+        }
+
+        return isValid;
     }
 
     /**
@@ -298,8 +310,10 @@ export class WompiService {
                 await new Promise(resolve => setTimeout(resolve, intervalInMs));
 
             } catch (error) {
-                this.logger.error(`Error checking payment source status: ${error}`);
-                if (attempts >= maxAttempts) throw error;
+                // Always rethrow — a network failure mid-poll must not be swallowed,
+                // as it could allow a charge against a source that was never AVAILABLE.
+                this.logger.error(`Error checking payment source status (attempt ${attempts}/${maxAttempts}): ${error}`);
+                throw error;
             }
         }
 

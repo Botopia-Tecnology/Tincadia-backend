@@ -152,16 +152,21 @@ export class SubscriptionsService {
             return false;
         }
 
+        if (!subscription.userEmail) {
+            this.logger.warn(`⚠️ Subscription ${subscription.id} has no userEmail — cannot charge Wompi without a valid email`);
+            return false;
+        }
+
         const reference = this.wompiService.generateReference('REN');
 
         try {
-            this.logger.log(`💳 Processing renewal for subscription ${subscription.id}`);
+            this.logger.log(`💳 Processing renewal for subscription ${subscription.id} (${subscription.userEmail})`);
 
             const result = await this.wompiService.chargeWithPaymentSource(
                 subscription.paymentSourceId,
                 subscription.amountCents,
                 reference,
-                subscription.userId // Will need to get email from profile
+                subscription.userEmail  // ← fix: was incorrectly using userId (UUID)
             );
 
             if (result.data?.status === 'APPROVED') {
@@ -184,7 +189,7 @@ export class SubscriptionsService {
                 subscription.failedChargeAttempts += 1;
                 subscription.status = 'past_due';
                 await this.subscriptionRepo.save(subscription);
-                this.logger.warn(`❌ Renewal failed for subscription ${subscription.id}: ${result.data?.status}`);
+                this.logger.warn(`❌ Renewal failed for subscription ${subscription.id}: ${result.data?.status} — Wompi error: ${JSON.stringify(result.error ?? result.data?.error)}`);
                 return false;
             }
         } catch (error) {

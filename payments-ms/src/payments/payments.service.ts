@@ -274,6 +274,7 @@ export class PaymentsService {
             const subscription = this.subscriptionRepository.create({
                 userId: payment.userId,
                 planId: payment.planId,
+                userEmail: payment.customerEmail,  // ← needed for renewal charges
                 paymentSourceId: transaction.payment_source_id,
                 cardLastFour,
                 cardBrand,

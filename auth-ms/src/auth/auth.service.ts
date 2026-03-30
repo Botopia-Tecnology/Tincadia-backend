@@ -150,12 +150,16 @@ export class AuthService {
       });
 
       if (error) {
+        this.logger.error(`Supabase OAuth error: ${error.message} (Provider: ${provider})`);
         throw new UnauthorizedException(error.message);
       }
 
       if (!authData.user) {
+        this.logger.error(`OAuth login failed: No user returned from Supabase (Provider: ${provider})`);
         throw new UnauthorizedException('El inicio de sesión con OAuth falló.');
       }
+
+      this.logger.log(`✅ OAuth Sign-In successful for user ${authData.user.id} (${authData.user.email})`);
 
       // Check if profile exists, if not create one
       let profile = await this.profileService.findById(authData.user.id);
