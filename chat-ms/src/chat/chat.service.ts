@@ -273,7 +273,7 @@ export class ChatService {
                         // Customize title: Group Name or Sender Name
                         const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
 
-                        this.notificationsService.sendPushNotification(
+                        await this.notificationsService.sendPushNotification(
                             recipient.push_token,
                             isCall ? `📞 Llamada de ${senderName}` : (notifTitle || 'Nuevo Mensaje'),
                             isCall

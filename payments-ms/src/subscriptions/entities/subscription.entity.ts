@@ -19,6 +19,10 @@ export class Subscription {
     @JoinColumn({ name: 'plan_id' })
     plan: PricingPlan;
 
+    // Customer email — required for renewal charges sent to Wompi
+    @Column({ name: 'user_email', nullable: true })
+    userEmail: string;
+
     // Wompi payment source token for recurring charges
     @Column({ name: 'payment_source_id', nullable: true })
     paymentSourceId: string;
