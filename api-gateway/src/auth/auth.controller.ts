@@ -396,6 +396,18 @@ export class AuthController {
     return this.client.send('update_role', { userId, role: body.role });
   }
 
+  @Delete('users/:userId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Eliminar usuario (Admin)',
+    description: 'Elimina el perfil y la cuenta de autenticación del usuario. Las tablas relacionadas se eliminan en cascada.'
+  })
+  @ApiResponse({ status: 200, description: 'Usuario eliminado exitosamente' })
+  @ApiResponse({ status: 400, description: 'Error al eliminar usuario' })
+  deleteUser(@Param('userId') userId: string) {
+    return this.client.send('delete_user', { userId });
+  }
+
   @Get('check-document/:documentNumber')
   @ApiOperation({
     summary: 'Verificar existencia de documento',

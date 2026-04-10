@@ -287,11 +287,11 @@ export class ChatService {
                                 roomName: isCall ? data.metadata?.roomName : undefined,
                                 isGroup: conversation.type === 'group' ? 'true' : 'false'
                             },
-                            // Options
-                            isCall ? {
+                            // Options — both call and call_ended use high-priority channel
+                            (isCall || isCallEnded || String(data.type) === 'call_rejected') ? {
                                 channelId: 'incoming_calls',
                                 priority: 'high',
-                                sound: 'default'
+                                sound: isCall ? 'default' : undefined
                             } : undefined
                         );
                     }
@@ -309,11 +309,25 @@ export class ChatService {
                             type: data.type,
                             createdAt: message.created_at,
                             isMine: false,
-                            // Add group info for frontend update if needed
                             isGroup: conversation.type === 'group',
                             groupTitle: groupTitle
                         }
                     });
+
+                    // For call_ended/call_rejected, send an additional broadcast so the
+                    // global notification listener can dismiss the incoming-call modal
+                    // even if the user is NOT inside the chat screen.
+                    if (data.type === 'call_ended' || String(data.type) === 'call_rejected') {
+                        await recipientChannel.send({
+                            type: 'broadcast',
+                            event: 'call_ended',
+                            payload: {
+                                conversationId: data.conversationId,
+                                senderId: data.senderId,
+                            }
+                        });
+                    }
+
                     supabase.removeChannel(recipientChannel);
                 }
             }
@@ -685,7 +699,7 @@ export class ChatService {
             const { data: updatedMessage, error } = await supabase
                 .from('messages')
                 .update({
-                    content: '🚫 Mensaje eliminado',
+                    content: 'Mensaje eliminado',
                     type: 'text', // Changed from 'deleted' to satisfy DB constraint
                     deleted_at: new Date().toISOString(),
                     updated_at: new Date().toISOString()
@@ -861,6 +875,32 @@ export class ChatService {
             this.logger.error(`Error updating interpreter status: ${error.message}`);
             throw new BadRequestException('Error actualizando estado');
         }
+
+        if (isBusy) {
+            try {
+                const { data: others } = await supabase
+                    .from('profiles')
+                    .select('id, push_token')
+                    .eq('role', 'interpreter')
+                    .neq('id', userId);
+
+                if (others?.length) {
+                    for (const other of others) {
+                        const ch = supabase.channel(`user:${other.id}`);
+                        await ch.send({
+                            type: 'broadcast',
+                            event: 'call_invite_taken',
+                            payload: { acceptedBy: userId },
+                        });
+                        supabase.removeChannel(ch);
+                    }
+                    this.logger.log(`Notified ${others.length} interpreters that invite was taken`);
+                }
+            } catch (e) {
+                this.logger.warn(`Could not broadcast invite cancellation: ${e.message}`);
+            }
+        }
+
         return { success: true };
     }
 
