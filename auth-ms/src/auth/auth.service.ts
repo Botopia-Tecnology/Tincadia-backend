@@ -496,9 +496,19 @@ export class AuthService {
 
       this.logger.log(`📱 Updating push token for user ${userId}`);
 
+      // Clear this token from any other user first to prevent cross-account
+      // notifications when switching accounts on the same device.
+      if (pushToken) {
+        await supabase
+          .from('profiles')
+          .update({ push_token: null })
+          .eq('push_token', pushToken)
+          .neq('id', userId);
+      }
+
       const { error } = await supabase
         .from('profiles')
-        .update({ push_token: pushToken })
+        .update({ push_token: pushToken || null })
         .eq('id', userId);
 
       if (error) {
@@ -601,6 +611,39 @@ export class AuthService {
     }
 
     return { success: true, userId, role };
+  }
+
+  async deleteUser(userId: string): Promise<{ success: boolean }> {
+    try {
+      const supabase = this.supabaseService.getAdminClient();
+
+      this.logger.log(`🗑️ Deleting user ${userId}`);
+
+      // 1. Delete from profiles table first (cascade handles related rows)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', userId);
+
+      if (profileError) {
+        this.logger.error(`Error deleting profile: ${profileError.message}`);
+        throw new Error(profileError.message);
+      }
+
+      // 2. Delete from Supabase Auth
+      const { error: authError } = await supabase.auth.admin.deleteUser(userId);
+
+      if (authError) {
+        this.logger.error(`Error deleting auth user: ${authError.message}`);
+        throw new Error(authError.message);
+      }
+
+      this.logger.log(`✅ User ${userId} deleted successfully`);
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Error deleting user: ${error.message}`);
+      throw new BadRequestException('Error al eliminar usuario');
+    }
   }
 
   async checkDocumentExists(documentNumber: string): Promise<{ exists: boolean }> {

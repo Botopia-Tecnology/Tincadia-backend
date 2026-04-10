@@ -94,6 +94,11 @@ export class AuthController {
     return this.authService.updateRole(data.userId, data.role);
   }
 
+  @MessagePattern('delete_user')
+  deleteUser(@Payload() data: { userId: string }): Promise<{ success: boolean }> {
+    return this.authService.deleteUser(data.userId);
+  }
+
   @MessagePattern('check_document_exists')
   checkDocumentExists(@Payload() data: { documentNumber: string }): Promise<{ exists: boolean }> {
     return this.authService.checkDocumentExists(data.documentNumber);

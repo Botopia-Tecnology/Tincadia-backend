@@ -15,8 +15,9 @@ export class NotificationsService {
         title: string;
         body: string;
         data?: any;
+        channelId?: string;
     }) {
-        this.logger.log(`🚀 Sending Push to: ${data.to} | Title: ${data.title}`);
+        this.logger.log(`🚀 Sending Push to: ${data.to} | Title: ${data.title} | Channel: ${data.channelId || 'default'}`);
 
         if (!Expo.isExpoPushToken(data.to)) {
             this.logger.error(`❌ Invalid Expo push token: ${data.to}`);
@@ -30,7 +31,7 @@ export class NotificationsService {
             body: data.body,
             data: data.data || {},
             priority: 'high',
-            channelId: 'default',
+            channelId: data.channelId || 'default',
         };
 
         try {
