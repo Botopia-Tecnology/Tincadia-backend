@@ -356,15 +356,43 @@ export class FormsService {
   }
 
   /**
-   * ZIP de toda la carpeta tincadia/forms (un lote por tipo de recurso: image + raw)
+   * ZIP de toda la carpeta tincadia/forms (varios lotes si hay muchos archivos)
    */
   async getGlobalArchiveUrl() {
-    const one = this.cloudinaryService.generateArchiveUrls({ prefix: 'tincadia/forms' });
+    // 1. Get ALL submissions with 'data' field
+    const submissions = await this.submissionRepository.find({
+      select: ['data']
+    });
+
+    // 2. Extract ALL unique public IDs from forms folder
+    const publicIds: string[] = [];
+    submissions.forEach(sub => this.extractPublicIdsFromFormData(sub.data, publicIds));
+    const uniqueIds = [...new Set(publicIds.filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+      // Fallback: If no DB entries found but there might be raw files, 
+      // return a single prefix-based URL (Cloudinary default, might be truncated)
+      const fallback = this.cloudinaryService.generateArchiveUrls({ prefix: 'tincadia/forms' });
+      return {
+        batches: [fallback],
+        imageUrl: fallback.imageUrl,
+        rawUrl: fallback.rawUrl,
+        url: fallback.imageUrl,
+        totalAssets: 0,
+      };
+    }
+
+    // 3. Generate Batches (20 per URL to be safe with length)
+    const batches = this.cloudinaryService.generateArchiveUrlBatches(uniqueIds, 20);
+    const first = batches[0];
+
     return {
-      batches: [one],
-      imageUrl: one.imageUrl,
-      rawUrl: one.rawUrl,
-      url: one.imageUrl,
+      batches,
+      totalAssets: uniqueIds.length,
+      batchCount: batches.length,
+      imageUrl: first?.imageUrl,
+      rawUrl: first?.rawUrl,
+      url: first?.imageUrl,
     };
   }
 
