@@ -265,9 +265,10 @@ export class ChatService {
                     .select('id, push_token')
                     .in('id', recipientIds);
 
-                // Send Notifications and Broadcasts
+                // Send Notifications and Broadcasts (sin push para mensajes de sistema del grupo)
+                const skipPushForSystem = data.metadata?.isSystem === true;
                 for (const recipient of recipientsProfiles || []) {
-                    if (recipient.push_token) {
+                    if (recipient.push_token && !skipPushForSystem) {
                         const isCall = data.type === 'call';
                         const isCallEnded = data.type === 'call_ended';
 
@@ -551,16 +552,30 @@ export class ChatService {
 
             this.logger.log(`📋 Filtered to ${conversationsWithMessages.length} conversations with messages`);
 
+            // 4c. Fetch Unread Counts correctly handling message_reads for groups
+            // We need messages that are NOT from the current user AND (read_at is null for direct OR no entry in message_reads for current user)
+            
+            // First, get IDs of messages the current user HAS read in these conversations
+            const { data: userReads } = await supabase
+                .from('message_reads')
+                .select('message_id')
+                .eq('user_id', data.userId);
+            
+            const readMessageIds = new Set(userReads?.map(r => r.message_id) || []);
+
             const { data: unreadCounts } = await supabase
                 .from('messages')
-                .select('conversation_id')
+                .select('id, conversation_id')
                 .in('conversation_id', conversationIds)
                 .neq('sender_id', data.userId)
                 .is('read_at', null);
 
             const unreadMap = new Map<string, number>();
             for (const msg of unreadCounts || []) {
-                unreadMap.set(msg.conversation_id, (unreadMap.get(msg.conversation_id) || 0) + 1);
+                // Only count as unread if the user hasn't explicitly read it via message_reads
+                if (!readMessageIds.has(msg.id)) {
+                    unreadMap.set(msg.conversation_id, (unreadMap.get(msg.conversation_id) || 0) + 1);
+                }
             }
 
             // 5. Build Final Result
@@ -1057,6 +1072,52 @@ export class ChatService {
         return true;
     }
 
+    private async getProfileDisplayName(userId: string): Promise<string> {
+        const supabase = this.supabaseService.getAdminClient();
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('first_name, last_name')
+            .eq('id', userId)
+            .single();
+        if (!profile) return '';
+        return `${profile.first_name || ''} ${profile.last_name || ''}`.trim();
+    }
+
+    /** Mensaje de sistema en el hilo del grupo (no interrumpe con push). */
+    private async notifyGroupMemberLeft(conversationId: string, userId: string): Promise<void> {
+        try {
+            const name = await this.getProfileDisplayName(userId);
+            const text = name ? `${name} salió del grupo` : 'Un miembro salió del grupo';
+            await this.sendMessage({
+                conversationId,
+                senderId: userId,
+                content: text,
+                type: 'text' as any,
+                metadata: { isSystem: true, systemEvent: 'member_left' },
+            });
+        } catch (e) {
+            const err = e as Error;
+            this.logger.warn(`Group leave system message failed: ${err?.message ?? e}`);
+        }
+    }
+
+    private async notifyGroupMemberRemoved(conversationId: string, userIdToRemove: string): Promise<void> {
+        try {
+            const name = await this.getProfileDisplayName(userIdToRemove);
+            const text = name ? `${name} fue eliminado del grupo` : 'Un miembro fue eliminado del grupo';
+            await this.sendMessage({
+                conversationId,
+                senderId: userIdToRemove,
+                content: text,
+                type: 'text' as any,
+                metadata: { isSystem: true, systemEvent: 'member_removed' },
+            });
+        } catch (e) {
+            const err = e as Error;
+            this.logger.warn(`Group remove system message failed: ${err?.message ?? e}`);
+        }
+    }
+
     /**
      * Eliminar un participante del grupo
      */
@@ -1075,6 +1136,8 @@ export class ChatService {
                 this.logger.error(`Error removing participant: ${error.message}`);
                 throw new BadRequestException('Error al eliminar participante');
             }
+
+            await this.notifyGroupMemberRemoved(data.conversationId, data.userIdToRemove);
 
             return { success: true };
         } catch (error) {
@@ -1197,6 +1260,8 @@ export class ChatService {
                 this.logger.error(`Error leaving group: ${error.message}`);
                 throw new BadRequestException('Error al salir del grupo');
             }
+
+            await this.notifyGroupMemberLeft(data.conversationId, data.userId);
 
             return { success: true };
         } catch (error) {
