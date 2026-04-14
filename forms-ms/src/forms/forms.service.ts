@@ -299,6 +299,37 @@ export class FormsService {
     }
   }
 
+  /** Recorre el JSON del formulario y acumula public_ids de Cloudinary (carpeta tincadia/). */
+  private extractPublicIdsFromFormData(data: any, publicIds: string[]) {
+    const walk = (obj: any) => {
+      if (obj == null) return;
+      if (typeof obj === 'string') {
+        this.addPublicIdFromUrl(obj, publicIds);
+        return;
+      }
+      if (Array.isArray(obj)) {
+        obj.forEach((item) => walk(item));
+        return;
+      }
+      if (typeof obj !== 'object') return;
+
+      Object.entries(obj).forEach(([key, value]) => {
+        if (['hojaVida', 'certificaciones', 'certificacionesCursos'].includes(key)) {
+          if (typeof value === 'object' && value && (value as any).url) {
+            this.addPublicIdFromUrl((value as any).url, publicIds);
+          } else if (typeof value === 'string') {
+            this.addPublicIdFromUrl(value, publicIds);
+          } else {
+            walk(value);
+          }
+        } else {
+          walk(value);
+        }
+      });
+    };
+    walk(data);
+  }
+
   /**
    * Generar URL para descargar todos los documentos de un usuario en un ZIP
    */
@@ -309,80 +340,60 @@ export class FormsService {
     });
 
     const publicIds: string[] = [];
-
-    // Función recursiva para buscar documentos específicos (CV y Certificados)
-    const extractIds = (obj: any) => {
-      if (!obj || typeof obj !== 'object') return;
-
-      Object.entries(obj).forEach(([key, value]) => {
-        if (['hojaVida', 'certificaciones', 'certificacionesCursos'].includes(key)) {
-          if (typeof value === 'object' && value && (value as any).url) {
-            this.addPublicIdFromUrl((value as any).url, publicIds);
-          } else if (typeof value === 'string') {
-            this.addPublicIdFromUrl(value, publicIds);
-          }
-        } else if (typeof value === 'object') {
-          extractIds(value);
-        }
-      });
-    };
-
-    submissions.forEach(sub => extractIds(sub.data));
+    submissions.forEach(sub => this.extractPublicIdsFromFormData(sub.data, publicIds));
 
     if (publicIds.length === 0) {
       throw new NotFoundException('No se encontraron documentos para este usuario.');
     }
 
-    return { 
-        url: this.cloudinaryService.generateArchiveUrl({ publicIds: [...new Set(publicIds)] }) 
+    const batches = this.cloudinaryService.generateArchiveUrlBatches([...new Set(publicIds)], 20);
+    const first = batches[0];
+    return {
+      batches,
+      totalAssets: [...new Set(publicIds)].length,
+      url: first?.imageUrl ?? '',
     };
   }
 
   /**
-   * Generar URL para descargar todos los documentos del sistema (Optimizada a 1ra página)
+   * ZIP de toda la carpeta tincadia/forms (un lote por tipo de recurso: image + raw)
    */
   async getGlobalArchiveUrl() {
-    return { 
-        url: this.cloudinaryService.generateArchiveUrl({ 
-            prefix: 'tincadia/forms', 
-            pageOneOnly: true 
-        }) 
+    const one = this.cloudinaryService.generateArchiveUrls({ prefix: 'tincadia/forms' });
+    return {
+      batches: [one],
+      imageUrl: one.imageUrl,
+      rawUrl: one.rawUrl,
+      url: one.imageUrl,
     };
   }
 
   /**
-   * Generar URL para descargar documentos de una lista de usuarios (Paginación)
+   * Documentos de una lista de emails: varios ZIP si hay muchos public_ids (límite de URL).
    */
   async getBatchArchiveUrl(emails: string[]) {
+    const uniqueEmails = [...new Set((emails || []).filter(Boolean))];
     const submissions = await this.submissionRepository.find({
-      where: { email: In(emails) },
+      where: { email: In(uniqueEmails) },
       select: ['data']
     });
 
     const publicIds: string[] = [];
-
-    const extractIds = (obj: any) => {
-      if (!obj || typeof obj !== 'object') return;
-
-      Object.entries(obj).forEach(([key, value]) => {
-        if (['hojaVida', 'certificaciones', 'certificacionesCursos'].includes(key)) {
-          if (typeof value === 'object' && value && (value as any).url) {
-            this.addPublicIdFromUrl((value as any).url, publicIds);
-          } else if (typeof value === 'string') {
-            this.addPublicIdFromUrl(value, publicIds);
-          }
-        } else if (typeof value === 'object') {
-          extractIds(value);
-        }
-      });
-    };
-
-    submissions.forEach(sub => extractIds(sub.data));
+    submissions.forEach(sub => this.extractPublicIdsFromFormData(sub.data, publicIds));
 
     if (publicIds.length === 0) {
       throw new NotFoundException('No se encontraron documentos para los usuarios seleccionados.');
     }
 
-    return this.cloudinaryService.generateArchiveUrls({ publicIds: [...new Set(publicIds)] });
+    const uniqueIds = [...new Set(publicIds)];
+    const batches = this.cloudinaryService.generateArchiveUrlBatches(uniqueIds, 20);
+    const first = batches[0];
+    return {
+      batches,
+      totalAssets: uniqueIds.length,
+      batchCount: batches.length,
+      imageUrl: first?.imageUrl,
+      rawUrl: first?.rawUrl,
+    };
   }
 }

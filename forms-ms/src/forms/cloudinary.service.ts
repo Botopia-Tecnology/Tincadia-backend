@@ -60,14 +60,29 @@ export class CloudinaryService {
             paramsImage.public_ids = options.publicIds;
             paramsRaw.public_ids   = options.publicIds;
         } else if (options.prefix) {
-            paramsImage.prefix = options.prefix;
-            paramsRaw.prefix   = options.prefix;
+            // El SDK de Cloudinary espera `prefixes` (array), no `prefix`
+            paramsImage.prefixes = [options.prefix];
+            paramsRaw.prefixes = [options.prefix];
         }
 
         return {
             imageUrl: cloudinary.utils.download_archive_url(paramsImage),
             rawUrl:   cloudinary.utils.download_archive_url(paramsRaw),
         };
+    }
+
+    /**
+     * Varios ZIPs por lote: la URL firmada incluye todos los public_ids en la query y
+     * supera el límite práctico (~50 o menos según longitud) → 414 o ZIP incompleto.
+     */
+    generateArchiveUrlBatches(publicIds: string[], chunkSize = 20): { imageUrl: string; rawUrl: string }[] {
+        const unique = [...new Set(publicIds.filter(Boolean))];
+        if (unique.length === 0) return [];
+        const batches: { imageUrl: string; rawUrl: string }[] = [];
+        for (let i = 0; i < unique.length; i += chunkSize) {
+            batches.push(this.generateArchiveUrls({ publicIds: unique.slice(i, i + chunkSize) }));
+        }
+        return batches;
     }
 
     /** @deprecated — usar generateArchiveUrls */
