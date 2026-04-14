@@ -383,8 +383,6 @@ export class FormsService {
       throw new NotFoundException('No se encontraron documentos para los usuarios seleccionados.');
     }
 
-    return { 
-        url: this.cloudinaryService.generateArchiveUrl({ publicIds: [...new Set(publicIds)] }) 
-    };
+    return this.cloudinaryService.generateArchiveUrls({ publicIds: [...new Set(publicIds)] });
   }
 }

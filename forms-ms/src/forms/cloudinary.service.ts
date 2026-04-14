@@ -42,26 +42,36 @@ export class CloudinaryService {
     }
 
     /**
-     * Generar un URL firmado para descargar un archivo ZIP con los recursos seleccionados
-     * Permite descargar por prefijo (carpeta) o lista de IDs.
+     * Generar URL(s) firmada(s) para descargar un ZIP con los recursos seleccionados.
+     * Retorna hasta dos URLs: una para resource_type=image y otra para resource_type=raw (PDFs).
+     * Cloudinary asigna el resource_type automáticamente al subir ('auto'), por lo que
+     * los PDFs pueden quedar como 'raw' y las imágenes como 'image'.
      */
-    generateArchiveUrl(options: { publicIds?: string[], prefix?: string, pageOneOnly?: boolean }): string {
-        const params: any = {
-            resource_type: 'image', // Cloudinary maneja PDFs como 'image' por defecto en 'auto'
+    generateArchiveUrls(options: { publicIds?: string[], prefix?: string }): { imageUrl: string; rawUrl: string } {
+        const base: any = {
             allow_missing: true,
             target_format: 'zip',
         };
 
+        const paramsImage: any = { ...base, resource_type: 'image' };
+        const paramsRaw: any   = { ...base, resource_type: 'raw' };
+
         if (options.publicIds && options.publicIds.length > 0) {
-            params.public_ids = options.publicIds;
+            paramsImage.public_ids = options.publicIds;
+            paramsRaw.public_ids   = options.publicIds;
         } else if (options.prefix) {
-            params.prefix = options.prefix;
+            paramsImage.prefix = options.prefix;
+            paramsRaw.prefix   = options.prefix;
         }
 
-        if (options.pageOneOnly) {
-            params.transformation = 'pg_1'; // Solo la primera página de cada PDF
-        }
+        return {
+            imageUrl: cloudinary.utils.download_archive_url(paramsImage),
+            rawUrl:   cloudinary.utils.download_archive_url(paramsRaw),
+        };
+    }
 
-        return cloudinary.utils.download_archive_url(params);
+    /** @deprecated — usar generateArchiveUrls */
+    generateArchiveUrl(options: { publicIds?: string[], prefix?: string, pageOneOnly?: boolean }): string {
+        return this.generateArchiveUrls(options).imageUrl;
     }
 }
