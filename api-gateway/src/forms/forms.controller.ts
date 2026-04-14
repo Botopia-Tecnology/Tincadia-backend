@@ -186,39 +186,4 @@ export class FormsController {
     });
   }
 
-  @Get('download/all')
-  async getGlobalArchive() {
-    try {
-      console.log('📦 [API Gateway] Requesting global documents archive');
-      return await this.client.send('get_global_archive', {}).toPromise();
-    } catch (error) {
-      console.error('❌ [API Gateway] Error generating global archive:', error);
-      const status = error?.status || 500;
-      throw new HttpException(error?.message || 'Error generating ZIP', status);
-    }
-  }
-
-  @Get('download/user/:email')
-  async getUserArchive(@Param('email') email: string) {
-    try {
-      console.log('📦 [API Gateway] Requesting user documents archive:', email);
-      return await this.client.send('get_user_archive', { email }).toPromise();
-    } catch (error) {
-      console.error('❌ [API Gateway] Error generating user archive:', error);
-      const status = error?.status || 500;
-      throw new HttpException(error?.message || 'Error generating user ZIP', status);
-    }
-  }
-
-  @Post('download/batch')
-  async getBatchArchive(@Body() data: { emails: string[] }) {
-    try {
-      console.log('📦 [API Gateway] Requesting batch documents archive for', data?.emails?.length, 'users');
-      return await this.client.send('get_batch_archive', { emails: data.emails }).toPromise();
-    } catch (error) {
-      console.error('❌ [API Gateway] Error generating batch archive:', error);
-      const status = error?.status || 500;
-      throw new HttpException(error?.message || 'Error generating batch ZIP', status);
-    }
-  }
 }
