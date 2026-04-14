@@ -1,12 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { CreateFormDto } from './dto/create-form.dto';
 import { UpdateFormDto } from './dto/update-form.dto';
 import { FormSubmissionDto } from './dto/form-submission.dto';
 import { Form } from './entities/form.entity';
 import { FormSubmission } from './entities/form-submission.entity';
 import { Profile } from './entities/profile.entity';
+import { CloudinaryService } from './cloudinary.service';
 
 @Injectable()
 export class FormsService {
@@ -17,6 +18,7 @@ export class FormsService {
     private readonly submissionRepository: Repository<FormSubmission>,
     @InjectRepository(Profile)
     private readonly profileRepository: Repository<Profile>,
+    private readonly cloudinaryService: CloudinaryService,
   ) { }
 
   async create(data: CreateFormDto) {
@@ -273,5 +275,116 @@ export class FormsService {
     console.log('✅ [Forms Service] Submission saved successfully. ID:', saved.id);
 
     return saved;
+  }
+
+  /**
+   * Extraer el public_id de Cloudinary desde una URL o string
+   */
+  private addPublicIdFromUrl(val: string, publicIds: string[]) {
+    if (!val || typeof val !== 'string') return;
+
+    // Patrón para capturar el path de Cloudinary (ej: tincadia/forms/xyz)
+    if (val.includes('tincadia/')) {
+      if (val.startsWith('http')) {
+        const parts = val.split('/');
+        const folderIndex = parts.findIndex(p => p === 'tincadia');
+        if (folderIndex !== -1) {
+          const publicId = parts.slice(folderIndex).join('/').split('.')[0];
+          publicIds.push(publicId);
+        }
+      } else {
+        // Asumir que ya es un public_id o un path relativo
+        publicIds.push(val.split('.')[0]);
+      }
+    }
+  }
+
+  /**
+   * Generar URL para descargar todos los documentos de un usuario en un ZIP
+   */
+  async getUserArchiveUrl(email: string) {
+    const submissions = await this.submissionRepository.find({
+      where: { email },
+      select: ['data']
+    });
+
+    const publicIds: string[] = [];
+
+    // Función recursiva para buscar documentos específicos (CV y Certificados)
+    const extractIds = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return;
+
+      Object.entries(obj).forEach(([key, value]) => {
+        if (['hojaVida', 'certificaciones', 'certificacionesCursos'].includes(key)) {
+          if (typeof value === 'object' && value && (value as any).url) {
+            this.addPublicIdFromUrl((value as any).url, publicIds);
+          } else if (typeof value === 'string') {
+            this.addPublicIdFromUrl(value, publicIds);
+          }
+        } else if (typeof value === 'object') {
+          extractIds(value);
+        }
+      });
+    };
+
+    submissions.forEach(sub => extractIds(sub.data));
+
+    if (publicIds.length === 0) {
+      throw new NotFoundException('No se encontraron documentos para este usuario.');
+    }
+
+    return { 
+        url: this.cloudinaryService.generateArchiveUrl({ publicIds: [...new Set(publicIds)] }) 
+    };
+  }
+
+  /**
+   * Generar URL para descargar todos los documentos del sistema (Optimizada a 1ra página)
+   */
+  async getGlobalArchiveUrl() {
+    return { 
+        url: this.cloudinaryService.generateArchiveUrl({ 
+            prefix: 'tincadia/forms', 
+            pageOneOnly: true 
+        }) 
+    };
+  }
+
+  /**
+   * Generar URL para descargar documentos de una lista de usuarios (Paginación)
+   */
+  async getBatchArchiveUrl(emails: string[]) {
+    const submissions = await this.submissionRepository.find({
+      where: { email: In(emails) },
+      select: ['data']
+    });
+
+    const publicIds: string[] = [];
+
+    const extractIds = (obj: any) => {
+      if (!obj || typeof obj !== 'object') return;
+
+      Object.entries(obj).forEach(([key, value]) => {
+        if (['hojaVida', 'certificaciones', 'certificacionesCursos'].includes(key)) {
+          if (typeof value === 'object' && value && (value as any).url) {
+            this.addPublicIdFromUrl((value as any).url, publicIds);
+          } else if (typeof value === 'string') {
+            this.addPublicIdFromUrl(value, publicIds);
+          }
+        } else if (typeof value === 'object') {
+          extractIds(value);
+        }
+      });
+    };
+
+    submissions.forEach(sub => extractIds(sub.data));
+
+    if (publicIds.length === 0) {
+      throw new NotFoundException('No se encontraron documentos para los usuarios seleccionados.');
+    }
+
+    return { 
+        url: this.cloudinaryService.generateArchiveUrl({ publicIds: [...new Set(publicIds)] }) 
+    };
   }
 }

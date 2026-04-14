@@ -88,6 +88,11 @@ export class ChatController {
         return this.contactService.deleteContact(data);
     }
 
+    @MessagePattern('search_users')
+    searchUsers(@Payload() data: { query: string; limit?: number }) {
+        return this.contactService.searchUsers(data.query, data.limit);
+    }
+
     @MessagePattern('correct_text_stream')
     async *correctTextStream(@Payload() data: { text: string }) {
         for await (const chunk of this.correctionService.correctTextStream(data.text)) {
@@ -108,6 +113,11 @@ export class ChatController {
     @MessagePattern('set_interpreter_status')
     setInterpreterStatus(@Payload() data: { userId: string; isBusy: boolean }) {
         return this.chatService.setInterpreterStatus(data.userId, data.isBusy);
+    }
+
+    @MessagePattern('claim_interpreter_invite')
+    claimInterpreterInvite(@Payload() data: { inviteId: string; userId: string }) {
+        return this.chatService.claimInterpreterInvite(data);
     }
 
     @MessagePattern('remove_participant')

@@ -19,13 +19,18 @@ export class CorrectionService {
     }
 
     private getPrompt(text: string): string {
-        return `Eres un asistente experto en corrección de textos en español. Tu tarea es corregir la gramática, el sentido de la oración, ortografía y puntuación del siguiente texto, convirtiéndolo en un español claro y legible. El texto original proviene de una persona sorda con estructuras gramaticales no convencionales.
-      
+        return `Eres un intérprete experto capaz de dar coherencia a mensajes escritos en español por personas cuya lengua nativa es la Lengua de Señas. 
+Tu tarea es transformar el texto original en una frase fluida y natural, pero manteniendo una fidelidad ESTRICTA al significado original.
+
+INSTRUCCIÓN DE EQUILIBRIO:
+1. COHERENCIA: Si faltan conectores o el orden es caótico, arréglalo para que sea legible.
+2. FIDELIDAD: No añadas ideas, adjetivos o acciones que no estén presentes en el mensaje original. Tu interpretación debe limitarse a lo que el usuario realmente quiso expresar, sin inventar contexto extra.
+
 Instrucciones:
-1. Mantén el sentido original del mensaje.
-2. No agregues explicaciones, saludos ni despedidas. Solo devuelve el texto corregido.
-3. Si el texto ya es correcto, devuélvelo tal cual.
-      
+- Devuelve exclusivamente el texto corregido.
+- Si el mensaje es incomprensible, intenta la reconstrucción más simple y directa posible.
+- Mantén el tono y la intención del usuario original.
+
 Texto original: "${text}"`;
     }
 

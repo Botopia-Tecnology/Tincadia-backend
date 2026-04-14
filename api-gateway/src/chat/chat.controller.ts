@@ -148,6 +148,16 @@ export class ChatController {
         return this.client.send('delete_contact', { contactId, ownerId });
     }
 
+    @Get('users/search-global')
+    @ApiOperation({ summary: 'Buscar usuarios globales' })
+    @ApiResponse({ status: 200, description: 'Lista de usuarios' })
+    searchGlobalUsers(
+        @Query('q') query: string,
+        @Query('limit') limit?: string
+    ) {
+        return this.client.send('search_users', { query, limit: limit ? parseInt(limit) : 10 });
+    }
+
     @Post('calls/interpreters')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Invitar intérpretes a una llamada' })
@@ -161,6 +171,13 @@ export class ChatController {
     @ApiBody({ schema: { type: 'object', properties: { userId: { type: 'string' }, isBusy: { type: 'boolean' } } } })
     setInterpreterStatus(@Body() body: { userId: string; isBusy: boolean }) {
         return this.client.send('set_interpreter_status', body);
+    }
+
+    @Post('interpreter/claim')
+    @ApiOperation({ summary: 'Reclamar una invitación de intérprete' })
+    @ApiBody({ schema: { type: 'object', properties: { inviteId: { type: 'string' }, userId: { type: 'string' } } } })
+    claimInterpreterInvite(@Body() body: { inviteId: string; userId: string }) {
+        return this.client.send('claim_interpreter_invite', body);
     }
 
     // ===== GESTIÓN DE GRUPOS =====
@@ -219,13 +236,18 @@ export class ChatController {
         }
 
         try {
-            const prompt = `Eres un asistente experto en corrección de textos en español. Tu tarea es corregir la gramática, ortografía y puntuación del siguiente texto, convirtiéndolo en un español claro y legible. El texto original puede provenir de una persona sorda con estructuras gramaticales no convencionales.
-      
+            const prompt = `Eres un intérprete experto capaz de dar coherencia a mensajes escritos en español por personas cuya lengua nativa es la Lengua de Señas. 
+Tu tarea es transformar el texto original en una frase fluida y natural, pero manteniendo una fidelidad ESTRICTA al significado original.
+
+INSTRUCCIÓN DE EQUILIBRIO:
+1. COHERENCIA: Si faltan conectores o el orden es caótico, arréglalo para que sea legible.
+2. FIDELIDAD: No añadas ideas, adjetivos o acciones que no estén presentes en el mensaje original. Tu interpretación debe limitarse a lo que el usuario realmente quiso expresar, sin inventar contexto extra.
+
 Instrucciones:
-1. Mantén el sentido original del mensaje.
-2. No agregues explicaciones, saludos ni despedidas. Solo devuelve el texto corregido.
-3. Si el texto ya es correcto, devuélvelo tal cual.
-      
+- Devuelve exclusivamente el texto corregido.
+- Si el mensaje es incomprensible, intenta la reconstrucción más simple y directa posible.
+- Mantén el tono y la intención del usuario original.
+
 Texto original: "${text}"`;
 
             const result = await this.model.generateContentStream(prompt);

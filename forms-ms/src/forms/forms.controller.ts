@@ -188,4 +188,46 @@ export class FormsController {
       });
     }
   }
+
+  @MessagePattern('get_user_archive')
+  async getUserArchive(@Payload() data: { email: string }) {
+    try {
+      console.log('📦 [Forms MS] get_user_archive handler called:', data.email);
+      return await this.formsService.getUserArchiveUrl(data.email);
+    } catch (error) {
+      console.error('❌ [Forms MS] Error in getUserArchive:', error);
+      throw new RpcException({
+        status: error?.status || 500,
+        message: error?.message || 'Failed to generate user archive',
+      });
+    }
+  }
+
+  @MessagePattern('get_global_archive')
+  async getGlobalArchive() {
+    try {
+      console.log('📦 [Forms MS] get_global_archive handler called');
+      return await this.formsService.getGlobalArchiveUrl();
+    } catch (error) {
+      console.error('❌ [Forms MS] Error in getGlobalArchive:', error);
+      throw new RpcException({
+        status: 500,
+        message: error?.message || 'Failed to generate global archive',
+      });
+    }
+  }
+
+  @MessagePattern('get_batch_archive')
+  async getBatchArchive(@Payload() data: { emails: string[] }) {
+    try {
+      console.log('📦 [Forms MS] get_batch_archive handler called:', data.emails.length, 'emails');
+      return await this.formsService.getBatchArchiveUrl(data.emails);
+    } catch (error) {
+      console.error('❌ [Forms MS] Error in getBatchArchive:', error);
+      throw new RpcException({
+        status: error?.status || 500,
+        message: error?.message || 'Failed to generate batch archive',
+      });
+    }
+  }
 }

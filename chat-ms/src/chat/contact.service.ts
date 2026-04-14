@@ -299,4 +299,43 @@ export class ContactService {
             throw new BadRequestException('Error al eliminar contacto');
         }
     }
+
+    /**
+     * Search global users by phone or name
+     */
+    async searchUsers(query: string, limit: number = 10) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+            
+            // Clean up the query string
+            const cleanQuery = query.trim().toLowerCase();
+            if (!cleanQuery) return { users: [] };
+            
+            // Extract numbers if trying to search mostly by phone
+            const numericQuery = cleanQuery.replace(/\D/g, '');
+
+            let dbQuery = supabase
+                .from('profiles')
+                .select('id, first_name, last_name, phone, role')
+                .limit(limit);
+
+            if (numericQuery.length > 0) {
+                dbQuery = dbQuery.ilike('phone', `%${numericQuery}%`);
+            } else {
+                dbQuery = dbQuery.or(`first_name.ilike.%${cleanQuery}%,last_name.ilike.%${cleanQuery}%`);
+            }
+
+            const { data: users, error } = await dbQuery;
+
+            if (error) {
+                this.logger.error(`Error searching users: ${error.message}`);
+                throw new BadRequestException('Error al buscar usuarios');
+            }
+
+            return { users };
+        } catch (error) {
+            this.logger.error(`Error in searchUsers: ${error.message}`);
+            throw new BadRequestException('Error al buscar usuarios');
+        }
+    }
 }

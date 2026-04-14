@@ -25,6 +25,7 @@ import {
 } from './dto/group-management.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { Expo } from 'expo-server-sdk';
 
 @Injectable()
 export class ChatService {
@@ -630,15 +631,73 @@ export class ChatService {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
-            const { error } = await supabase
-                .from('messages')
-                .update({ read_at: new Date().toISOString() })
-                .eq('conversation_id', conversationId)
-                .neq('sender_id', userId)
-                .is('read_at', null);
+            // 1. Obtener la conversación para saber si es grupo o directa
+            const { data: conv } = await supabase
+                .from('conversations')
+                .select('type')
+                .eq('id', conversationId)
+                .single();
 
-            if (error) {
-                throw new BadRequestException('Error al marcar como leído');
+            if (conv?.type === 'group') {
+                // 2. Cuántos participantes hay en total
+                const { count: totalParticipants } = await supabase
+                    .from('conversation_participants')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('conversation_id', conversationId);
+
+                // 3. Obtener mensajes sin read_at que no son del propio usuario
+                const { data: unreadMessages } = await supabase
+                    .from('messages')
+                    .select('id')
+                    .eq('conversation_id', conversationId)
+                    .neq('sender_id', userId)
+                    .is('read_at', null);
+
+                if (!unreadMessages || unreadMessages.length === 0) {
+                    return { success: true };
+                }
+
+                // 4. Insertar lecturas del usuario actual (upsert para evitar duplicados)
+                const readsToInsert = unreadMessages.map(msg => ({
+                    message_id: msg.id,
+                    user_id: userId,
+                }));
+
+                await supabase
+                    .from('message_reads')
+                    .upsert(readsToInsert, { onConflict: 'message_id, user_id' });
+
+                // 5. Para cada mensaje sin read_at, verificar si todos los demás participantes ya leyeron
+                // El sender no necesita registro en message_reads (se asume que ya lo vio al enviarlo)
+                const readThreshold = (totalParticipants || 1) - 1;
+
+                for (const msg of unreadMessages) {
+                    const { count: totalReads } = await supabase
+                        .from('message_reads')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('message_id', msg.id);
+
+                    if ((totalReads || 0) >= readThreshold) {
+                        // Todos leyeron → marcar read_at en el mensaje original
+                        await supabase
+                            .from('messages')
+                            .update({ read_at: new Date().toISOString() })
+                            .eq('id', msg.id)
+                            .is('read_at', null);
+                    }
+                }
+            } else {
+                // Lógica para chats directos (1:1)
+                const { error } = await supabase
+                    .from('messages')
+                    .update({ read_at: new Date().toISOString() })
+                    .eq('conversation_id', conversationId)
+                    .neq('sender_id', userId)
+                    .is('read_at', null);
+
+                if (error) {
+                    throw new BadRequestException('Error al marcar como leído');
+                }
             }
 
             return { success: true };
@@ -646,6 +705,7 @@ export class ChatService {
             throw new BadRequestException('Error al marcar como leído');
         }
     }
+
 
     /**
      * Editar mensaje
@@ -803,7 +863,23 @@ export class ChatService {
             const supabase = this.supabaseService.getAdminClient();
             this.logger.log(`📞 Inviting interpreters for call ${data.roomName} by ${data.username}`);
 
-            // 1. Find all users with role 'interpreter' AND not busy
+            // 1. Persist the invite to handle concurrency
+            const { data: invite, error: inviteError } = await supabase
+                .from('interpreter_invites')
+                .insert({
+                    room_name: data.roomName,
+                    sender_id: data.userId,
+                    status: 'pending'
+                })
+                .select()
+                .single();
+
+            if (inviteError) {
+                this.logger.error(`Error creating interpreter invite: ${inviteError.message}`);
+                throw new BadRequestException('Error al crear invitación');
+            }
+
+            // 2. Find all users with role 'interpreter' AND not busy
             const { data: interpreters, error } = await supabase
                 .from('profiles')
                 .select('id, push_token')
@@ -821,7 +897,7 @@ export class ChatService {
 
             this.logger.log(`Found ${interpreters.length} interpreters`);
 
-            // 2. Notify them
+            // 3. Notify them
             const notifications = interpreters.map(async (interpreter) => {
                 if (interpreter.push_token) {
                     await this.notificationsService.sendPushNotification(
@@ -830,6 +906,7 @@ export class ChatService {
                         `${data.username} requiere un intérprete en una llamada.`,
                         {
                             type: 'call_invite',
+                            inviteId: invite.id,
                             roomName: data.roomName,
                             senderId: data.userId,
                             senderName: data.username,
@@ -847,6 +924,7 @@ export class ChatService {
                     type: 'broadcast',
                     event: 'call_invite',
                     payload: {
+                        inviteId: invite.id,
                         roomName: data.roomName,
                         senderId: data.userId,
                         senderName: data.username,
@@ -886,6 +964,7 @@ export class ChatService {
 
                 if (others?.length) {
                     for (const other of others) {
+                        // 1. Broadcast en tiempo real (funciona si la app está en foreground/background activo)
                         const ch = supabase.channel(`user:${other.id}`);
                         await ch.send({
                             type: 'broadcast',
@@ -893,8 +972,21 @@ export class ChatService {
                             payload: { acceptedBy: userId },
                         });
                         supabase.removeChannel(ch);
+
+                        // 2. Silent push (funciona aunque el celular esté bloqueado o la app cerrada)
+                        // sound: null → no suena, title: '' → no se muestra en el drawer
+                        // data._action: 'dismiss_invite' → el app lo procesa y limpia la notificación
+                        if (other.push_token && Expo.isExpoPushToken(other.push_token)) {
+                            await this.notificationsService.sendPushNotification(
+                                other.push_token,
+                                '',
+                                '',
+                                { _action: 'dismiss_invite', acceptedBy: userId, type: 'call_invite_taken' },
+                                { sound: null, priority: 'high' }
+                            );
+                        }
                     }
-                    this.logger.log(`Notified ${others.length} interpreters that invite was taken`);
+                    this.logger.log(`Notified ${others.length} interpreters that invite was taken (broadcast + silent push)`);
                 }
             } catch (e) {
                 this.logger.warn(`Could not broadcast invite cancellation: ${e.message}`);
@@ -902,6 +994,49 @@ export class ChatService {
         }
 
         return { success: true };
+    }
+
+
+    /**
+     * Reclamar una invitación de intérprete de forma atómica
+     */
+    async claimInterpreterInvite(data: { inviteId: string; userId: string }) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+
+            // 1. Intento atómico de reclamar la invitación
+            const { data: updated, error } = await supabase
+                .from('interpreter_invites')
+                .update({
+                    status: 'accepted',
+                    accepted_by: data.userId
+                })
+                .eq('id', data.inviteId)
+                .eq('status', 'pending')
+                .select()
+                .single();
+
+            if (error || !updated) {
+                this.logger.warn(`Claim failed for invite ${data.inviteId} by user ${data.userId}: ${error?.message || 'Already taken'}`);
+                return { 
+                    success: false, 
+                    message: 'Esta solicitud ya ha sido atendida por otro intérprete o ha expirado.' 
+                };
+            }
+
+            // 2. Marcar al intérprete como busy (lo hacemos aquí para garantizar atomicidad global del flujo)
+            await this.setInterpreterStatus(data.userId, true);
+
+            return { 
+                success: true, 
+                inviteId: updated.id,
+                roomName: updated.room_name 
+            };
+
+        } catch (error) {
+            this.logger.error(`Error claiming invite: ${error.message}`);
+            throw new BadRequestException('Error al procesar la solicitud');
+        }
     }
 
     /**
@@ -1031,15 +1166,24 @@ export class ChatService {
                 .eq('role', 'admin');
 
             if (!adminsError && admins?.length === 1 && admins[0].user_id === data.userId) {
-                // If it's the last admin, and there are other members, one must be promoted or the group closed?
-                // For now, let's just error if it's the last admin and there are other people.
-                const { count, error: countError } = await supabase
+                // Si es el último administrador, obtenemos a los demás miembros
+                const { data: otherMembers, error: membersError } = await supabase
                     .from('conversation_participants')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('conversation_id', data.conversationId);
+                    .select('user_id')
+                    .eq('conversation_id', data.conversationId)
+                    .neq('user_id', data.userId);
 
-                if (!countError && count && count > 1) {
-                    throw new BadRequestException('Debe designar a otro administrador antes de salir');
+                if (!membersError && otherMembers && otherMembers.length > 0) {
+                    // Seleccionar un miembro aleatoriamente
+                    const randomIndex = Math.floor(Math.random() * otherMembers.length);
+                    const newAdminId = otherMembers[randomIndex].user_id;
+
+                    // Promoverlo a admin
+                    await supabase
+                        .from('conversation_participants')
+                        .update({ role: 'admin' })
+                        .eq('conversation_id', data.conversationId)
+                        .eq('user_id', newAdminId);
                 }
             }
 
