@@ -42,6 +42,39 @@ export class CloudinaryService {
     }
 
     /**
+     * Listar todos los recursos en una carpeta usando el Admin API
+     */
+    async listResourcesInFolder(prefix: string): Promise<{ publicId: string; resourceType: string }[]> {
+        const resources: { publicId: string; resourceType: string }[] = [];
+        let nextCursor: string | undefined = undefined;
+
+        try {
+            do {
+                const result = await cloudinary.api.resources({
+                    type: 'upload',
+                    prefix: prefix,
+                    max_results: 500,
+                    next_cursor: nextCursor,
+                });
+
+                result.resources.forEach((res: any) => {
+                    resources.push({
+                        publicId: res.public_id,
+                        resourceType: res.resource_type,
+                    });
+                });
+
+                nextCursor = result.next_cursor;
+            } while (nextCursor);
+
+            return resources;
+        } catch (error) {
+            console.error(`Error listing resources in folder ${prefix}:`, error);
+            return [];
+        }
+    }
+
+    /**
      * Generar URL(s) firmada(s) para descargar un ZIP con los recursos seleccionados.
      * Retorna hasta dos URLs: una para resource_type=image y otra para resource_type=raw (PDFs).
      * Cloudinary asigna el resource_type automáticamente al subir ('auto'), por lo que
