@@ -356,43 +356,48 @@ export class FormsService {
   }
 
   /**
-   * ZIP de toda la carpeta tincadia/forms (varios lotes si hay muchos archivos)
+   * ZIP de toda la carpeta tincadia/forms (Garantiza los 79+ archivos)
    */
   async getGlobalArchiveUrl() {
-    // 1. Get ALL submissions with 'data' field
-    const submissions = await this.submissionRepository.find({
-      select: ['data']
-    });
+    console.log('📦 [Forms Service] Generating global archive via Cloudinary Search API...');
 
-    // 2. Extract ALL unique public IDs from forms folder
-    const publicIds: string[] = [];
-    submissions.forEach(sub => this.extractPublicIdsFromFormData(sub.data, publicIds));
-    const uniqueIds = [...new Set(publicIds.filter(Boolean))];
+    // 1. Get ALL resources from the folder DIRECTLY from Cloudinary (avoids missing files in DB)
+    const allResources = await this.cloudinaryService.listResourcesInFolder('tincadia/forms');
+    console.log(`📦 [Forms Service] Found ${allResources.length} resources in Cloudinary`);
 
-    if (uniqueIds.length === 0) {
-      // Fallback: If no DB entries found but there might be raw files, 
-      // return a single prefix-based URL (Cloudinary default, might be truncated)
-      const fallback = this.cloudinaryService.generateArchiveUrls({ prefix: 'tincadia/forms' });
-      return {
-        batches: [fallback],
-        imageUrl: fallback.imageUrl,
-        rawUrl: fallback.rawUrl,
-        url: fallback.imageUrl,
-        totalAssets: 0,
-      };
+    if (allResources.length === 0) {
+      throw new NotFoundException('No se encontraron archivos en la carpeta tincadia/forms.');
     }
 
-    // 3. Generate Batches (20 per URL to be safe with length)
-    const batches = this.cloudinaryService.generateArchiveUrlBatches(uniqueIds, 20);
-    const first = batches[0];
+    // 2. Separate by type to avoid empty ZIPs
+    const images = allResources.filter(r => r.resourceType === 'image').map(r => r.publicId);
+    const raws = allResources.filter(r => r.resourceType === 'raw').map(r => r.publicId);
+
+    // 3. Generate batches for each type (max 50 per batch for better performance)
+    const batches: any[] = [];
+    const CHUNK_SIZE = 50;
+
+    // Batch Images
+    for (let i = 0; i < images.length; i += CHUNK_SIZE) {
+      const chunk = images.slice(i, i + CHUNK_SIZE);
+      const url = this.cloudinaryService.generateArchiveUrls({ publicIds: chunk }).imageUrl;
+      batches.push({ type: 'imágenes', count: chunk.length, url });
+    }
+
+    // Batch Raw (PDFs/Docs)
+    for (let i = 0; i < raws.length; i += CHUNK_SIZE) {
+      const chunk = raws.slice(i, i + CHUNK_SIZE);
+      const url = this.cloudinaryService.generateArchiveUrls({ publicIds: chunk }).rawUrl;
+      batches.push({ type: 'documentos', count: chunk.length, url });
+    }
 
     return {
       batches,
-      totalAssets: uniqueIds.length,
+      totalAssets: allResources.length,
+      imageCount: images.length,
+      documentCount: raws.length,
       batchCount: batches.length,
-      imageUrl: first?.imageUrl,
-      rawUrl: first?.rawUrl,
-      url: first?.imageUrl,
+      url: batches[0]?.url || '' // First available for direct click
     };
   }
 
