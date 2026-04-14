@@ -17,12 +17,17 @@ export class CloudinaryService {
 
     // Generic upload for form attachments
     async uploadFile(buffer: Buffer, fileName: string, folder: string = 'tincadia/forms'): Promise<UploadApiResponse> {
+        // Sanitize filename to avoid issues with special characters in URLs
+        const sanitizedName = fileName
+            .replace(/\.[^/.]+$/, "") // Remove extension
+            .replace(/[^a-zA-Z0-9_\-]/g, '_'); // Replace non-alphanumeric with underscore
+
         return new Promise((resolve, reject) => {
             cloudinary.uploader.upload_stream(
                 {
                     resource_type: 'auto', // Auto-detect (image, video, raw/pdf)
                     folder: folder,
-                    public_id: `${Date.now()}_${fileName.replace(/\.[^/.]+$/, "")}`, // Remove extension for public_id
+                    public_id: `${Date.now()}_${sanitizedName}`,
                 },
                 (error, result) => {
                     if (error) reject(error);
@@ -32,8 +37,31 @@ export class CloudinaryService {
         });
     }
 
-    // Delete asset
     async deleteAsset(publicId: string, resourceType: 'video' | 'image' | 'raw' = 'image'): Promise<void> {
         await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
+    }
+
+    /**
+     * Generar un URL firmado para descargar un archivo ZIP con los recursos seleccionados
+     * Permite descargar por prefijo (carpeta) o lista de IDs.
+     */
+    generateArchiveUrl(options: { publicIds?: string[], prefix?: string, pageOneOnly?: boolean }): string {
+        const params: any = {
+            resource_type: 'image', // Cloudinary maneja PDFs como 'image' por defecto en 'auto'
+            allow_missing: true,
+            target_format: 'zip',
+        };
+
+        if (options.publicIds && options.publicIds.length > 0) {
+            params.public_ids = options.publicIds;
+        } else if (options.prefix) {
+            params.prefix = options.prefix;
+        }
+
+        if (options.pageOneOnly) {
+            params.transformation = 'pg_1'; // Solo la primera página de cada PDF
+        }
+
+        return cloudinary.utils.download_archive_url(params);
     }
 }
