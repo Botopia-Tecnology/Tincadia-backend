@@ -1,13 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository } from 'typeorm';
 import { CreateFormDto } from './dto/create-form.dto';
 import { UpdateFormDto } from './dto/update-form.dto';
 import { FormSubmissionDto } from './dto/form-submission.dto';
 import { Form } from './entities/form.entity';
 import { FormSubmission } from './entities/form-submission.entity';
 import { Profile } from './entities/profile.entity';
-import { CloudinaryService } from './cloudinary.service';
 
 @Injectable()
 export class FormsService {
@@ -18,7 +17,6 @@ export class FormsService {
     private readonly submissionRepository: Repository<FormSubmission>,
     @InjectRepository(Profile)
     private readonly profileRepository: Repository<Profile>,
-    private readonly cloudinaryService: CloudinaryService,
   ) { }
 
   async create(data: CreateFormDto) {
@@ -275,158 +273,5 @@ export class FormsService {
     console.log('✅ [Forms Service] Submission saved successfully. ID:', saved.id);
 
     return saved;
-  }
-
-  /**
-   * Extraer el public_id de Cloudinary desde una URL o string
-   */
-  private addPublicIdFromUrl(val: string, publicIds: string[]) {
-    if (!val || typeof val !== 'string') return;
-
-    // Patrón para capturar el path de Cloudinary (ej: tincadia/forms/xyz)
-    if (val.includes('tincadia/')) {
-      if (val.startsWith('http')) {
-        const parts = val.split('/');
-        const folderIndex = parts.findIndex(p => p === 'tincadia');
-        if (folderIndex !== -1) {
-          const publicId = parts.slice(folderIndex).join('/').split('.')[0];
-          publicIds.push(publicId);
-        }
-      } else {
-        // Asumir que ya es un public_id o un path relativo
-        publicIds.push(val.split('.')[0]);
-      }
-    }
-  }
-
-  /** Recorre el JSON del formulario y acumula public_ids de Cloudinary (carpeta tincadia/). */
-  private extractPublicIdsFromFormData(data: any, publicIds: string[]) {
-    const walk = (obj: any) => {
-      if (obj == null) return;
-      if (typeof obj === 'string') {
-        this.addPublicIdFromUrl(obj, publicIds);
-        return;
-      }
-      if (Array.isArray(obj)) {
-        obj.forEach((item) => walk(item));
-        return;
-      }
-      if (typeof obj !== 'object') return;
-
-      Object.entries(obj).forEach(([key, value]) => {
-        if (['hojaVida', 'certificaciones', 'certificacionesCursos'].includes(key)) {
-          if (typeof value === 'object' && value && (value as any).url) {
-            this.addPublicIdFromUrl((value as any).url, publicIds);
-          } else if (typeof value === 'string') {
-            this.addPublicIdFromUrl(value, publicIds);
-          } else {
-            walk(value);
-          }
-        } else {
-          walk(value);
-        }
-      });
-    };
-    walk(data);
-  }
-
-  /**
-   * Generar URL para descargar todos los documentos de un usuario en un ZIP
-   */
-  async getUserArchiveUrl(email: string) {
-    const submissions = await this.submissionRepository.find({
-      where: { email },
-      select: ['data']
-    });
-
-    const publicIds: string[] = [];
-    submissions.forEach(sub => this.extractPublicIdsFromFormData(sub.data, publicIds));
-
-    if (publicIds.length === 0) {
-      throw new NotFoundException('No se encontraron documentos para este usuario.');
-    }
-
-    const batches = this.cloudinaryService.generateArchiveUrlBatches([...new Set(publicIds)], 20);
-    const first = batches[0];
-    return {
-      batches,
-      totalAssets: [...new Set(publicIds)].length,
-      url: first?.imageUrl ?? '',
-    };
-  }
-
-  /**
-   * ZIP de toda la carpeta tincadia/forms (Garantiza los 79+ archivos)
-   */
-  async getGlobalArchiveUrl() {
-    console.log('📦 [Forms Service] Generating global archive via Cloudinary Search API...');
-
-    // 1. Get ALL resources from the folder DIRECTLY from Cloudinary (avoids missing files in DB)
-    const allResources = await this.cloudinaryService.listResourcesInFolder('tincadia/forms');
-    console.log(`📦 [Forms Service] Found ${allResources.length} resources in Cloudinary`);
-
-    if (allResources.length === 0) {
-      throw new NotFoundException('No se encontraron archivos en la carpeta tincadia/forms.');
-    }
-
-    // 2. Separate by type to avoid empty ZIPs
-    const images = allResources.filter(r => r.resourceType === 'image').map(r => r.publicId);
-    const raws = allResources.filter(r => r.resourceType === 'raw').map(r => r.publicId);
-
-    // 3. Generate batches for each type (max 50 per batch for better performance)
-    const batches: any[] = [];
-    const CHUNK_SIZE = 50;
-
-    // Batch Images
-    for (let i = 0; i < images.length; i += CHUNK_SIZE) {
-      const chunk = images.slice(i, i + CHUNK_SIZE);
-      const url = this.cloudinaryService.generateArchiveUrls({ publicIds: chunk }).imageUrl;
-      batches.push({ type: 'imágenes', count: chunk.length, url });
-    }
-
-    // Batch Raw (PDFs/Docs)
-    for (let i = 0; i < raws.length; i += CHUNK_SIZE) {
-      const chunk = raws.slice(i, i + CHUNK_SIZE);
-      const url = this.cloudinaryService.generateArchiveUrls({ publicIds: chunk }).rawUrl;
-      batches.push({ type: 'documentos', count: chunk.length, url });
-    }
-
-    return {
-      batches,
-      totalAssets: allResources.length,
-      imageCount: images.length,
-      documentCount: raws.length,
-      batchCount: batches.length,
-      url: batches[0]?.url || '' // First available for direct click
-    };
-  }
-
-  /**
-   * Documentos de una lista de emails: varios ZIP si hay muchos public_ids (límite de URL).
-   */
-  async getBatchArchiveUrl(emails: string[]) {
-    const uniqueEmails = [...new Set((emails || []).filter(Boolean))];
-    const submissions = await this.submissionRepository.find({
-      where: { email: In(uniqueEmails) },
-      select: ['data']
-    });
-
-    const publicIds: string[] = [];
-    submissions.forEach(sub => this.extractPublicIdsFromFormData(sub.data, publicIds));
-
-    if (publicIds.length === 0) {
-      throw new NotFoundException('No se encontraron documentos para los usuarios seleccionados.');
-    }
-
-    const uniqueIds = [...new Set(publicIds)];
-    const batches = this.cloudinaryService.generateArchiveUrlBatches(uniqueIds, 20);
-    const first = batches[0];
-    return {
-      batches,
-      totalAssets: uniqueIds.length,
-      batchCount: batches.length,
-      imageUrl: first?.imageUrl,
-      rawUrl: first?.rawUrl,
-    };
   }
 }
