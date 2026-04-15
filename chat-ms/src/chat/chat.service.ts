@@ -828,7 +828,13 @@ export class ChatService {
                 identity: username,
             });
 
-            at.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true });
+            at.addGrant({
+                roomJoin: true,
+                room: roomName,
+                canPublish: true,
+                canSubscribe: true,
+                canPublishData: true,
+            });
 
             const token = await at.toJwt();
 
