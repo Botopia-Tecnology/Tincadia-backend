@@ -5,10 +5,12 @@ FROM python:3.9-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# Instalar dependencias del sistema necesarias para OpenCV y MediaPipe
+# Instalar dependencias del sistema necesarias para OpenCV, MediaPipe y LiveKit
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
+    build-essential \
+    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Establecer directorio de trabajo
@@ -18,10 +20,10 @@ WORKDIR /app
 COPY requirements_lsc.txt .
 
 # Instalar dependencias de Python
-# Instalar PyTorch CPU primero explícitamente (ahorra ~2GB variando la URL)
+# Instalamos la versión CPU de Torch para ahorrar espacio
 RUN pip install --no-cache-dir torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 
-# Instalar resto de dependencias
+# Instalar el resto de las dependencias
 RUN pip install --no-cache-dir -r requirements_lsc.txt
 
 # Copiar el resto del código

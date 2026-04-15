@@ -123,29 +123,38 @@ class VoskAgent:
 
     async def transcribe_loop(self, participant: rtc.RemoteParticipant, stream: rtc.AudioStream):
         vosk_model = get_model()
-        rec = KaldiRecognizer(vosk_model, 48000)
+        sample_rate = 48000
+        rec = KaldiRecognizer(vosk_model, sample_rate)
+        
+        # El resampler asegura que no importa a qué frecuencia transmita el usuario,
+        # Vosk reciba siempre la misma frecuencia (48kHz en este caso).
+        resampler = rtc.AudioResampler(sample_rate, 1) # 1 channel (mono)
         
         identity = participant.identity
-        logger.info(f"[{self.room_name}] Loop started for {identity}")
+        logger.info(f"[{self.room_name}] Loop started for {identity} (Resampling to {sample_rate}Hz)")
 
         try:
             async for event in stream:
                 if identity not in self.audio_streams or not self.is_running:
                     break
                     
-                data = event.frame.data.tobytes()
+                # Resample frames before feeding to Vosk
+                resampled_frames = resampler.push(event.frame)
                 
-                if rec.AcceptWaveform(data):
-                    result = json.loads(rec.Result())
-                    text = result.get('text', '')
-                    if text:
-                        # logger.info(f"[{self.room_name}] {identity}: {text}")
-                        await self.publish_transcription(identity, text, is_final=True)
-                else:
-                    partial = json.loads(rec.PartialResult())
-                    partial_text = partial.get('partial', '')
-                    if partial_text:
-                        await self.publish_transcription(identity, partial_text, is_final=False)
+                for frame in resampled_frames:
+                    data = frame.data.tobytes()
+                    
+                    if rec.AcceptWaveform(data):
+                        result = json.loads(rec.Result())
+                        text = result.get('text', '')
+                        if text:
+                            # log(f"[{self.room_name}] {identity}: {text}")
+                            await self.publish_transcription(identity, text, is_final=True)
+                    else:
+                        partial = json.loads(rec.PartialResult())
+                        partial_text = partial.get('partial', '')
+                        if partial_text:
+                            await self.publish_transcription(identity, partial_text, is_final=False)
         except Exception as e:
             logger.error(f"[{self.room_name}] Error in loop for {identity}: {e}")
         finally:

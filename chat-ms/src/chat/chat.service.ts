@@ -686,18 +686,28 @@ export class ChatService {
                 // El sender no necesita registro en message_reads (se asume que ya lo vio al enviarlo)
                 const readThreshold = (totalParticipants || 1) - 1;
 
-                for (const msg of unreadMessages) {
-                    const { count: totalReads } = await supabase
-                        .from('message_reads')
-                        .select('*', { count: 'exact', head: true })
-                        .eq('message_id', msg.id);
+                // Optimización: Contar lecturas para todos los mensajes pendientes de una vez
+                const messageIds = unreadMessages.map(m => m.id);
+                const { data: readCounts, error: countError } = await supabase
+                    .from('message_reads')
+                    .select('message_id')
+                    .in('message_id', messageIds);
 
-                    if ((totalReads || 0) >= readThreshold) {
-                        // Todos leyeron → marcar read_at en el mensaje original
+                if (!countError && readCounts) {
+                    // Agrupar conteos por message_id
+                    const countMap = new Map<string, number>();
+                    readCounts.forEach(r => {
+                        countMap.set(r.message_id, (countMap.get(r.message_id) || 0) + 1);
+                    });
+
+                    // Identificar cuáles mensajes llegaron al umbral
+                    const messagesToMarkAsRead = messageIds.filter(id => (countMap.get(id) || 0) >= readThreshold);
+
+                    if (messagesToMarkAsRead.length > 0) {
                         await supabase
                             .from('messages')
                             .update({ read_at: new Date().toISOString() })
-                            .eq('id', msg.id)
+                            .in('id', messagesToMarkAsRead)
                             .is('read_at', null);
                     }
                 }
