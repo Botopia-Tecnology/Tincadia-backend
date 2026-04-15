@@ -17,11 +17,9 @@ LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 AGENT_IDENTITY_PREFIX = "transcriber-"
 
 # Vosk Model Path
-# Accessing models from parent directory if running from app/
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "vosk-model-small-es-0.42")
 
 if not os.path.exists(MODEL_PATH):
-    # Fallback to current directory if not found (for manual running)
     MODEL_PATH = "models/vosk-model-small-es-0.42"
 
 # Global model instance
@@ -31,11 +29,15 @@ def get_model():
     global model
     if model is None:
         if os.path.exists(MODEL_PATH):
-            logger.info(f"Loading Vosk model from {MODEL_PATH}...")
+            print(f"📦 [Bot] Cargando modelo desde: {MODEL_PATH}")
             model = Model(MODEL_PATH)
-            logger.info("Vosk model loaded.")
+            print("✅ [Bot] Modelo cargado.")
         else:
-            logger.error(f"Vosk model NOT found at {MODEL_PATH}")
+            print(f"❌ [Bot] ERROR: Modelo no encontrado en {MODEL_PATH}")
+            # Diagnostic info only
+            try:
+                print(f"🔍 [Bot] Files in root: {os.listdir(os.path.dirname(MODEL_PATH))}")
+            except: pass
     return model
 
 class VoskAgent:
@@ -47,12 +49,12 @@ class VoskAgent:
 
     async def start(self):
         if not LIVEKIT_URL or not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
-            logger.error("Missing LiveKit credentials")
+            print("❌ [Bot] Faltan credenciales de LiveKit (URL, KEY o SECRET)")
             return
 
         # Ensure model is loaded
         if get_model() is None:
-            logger.error("Cannot start agent: Model not loaded")
+            print("❌ [Bot] No se puede iniciar: El modelo no cargó.")
             return
 
         self.is_running = True
@@ -61,22 +63,22 @@ class VoskAgent:
         @self.room.on("track_subscribed")
         def on_track_subscribed(track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant):
             if track.kind == rtc.TrackKind.KIND_AUDIO:
-                logger.info(f"[{self.room_name}] Subscribed to audio from {participant.identity}")
+                print(f"🎙️ [Bot] Suscripto a audio de: {participant.identity}")
                 self.start_transcription(participant, track)
 
         @self.room.on("track_unsubscribed")
         def on_track_unsubscribed(track: rtc.Track, publication: rtc.TrackPublication, participant: rtc.RemoteParticipant):
             if track.kind == rtc.TrackKind.KIND_AUDIO:
-                logger.info(f"[{self.room_name}] Unsubscribed from {participant.identity}")
+                print(f"🔇 [Bot] Desuscripto de: {participant.identity}")
                 self.stop_transcription(participant.identity)
 
         @self.room.on("disconnected")
         def on_disconnected():
-            logger.info(f"[{self.room_name}] Disconnected from room")
+            print(f"🔌 [Bot] Desconectado de la sala: {self.room_name}")
             self.is_running = False
 
         # Connect
-        logger.info(f"Connecting to room {self.room_name}...")
+        print(f"📡 [Bot] Conectando a sala {self.room_name} en {LIVEKIT_URL}...")
         try:
             token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
                 .with_identity(f"{AGENT_IDENTITY_PREFIX}{self.room_name}") \
@@ -91,9 +93,9 @@ class VoskAgent:
                 .to_jwt()
 
             await self.room.connect(LIVEKIT_URL, token)
-            logger.info(f"[{self.room_name}] Connected successfully.")
+            print(f"✅ [Bot] CONECTADO exitosamente a {self.room_name}")
         except Exception as e:
-            logger.error(f"[{self.room_name}] Connection failed: {e}")
+            print(f"❌ [Bot] ERROR de conexión: {e}")
             self.is_running = False
 
     async def stop(self):
