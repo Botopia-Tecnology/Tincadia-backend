@@ -81,7 +81,13 @@ class VoskAgent:
             token = api.AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET) \
                 .with_identity(f"{AGENT_IDENTITY_PREFIX}{self.room_name}") \
                 .with_name("AI Transcriber") \
-                .with_grants(api.VideoGrants(room_join=True, room=self.room_name, can_publish=True, can_subscribe=True)) \
+                .with_grants(api.VideoGrants(
+                    room_join=True, 
+                    room=self.room_name, 
+                    can_publish=True, 
+                    can_subscribe=True,
+                    can_publish_data=True
+                )) \
                 .to_jwt()
 
             await self.room.connect(LIVEKIT_URL, token)
