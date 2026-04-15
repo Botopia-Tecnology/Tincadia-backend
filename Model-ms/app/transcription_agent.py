@@ -15,6 +15,8 @@ LIVEKIT_URL = os.getenv("LIVEKIT_URL")
 LIVEKIT_API_KEY = os.getenv("LIVEKIT_API_KEY")
 LIVEKIT_API_SECRET = os.getenv("LIVEKIT_API_SECRET")
 AGENT_IDENTITY_PREFIX = "transcriber-"
+# Log Vosk partial hypotheses (verbose). Set TRANSCRIBE_LOG_PARTIALS=true to debug audio pipeline.
+LOG_TRANSCRIBE_PARTIALS = os.getenv("TRANSCRIBE_LOG_PARTIALS", "").lower() in ("1", "true", "yes")
 
 # Vosk Model Path
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "vosk-model-small-es-0.42")
@@ -131,29 +133,41 @@ class VoskAgent:
 
     async def transcribe_loop(self, participant: rtc.RemoteParticipant, stream: rtc.AudioStream):
         vosk_model = get_model()
-        sample_rate = 16000 # Estándar para modelos Vosk small
-        rec = KaldiRecognizer(vosk_model, sample_rate)
-        
-        # El resampler asegura que no importa a qué frecuencia transmita el usuario (ej: 48kHz),
-        # Vosk reciba siempre la misma frecuencia compatible (16kHz).
-        resampler = rtc.AudioResampler(sample_rate, 1) # 1 channel (mono)
-        
+        # Vosk small espera PCM 16 kHz mono (KaldiRecognizer sample rate = salida del resampler).
+        vosk_sample_rate = 16000
+        rec = KaldiRecognizer(vosk_model, vosk_sample_rate)
+        # AudioResampler(input_rate, output_rate, *, num_channels=...) — el 2.º arg es la tasa de SALIDA en Hz, no canales.
+        resampler = None
+
         identity = participant.identity
-        print(f"🎙️ [Bot] Iniciando reconocimiento para {identity} a {sample_rate}Hz...")
+        print(f"🎙️ [Bot] Iniciando reconocimiento para {identity} → Vosk @ {vosk_sample_rate}Hz...")
 
         try:
             print(f"🕵️ [Bot] Empezando a procesar audio para {identity}...")
             async for event in stream:
                 if identity not in self.audio_streams or not self.is_running:
                     break
-                    
-                # Resample frames before feeding to Vosk
-                resampled_frames = resampler.push(event.frame)
-                
-                for frame in resampled_frames:
-                    data = frame.data.tobytes()
-                    # print(f"DEBUG: Enviando {len(data)} bytes a Vosk")
-                    
+
+                frame = event.frame
+
+                if resampler is None:
+                    input_rate = int(frame.sample_rate)
+                    if input_rate < 8000:
+                        input_rate = 48000
+                        print(f"⚠️ [Bot] sample_rate dudoso ({frame.sample_rate}), usando {input_rate}Hz como entrada")
+                    num_ch = int(frame.num_channels) if frame.num_channels >= 1 else 1
+                    resampler = rtc.AudioResampler(
+                        input_rate,
+                        vosk_sample_rate,
+                        num_channels=num_ch,
+                    )
+                    print(f"🔧 [Bot] Resampler: {input_rate}Hz → {vosk_sample_rate}Hz, canales={num_ch}")
+
+                resampled_frames = resampler.push(frame)
+
+                for out_frame in resampled_frames:
+                    data = out_frame.data.tobytes()
+
                     if rec.AcceptWaveform(data):
                         result = json.loads(rec.Result())
                         text = result.get('text', '')
@@ -164,7 +178,8 @@ class VoskAgent:
                         partial = json.loads(rec.PartialResult())
                         partial_text = partial.get('partial', '')
                         if partial_text:
-                            # print(f"💭 [Bot] PARCIAL: {partial_text}")
+                            if LOG_TRANSCRIBE_PARTIALS:
+                                print(f"💭 [Bot] PARCIAL: {partial_text}")
                             await self.publish_transcription(identity, partial_text, is_final=False)
         except Exception as e:
             print(f"❌ [Bot] Error en el loop de {identity}: {e}")
