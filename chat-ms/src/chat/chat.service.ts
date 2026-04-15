@@ -850,7 +850,7 @@ export class ChatService {
 
             // 🚀 TRIGGER TRANSCRIPTION AGENT
             try {
-                const modelMsUrl = process.env.MODEL_MS_URL;
+                const modelMsUrl = (process.env.MODEL_MS_URL || '').trim();
                 
                 if (!modelMsUrl) {
                     this.logger.error(`❌ [Transcription Agent] ERROR: Variable MODEL_MS_URL no definida.`);
