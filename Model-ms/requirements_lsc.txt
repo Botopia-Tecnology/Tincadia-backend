@@ -8,7 +8,7 @@ vosk==0.3.45
 torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 transformers==4.35.0
 livekit-api
-livekit-rtc
+livekit
 
 # Server
 fastapi==0.95.1
