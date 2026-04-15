@@ -554,13 +554,13 @@ export class ChatService {
 
             // 4c. Fetch Unread Counts correctly handling message_reads for groups
             // We need messages that are NOT from the current user AND (read_at is null for direct OR no entry in message_reads for current user)
-            
+
             // First, get IDs of messages the current user HAS read in these conversations
             const { data: userReads } = await supabase
                 .from('message_reads')
                 .select('message_id')
                 .eq('user_id', data.userId);
-            
+
             const readMessageIds = new Set(userReads?.map(r => r.message_id) || []);
 
             const { data: unreadCounts } = await supabase
@@ -851,7 +851,7 @@ export class ChatService {
             // 🚀 TRIGGER TRANSCRIPTION AGENT
             try {
                 const modelMsUrl = (process.env.MODEL_MS_URL || '').trim();
-                
+
                 if (!modelMsUrl) {
                     this.logger.error(`❌ [Transcription Agent] ERROR: Variable MODEL_MS_URL no definida.`);
                     return;
@@ -859,7 +859,7 @@ export class ChatService {
 
                 const triggerAgent = async (url: string, isFallback = false) => {
                     this.logger.log(`📡 [Transcription Agent] Triggering (${isFallback ? 'Fallback' : 'Primary'}) at: ${url}/transcribe`);
-                    
+
                     try {
                         const res = await fetch(`${url}/transcribe`, {
                             method: 'POST',
@@ -1071,19 +1071,19 @@ export class ChatService {
 
             if (error || !updated) {
                 this.logger.warn(`Claim failed for invite ${data.inviteId} by user ${data.userId}: ${error?.message || 'Already taken'}`);
-                return { 
-                    success: false, 
-                    message: 'Esta solicitud ya ha sido atendida por otro intérprete o ha expirado.' 
+                return {
+                    success: false,
+                    message: 'Esta solicitud ya ha sido atendida por otro intérprete o ha expirado.'
                 };
             }
 
             // 2. Marcar al intérprete como busy (lo hacemos aquí para garantizar atomicidad global del flujo)
             await this.setInterpreterStatus(data.userId, true);
 
-            return { 
-                success: true, 
+            return {
+                success: true,
                 inviteId: updated.id,
-                roomName: updated.room_name 
+                roomName: updated.room_name
             };
 
         } catch (error) {

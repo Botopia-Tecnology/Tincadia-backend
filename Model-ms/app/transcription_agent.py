@@ -127,21 +127,22 @@ class VoskAgent:
             
             await self.room.local_participant.publish_data(data, reliable=is_final)
         except Exception as e:
-            logger.error(f"[{self.room_name}] Failed to publish data: {e}")
+            print(f"❌ [Bot] Error publicando datos: {e}")
 
     async def transcribe_loop(self, participant: rtc.RemoteParticipant, stream: rtc.AudioStream):
         vosk_model = get_model()
-        sample_rate = 48000
+        sample_rate = 16000 # Estándar para modelos Vosk small
         rec = KaldiRecognizer(vosk_model, sample_rate)
         
-        # El resampler asegura que no importa a qué frecuencia transmita el usuario,
-        # Vosk reciba siempre la misma frecuencia (48kHz en este caso).
+        # El resampler asegura que no importa a qué frecuencia transmita el usuario (ej: 48kHz),
+        # Vosk reciba siempre la misma frecuencia compatible (16kHz).
         resampler = rtc.AudioResampler(sample_rate, 1) # 1 channel (mono)
         
         identity = participant.identity
-        logger.info(f"[{self.room_name}] Loop started for {identity} (Resampling to {sample_rate}Hz)")
+        print(f"🎙️ [Bot] Iniciando reconocimiento para {identity} a {sample_rate}Hz...")
 
         try:
+            print(f"🕵️ [Bot] Empezando a procesar audio para {identity}...")
             async for event in stream:
                 if identity not in self.audio_streams or not self.is_running:
                     break
@@ -151,20 +152,22 @@ class VoskAgent:
                 
                 for frame in resampled_frames:
                     data = frame.data.tobytes()
+                    # print(f"DEBUG: Enviando {len(data)} bytes a Vosk")
                     
                     if rec.AcceptWaveform(data):
                         result = json.loads(rec.Result())
                         text = result.get('text', '')
                         if text:
-                            # log(f"[{self.room_name}] {identity}: {text}")
+                            print(f"✨ [Bot] FINAL: {text}")
                             await self.publish_transcription(identity, text, is_final=True)
                     else:
                         partial = json.loads(rec.PartialResult())
                         partial_text = partial.get('partial', '')
                         if partial_text:
+                            # print(f"💭 [Bot] PARCIAL: {partial_text}")
                             await self.publish_transcription(identity, partial_text, is_final=False)
         except Exception as e:
-            logger.error(f"[{self.room_name}] Error in loop for {identity}: {e}")
+            print(f"❌ [Bot] Error en el loop de {identity}: {e}")
         finally:
             self.stop_transcription(identity)
 
