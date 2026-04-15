@@ -857,22 +857,40 @@ export class ChatService {
                     return;
                 }
 
-                this.logger.log(`📡 [Transcription Agent] Triggering at: ${modelMsUrl}/transcribe`);
+                const triggerAgent = async (url: string, isFallback = false) => {
+                    this.logger.log(`📡 [Transcription Agent] Triggering (${isFallback ? 'Fallback' : 'Primary'}) at: ${url}/transcribe`);
+                    
+                    try {
+                        const res = await fetch(`${url}/transcribe`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ room_name: roomName }),
+                            signal: AbortSignal.timeout(5000) // 5 seconds timeout
+                        });
 
-                fetch(`${modelMsUrl}/transcribe`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ room_name: roomName })
-                }).then(async res => {
-                    if (res.ok) {
-                        this.logger.log(`✅ [Transcription Agent] Trigger exitoso.`);
-                    } else {
-                        const errorBody = await res.text();
-                        this.logger.warn(`⚠️ [Transcription Agent] Error (${res.status}): ${errorBody}`);
+                        if (res.ok) {
+                            this.logger.log(`✅ [Transcription Agent] Trigger exitoso en ${isFallback ? 'Pública' : 'Privada'}`);
+                            return true;
+                        } else {
+                            const errorBody = await res.text();
+                            this.logger.warn(`⚠️ [Transcription Agent] El modelo respondió error (${res.status}): ${errorBody}`);
+                            return false;
+                        }
+                    } catch (e) {
+                        this.logger.error(`❌ [Transcription Agent] Error en ${isFallback ? 'Pública' : 'Privada'}: ${e.message}`);
+                        return false;
                     }
-                }).catch(e => {
-                    this.logger.error(`❌ [Transcription Agent] Error conectando a ${modelMsUrl}: ${e.message}`);
-                });
+                };
+
+                // Intento 1: URL configurada (Privada)
+                const success = await triggerAgent(modelMsUrl);
+
+                // Intento 2: Fallback a URL Pública si la primera falló y no es ya la pública
+                if (!success && modelMsUrl.includes('.internal')) {
+                    const publicUrl = modelMsUrl.replace('.railway.internal', '.up.railway.app').replace(':8000', '');
+                    this.logger.log(`🔄 [Transcription Agent] Reintentando vía URL Pública: ${publicUrl}`);
+                    await triggerAgent(publicUrl, true);
+                }
 
             } catch (err) {
                 this.logger.warn(`⚠️ Error inesperado lanzando transcripción: ${err.message}`);
