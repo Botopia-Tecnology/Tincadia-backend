@@ -1,5 +1,5 @@
-# Usamos una imagen base ligera de Python 3.9
-FROM python:3.9-slim
+# Usamos una imagen base ligera de Python 3.10 para soportar LiveKit moderno
+FROM python:3.10-slim
 
 # Evita que Python genere archivos .pyc y habilita logs en tiempo real
 ENV PYTHONDONTWRITEBYTECODE=1
