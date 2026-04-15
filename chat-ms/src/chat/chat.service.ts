@@ -849,29 +849,33 @@ export class ChatService {
             const token = await at.toJwt();
 
             // 🚀 TRIGGER TRANSCRIPTION AGENT
-            // Auto-start the agent if Model-ms is available
             try {
-                const modelServiceUrl = process.env.MODEL_SERVICE_URL || 'http://localhost:8000'; // Define default or env
-                // Or better, use the known internal host if in docker/railway
-                // Assuming we can reach Model-ms. 
-                // Since this is chat-ms, it might be running on a different port/host.
-                // Let's use fetch directly.
+                const modelMsUrl = process.env.MODEL_MS_URL;
+                
+                if (!modelMsUrl) {
+                    this.logger.error(`❌ [Transcription Agent] ERROR: Variable MODEL_MS_URL no definida.`);
+                    return;
+                }
 
-                // NOTE: Use fire-and-forget to not block the user if agent fails or is slow
-                fetch(`${modelServiceUrl}/transcribe`, {
+                this.logger.log(`📡 [Transcription Agent] Triggering at: ${modelMsUrl}/transcribe`);
+
+                fetch(`${modelMsUrl}/transcribe`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ room_name: roomName })
-                }).then(res => {
-                    if (res.ok) this.logger.log(`✅ Transcription agent triggered for ${roomName}`);
-                    else this.logger.warn(`⚠️ Failed to trigger transcription: ${res.statusText}`);
+                }).then(async res => {
+                    if (res.ok) {
+                        this.logger.log(`✅ [Transcription Agent] Trigger exitoso.`);
+                    } else {
+                        const errorBody = await res.text();
+                        this.logger.warn(`⚠️ [Transcription Agent] Error (${res.status}): ${errorBody}`);
+                    }
                 }).catch(e => {
-                    this.logger.warn(`⚠️ Could not reach Model-ms for transcription: ${e.message}`);
+                    this.logger.error(`❌ [Transcription Agent] Error conectando a ${modelMsUrl}: ${e.message}`);
                 });
 
             } catch (err) {
-                // Ignore errors here to not break the token generation
-                this.logger.warn(`Skipping transcription trigger: ${err.message}`);
+                this.logger.warn(`⚠️ Error inesperado lanzando transcripción: ${err.message}`);
             }
 
             const livekitUrl = process.env.LIVEKIT_URL;
