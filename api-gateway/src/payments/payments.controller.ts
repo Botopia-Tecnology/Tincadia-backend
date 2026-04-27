@@ -37,8 +37,8 @@ export class PaymentsController {
     @Get('config')
     @ApiOperation({ summary: 'Get Wompi public configuration' })
     @ApiResponse({ status: 200, description: 'Returns Wompi public config' })
-    async getConfig() {
-        return firstValueFrom(this.client.send('payments.config', {}));
+    getConfig() {
+        return this.client.send('payments.config', {});
     }
 
     /**
@@ -47,9 +47,9 @@ export class PaymentsController {
     @Post('initiate')
     @ApiOperation({ summary: 'Initiate a new payment' })
     @ApiResponse({ status: 201, description: 'Payment initiated successfully' })
-    async initiatePayment(@Body() initiatePaymentDto: InitiatePaymentDto) {
+    initiatePayment(@Body() initiatePaymentDto: InitiatePaymentDto) {
         this.logger.log(`Initiating payment for plan: ${initiatePaymentDto.planType} (${initiatePaymentDto.planId})`);
-        return firstValueFrom(this.client.send('payments.initiate', initiatePaymentDto));
+        return this.client.send('payments.initiate', initiatePaymentDto);
     }
 
     /**
@@ -60,37 +60,28 @@ export class PaymentsController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Wompi webhook endpoint' })
     @ApiResponse({ status: 200, description: 'Event processed successfully' })
-    async handleWebhook(
+    handleWebhook(
         @Body() event: any,
         @Headers('x-event-checksum') checksum: string,
     ) {
         this.logger.log(`Received Wompi webhook: ${event.event}`);
 
-        return firstValueFrom(
-            this.client.send('payments.webhook', {
-                event,
-                checksum: checksum || event.signature?.checksum
-            })
-        );
+        return this.client.send('payments.webhook', {
+            event,
+            checksum: checksum || event.signature?.checksum
+        });
     }
 
     /**
      * Webhook de RevenueCat — Apple/Google notifican compras y cancelaciones aquí.
-     * URL a poner en RevenueCat → "Apple Server Notification Forwarding URL":
-     *   https://tu-api.tincadia.com/payments/webhooks/revenuecat
-     *
-     * Este endpoint es PÚBLICO — RevenueCat no usa Bearer Token.
-     * La seguridad se da porque la URL no es adivinable (wsDCSlEMtYcDYeTKqNjIcZSbFItAZHAN ya protege el upstream).
      */
     @Post('webhooks/revenuecat')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'RevenueCat webhook — handles Apple & Google IAP events' })
     @ApiResponse({ status: 200, description: 'Event received and processed' })
-    async handleRevenueCatWebhook(@Body() event: any) {
+    handleRevenueCatWebhook(@Body() event: any) {
         this.logger.log(`📲 [RevenueCat] Incoming event: ${event?.event?.type} | User: ${event?.event?.app_user_id}`);
-        return firstValueFrom(
-            this.client.send('revenuecat.webhook', event)
-        );
+        return this.client.send('revenuecat.webhook', event);
     }
 
     /**
@@ -99,11 +90,9 @@ export class PaymentsController {
     @Get('verify/:transactionId')
     @ApiOperation({ summary: 'Verify payment status with Wompi' })
     @ApiResponse({ status: 200, description: 'Transaction status retrieved' })
-    async verifyPayment(@Param('transactionId') transactionId: string) {
+    verifyPayment(@Param('transactionId') transactionId: string) {
         this.logger.log(`Verifying transaction: ${transactionId}`);
-        return firstValueFrom(
-            this.client.send('payments.verify', { transactionId })
-        );
+        return this.client.send('payments.verify', { transactionId });
     }
 
     /**
@@ -112,38 +101,34 @@ export class PaymentsController {
     @Get('reference/:reference')
     @ApiOperation({ summary: 'Get payment by reference' })
     @ApiResponse({ status: 200, description: 'Payment found' })
-    async findByReference(@Param('reference') reference: string) {
-        return firstValueFrom(
-            this.client.send('payments.findByReference', { reference })
-        );
+    findByReference(@Param('reference') reference: string) {
+        return this.client.send('payments.findByReference', { reference });
     }
 
     @Get('subscriptions')
     @ApiOperation({ summary: 'List all subscriptions' })
     @ApiResponse({ status: 200, description: 'List of subscriptions' })
-    async getAllSubscriptions(
+    getAllSubscriptions(
         @Query('status') status?: string,
         @Query('planId') planId?: string,
         @Query('page') page?: number,
         @Query('limit') limit?: number,
     ) {
-        return firstValueFrom(
-            this.client.send('subscriptions.findAll', { status, planId, page, limit })
-        );
+        return this.client.send('subscriptions.findAll', { status, planId, page, limit });
     }
 
     @Get('subscriptions/user/:userId')
     @ApiOperation({ summary: 'Get user subscriptions' })
     @ApiResponse({ status: 200, description: 'User subscriptions retrieved' })
-    async getUserSubscriptions(@Param('userId') userId: string) {
-        return firstValueFrom(this.client.send('subscriptions.findByUser', { userId }));
+    getUserSubscriptions(@Param('userId') userId: string) {
+        return this.client.send('subscriptions.findByUser', { userId });
     }
 
     @Get('subscriptions/status/:userId')
     @ApiOperation({ summary: 'Get user subscription status' })
     @ApiResponse({ status: 200, description: 'User subscription status retrieved' })
-    async getUserSubscriptionStatus(@Param('userId') userId: string) {
-        return firstValueFrom(this.client.send('subscriptions.getStatus', { userId }));
+    getUserSubscriptionStatus(@Param('userId') userId: string) {
+        return this.client.send('subscriptions.getStatus', { userId });
     }
 
     /**
@@ -152,16 +137,16 @@ export class PaymentsController {
     @Post('charge-card')
     @ApiOperation({ summary: 'Process direct card charge' })
     @ApiResponse({ status: 201, description: 'Card charged successfully' })
-    async chargeCard(@Body() chargeCardDto: any) {
+    chargeCard(@Body() chargeCardDto: any) {
         this.logger.log(`Processing card charge through gateway`);
-        return firstValueFrom(this.client.send('payments.charge-card', chargeCardDto));
+        return this.client.send('payments.charge-card', chargeCardDto);
     }
 
     @Post('subscriptions/:id/cancel')
     @ApiOperation({ summary: 'Cancel subscription' })
     @ApiResponse({ status: 200, description: 'Subscription canceled successfully' })
-    async cancelSubscription(@Param('id') id: string, @Body('immediate') immediate: boolean = false) {
-        return firstValueFrom(this.client.send('subscriptions.cancel', { id, immediate }));
+    cancelSubscription(@Param('id') id: string, @Body('immediate') immediate: boolean = false) {
+        return this.client.send('subscriptions.cancel', { id, immediate });
     }
 
     /**
@@ -170,15 +155,13 @@ export class PaymentsController {
     @Get()
     @ApiOperation({ summary: 'List all payments' })
     @ApiResponse({ status: 200, description: 'List of payments' })
-    async findAll(
+    findAll(
         @Query('userId') userId?: string,
         @Query('status') status?: string,
         @Query('page') page?: number,
         @Query('limit') limit?: number,
     ) {
-        return firstValueFrom(
-            this.client.send('payments.findAll', { userId, status, page, limit })
-        );
+        return this.client.send('payments.findAll', { userId, status, page, limit });
     }
 
     /**
@@ -187,8 +170,8 @@ export class PaymentsController {
     @Get(':id')
     @ApiOperation({ summary: 'Get payment by ID' })
     @ApiResponse({ status: 200, description: 'Payment found' })
-    async findOne(@Param('id') id: string) {
-        return firstValueFrom(this.client.send('payments.findOne', { id }));
+    findOne(@Param('id') id: string) {
+        return this.client.send('payments.findOne', { id });
     }
 
     /**
@@ -198,10 +181,8 @@ export class PaymentsController {
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Update payment' })
     @ApiResponse({ status: 200, description: 'Payment updated' })
-    async update(@Param('id') id: string, @Body() updatePaymentDto: any) {
-        return firstValueFrom(
-            this.client.send('payments.update', { id, updatePaymentDto })
-        );
+    update(@Param('id') id: string, @Body() updatePaymentDto: any) {
+        return this.client.send('payments.update', { id, updatePaymentDto });
     }
 
     /**
@@ -211,7 +192,7 @@ export class PaymentsController {
     @ApiBearerAuth()
     @ApiOperation({ summary: 'Delete payment' })
     @ApiResponse({ status: 200, description: 'Payment deleted' })
-    async remove(@Param('id') id: string) {
-        return firstValueFrom(this.client.send('payments.remove', { id }));
+    remove(@Param('id') id: string) {
+        return this.client.send('payments.remove', { id });
     }
 }

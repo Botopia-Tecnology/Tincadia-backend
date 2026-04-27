@@ -2,6 +2,7 @@ import { IsNotEmpty, IsString, IsOptional, IsEnum, IsEmail, IsIn } from 'class-v
 
 export enum PaymentPlan {
     PERSONAL_FREE = 'personal_free',
+    PERSONAL_BASICO = 'personal_basico',
     PERSONAL_PREMIUM = 'personal_premium',
     PERSONAL_CORPORATE = 'personal_corporate',
     EMPRESA_FREE = 'empresa_free',
