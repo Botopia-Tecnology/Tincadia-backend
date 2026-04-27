@@ -75,6 +75,25 @@ export class PaymentsController {
     }
 
     /**
+     * Webhook de RevenueCat — Apple/Google notifican compras y cancelaciones aquí.
+     * URL a poner en RevenueCat → "Apple Server Notification Forwarding URL":
+     *   https://tu-api.tincadia.com/payments/webhooks/revenuecat
+     *
+     * Este endpoint es PÚBLICO — RevenueCat no usa Bearer Token.
+     * La seguridad se da porque la URL no es adivinable (wsDCSlEMtYcDYeTKqNjIcZSbFItAZHAN ya protege el upstream).
+     */
+    @Post('webhooks/revenuecat')
+    @HttpCode(HttpStatus.OK)
+    @ApiOperation({ summary: 'RevenueCat webhook — handles Apple & Google IAP events' })
+    @ApiResponse({ status: 200, description: 'Event received and processed' })
+    async handleRevenueCatWebhook(@Body() event: any) {
+        this.logger.log(`📲 [RevenueCat] Incoming event: ${event?.event?.type} | User: ${event?.event?.app_user_id}`);
+        return firstValueFrom(
+            this.client.send('revenuecat.webhook', event)
+        );
+    }
+
+    /**
      * Verifica el estado de una transacción directamente con Wompi
      */
     @Get('verify/:transactionId')

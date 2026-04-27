@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { PaymentsModule } from './payments/payments.module';
 import { WompiModule } from './wompi/wompi.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { RevenueCatModule } from './revenuecat/revenuecat.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { SubscriptionsModule } from './subscriptions/subscriptions.module';
     PaymentsModule,
     WompiModule,
     SubscriptionsModule,
+    RevenueCatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

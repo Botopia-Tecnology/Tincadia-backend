@@ -49,6 +49,18 @@ export class Course {
     })
     previewLimit: number | null;
 
+    @Column({ name: 'price_in_cents', type: 'int', nullable: true })
+    priceInCents: number | null;
+
+    @Column({ name: 'price_label', type: 'varchar', nullable: true })
+    priceLabel: string | null;
+
+    @Column({ name: 'learning_points', type: 'jsonb', nullable: true })
+    learningPoints: string[] | null;
+
+    @Column({ name: 'features', type: 'jsonb', nullable: true })
+    features: string[] | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 
