@@ -55,7 +55,7 @@ export class Course {
     @Column({ name: 'price_label', type: 'varchar', nullable: true })
     priceLabel: string | null;
 
-    @Column({ name: 'learning_points', type: 'jsonb', nullable: true })
+    @Column({ name: 'learning_points', type: 'text', array: true, nullable: true })
     learningPoints: string[] | null;
 
     @Column({ name: 'features', type: 'jsonb', nullable: true })
