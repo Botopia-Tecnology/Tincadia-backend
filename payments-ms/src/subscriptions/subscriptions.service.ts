@@ -266,43 +266,52 @@ export class SubscriptionsService {
      */
     async getStatus(userId: string): Promise<{
         hasSubscription: boolean;
+        subscriptionId?: string;
         status?: string;
         planId?: string;
+        planName?: string;
         planType?: string;
         currentPeriodEnd?: Date;
         cancelAtPeriodEnd?: boolean;
         permissions?: string[];
         features?: any;
+        managedExternally?: boolean;
     }> {
         const sub = await this.findByUserId(userId);
 
         let features = {};
+        let planName: string | undefined;
 
         if (sub && (sub.status === 'active' || sub.status === 'trialing')) {
             // If user has active/trialing subscription, use that plan's features
             let planType: string | undefined;
 
-            if (sub.plan && sub.plan.features) {
-                features = sub.plan.features;
+            if (sub.plan) {
+                features = sub.plan.features || {};
                 planType = sub.plan.planType;
+                planName = sub.plan.name;
             } else if (sub.planId) {
                 // Fallback if relation not loaded but ID exists
                 const plan = await this.pricingPlanRepo.findOne({ where: { id: sub.planId } });
                 if (plan) {
-                    features = plan.features;
+                    features = plan.features || {};
                     planType = plan.planType;
+                    planName = plan.name;
                 }
             }
 
             return {
                 hasSubscription: true,
+                subscriptionId: sub.id,
                 status: sub.status,
                 planId: sub.planId,
+                planName,
                 planType,
                 currentPeriodEnd: sub.currentPeriodEnd,
                 cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
                 permissions: sub.plan?.includes || [],
-                features: features
+                features: features,
+                managedExternally: sub.lastPaymentReference?.startsWith('revenuecat_') || false
             };
         }
 
