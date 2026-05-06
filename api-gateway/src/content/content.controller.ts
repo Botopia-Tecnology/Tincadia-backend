@@ -266,4 +266,13 @@ export class ContentController {
     async deleteFaq(@Param('id') id: string) {
         return this.client.send('delete_faq', { id });
     }
+
+    // --- Cloudinary ---
+
+    @Get('cloudinary/signature')
+    @ApiOperation({ summary: 'Get Cloudinary upload signature for client-side uploads' })
+    @ApiResponse({ status: 200, description: 'Returns signature, timestamp, cloudName, and apiKey.' })
+    async getCloudinarySignature(@Query() params: Record<string, any>) {
+        return this.client.send('getUploadSignature', params);
+    }
 }
