@@ -15,6 +15,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from lsc_engine import LSCEngine, MODEL_PATH, CONFIG_PATH
 from lsc_streaming_exacto import LSCStreamingPredictor
+from lsc_engine_v2 import LSCEngineV2
+
+# Flag para usar V2 (BiGRU sobre secuencias). Default = V1 (comportamiento original).
+# Activar con:  USE_V2_ENGINE=true python main.py
+USE_V2_ENGINE = os.getenv("USE_V2_ENGINE", "false").lower() == "true"
 from gtts import gTTS # Fixed capitalization
 import numpy as np
 from transcription_agent import VoskAgent
@@ -30,12 +35,27 @@ LOGS_ENABLED = os.getenv("LOGS_ENABLED", "true").lower() == "true"
 @app.on_event("startup")
 async def startup_event():
     print("🚀 [Startup] Iniciando microservicio Model-ms...")
+    print(f"[Startup] USE_V2_ENGINE = {USE_V2_ENGINE}")
     try:
-        print("[Startup] Pre-cargando modelo ModeloV3001...")
-        # Forzar carga del singleton
+        print("[Startup] Pre-cargando modelo ModeloV3001 (V1)...")
+        # Forzar carga del singleton V1
         model, labels = LSCEngine.get_model_and_labels()
         if model is not None:
-            print(f"✅ [Startup] Modelo precargado exitosamente. Clases: {len(labels)}")
+            print(f"✅ [Startup] V1 precargado. Clases: {len(labels)}")
+
+        # Pre-cargar V2 si el flag está activo
+        if USE_V2_ENGINE:
+            print("[Startup] USE_V2_ENGINE=true → Pre-cargando V2 (BiGRU)...")
+            v2_model = LSCEngineV2.get_model()
+            v2_config = LSCEngineV2.get_config()
+            if v2_model is not None and v2_config is not None:
+                info = v2_config["model_info"]
+                print(f"✅ [Startup V2] {info['name']} cargado. "
+                      f"Accuracy: {info['val_accuracy']:.2%} | Clases: {info['num_classes']}")
+            else:
+                print("⚠️ [Startup V2] V2 no pudo cargarse. Servicio fallback a V1.")
+
+        if model is not None:
             
             # Pre-cargar GPT-2 en segundo plano para no bloquear el inicio
             print("🧠 [Startup] Iniciando carga de GPT-2 en segundo plano...")
@@ -79,8 +99,11 @@ async def _process_video_file(file: UploadFile) -> str:
         with open(video_path, "wb") as f:
             f.write(content)
 
-        # Predict
-        predictor = LSCEngine.get_predictor()
+        # Predict - V2 si flag activo, sino V1
+        if USE_V2_ENGINE:
+            predictor = LSCEngineV2.create_predictor()
+        else:
+            predictor = LSCEngine.get_predictor()
         if predictor is None:
             raise HTTPException(status_code=500, detail="Modelo no cargado")
 
@@ -301,10 +324,22 @@ active_predictors = {}
 async def connect(sid, environ):
     print(f"🔌 [Socket.IO] Intento de conexión: {sid}")  # Always print, not log()
     try:
-        # Obtener predictor compartido (ya cargado en startup)
+        # Rama V2: predictor con buffer rotativo de 30 frames POR sesión
+        if USE_V2_ENGINE:
+            predictor = LSCEngineV2.create_predictor()
+            if predictor is None:
+                print(f"❌ [Socket.IO V2] V2 no disponible. Rechazando {sid}")
+                return False
+            active_predictors[sid] = predictor
+            await sio.emit('status', {'message': 'Connected to Python LSC Model V2 (BiGRU)'}, to=sid)
+            print(f"✅ [Socket.IO V2] Conexión aceptada para {sid} | "
+                  f"Predictor V2 BiGRU (buffer: {predictor.frames_per_sequence})")
+            return
+
+        # Rama V1: comportamiento original sin cambios
         base_predictor = LSCEngine.get_predictor()
         print(f"[DEBUG-CONNECT] base_predictor obtenido: {base_predictor is not None}")
-        
+
         if base_predictor is None:
             print(f"❌ [Socket.IO Error] El predictor NO está listo. Intentando cargar...")
             base_predictor = LSCEngine.get_predictor() # Reintento carga
@@ -325,10 +360,10 @@ async def connect(sid, environ):
             shared_tokenizer=tokenizer
         )
         print(f"[DEBUG-CONNECT] Predictor de streaming creado exitosamente para {sid}")
-        
+
         active_predictors[sid] = predictor
         print(f"[DEBUG-CONNECT] Predictor guardado en active_predictors. Total activos: {len(active_predictors)}")
-        
+
         await sio.emit('status', {'message': 'Connected to Python LSC Model (Optimal)'}, to=sid)
         print(f"✅ [Socket.IO] Conexión aceptada para {sid} | Predictor: {'Híbrido (Neural+GPT2)' if predictor.context_aware_enabled else 'Solo Neural'}")
     except Exception as e:
