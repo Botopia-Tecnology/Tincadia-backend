@@ -8,208 +8,224 @@ import { Module } from './entities/module.entity';
 
 @Injectable()
 export class ContentService {
-    constructor(
-        @InjectRepository(Course)
-        private courseRepository: Repository<Course>,
-        @InjectRepository(Category)
-        private categoryRepository: Repository<Category>,
-        @InjectRepository(Module)
-        private moduleRepository: Repository<Module>,
-        @InjectRepository(Lesson)
-        private lessonRepository: Repository<Lesson>,
-    ) { }
+  constructor(
+    @InjectRepository(Course)
+    private courseRepository: Repository<Course>,
+    @InjectRepository(Category)
+    private categoryRepository: Repository<Category>,
+    @InjectRepository(Module)
+    private moduleRepository: Repository<Module>,
+    @InjectRepository(Lesson)
+    private lessonRepository: Repository<Lesson>,
+  ) {}
 
-    async findAll(after?: string) {
-        if (after) {
-            return this.courseRepository.find({
-                where: { updatedAt: MoreThan(new Date(after)) },
-                relations: ['category', 'modules']
-            });
-        }
-        return this.courseRepository.find({ relations: ['category', 'modules'] });
+  async findAll(after?: string) {
+    if (after) {
+      return this.courseRepository.find({
+        where: { updatedAt: MoreThan(new Date(after)) },
+        relations: ['category', 'modules'],
+      });
+    }
+    return this.courseRepository.find({ relations: ['category', 'modules'] });
+  }
+
+  async findAllCategories() {
+    return this.categoryRepository.find();
+  }
+
+  async createCategory(data: { name: string; description?: string }) {
+    const category = this.categoryRepository.create(data);
+    return this.categoryRepository.save(category);
+  }
+
+  async create(data: any) {
+    const course = this.courseRepository.create(data);
+    return this.courseRepository.save(course);
+  }
+
+  async update(id: string, data: any) {
+    await this.courseRepository.update(id, data);
+    return this.findOne(id);
+  }
+
+  async findOneWithAccess(id: string, hasAccess: boolean) {
+    return this.findOne(id, { hasAccess });
+  }
+
+  async findOne(
+    id: string,
+    opts?: { includePaid?: boolean; hasAccess?: boolean },
+  ) {
+    const course = await this.courseRepository.findOne({
+      where: { id },
+      relations: ['category', 'modules', 'modules.lessons'],
+      order: {
+        modules: {
+          order: 'ASC',
+          lessons: {
+            order: 'ASC',
+          },
+        },
+      },
+    });
+
+    if (!course) return null;
+
+    // If includePaid/hasAccess true, return without masking
+    if (opts?.includePaid || opts?.hasAccess) {
+      return course;
     }
 
-    async findAllCategories() {
-        return this.categoryRepository.find();
-    }
+    return this.maskPaidContent(course, !!opts?.hasAccess);
+  }
 
-    async createCategory(data: { name: string; description?: string }) {
-        const category = this.categoryRepository.create(data);
-        return this.categoryRepository.save(category);
-    }
+  async createModule(data: any) {
+    const module = this.moduleRepository.create(data);
+    return this.moduleRepository.save(module);
+  }
 
-    async create(data: any) {
-        const course = this.courseRepository.create(data);
-        return this.courseRepository.save(course);
-    }
+  async createLesson(data: any) {
+    const lesson = this.lessonRepository.create(data);
+    return this.lessonRepository.save(lesson);
+  }
 
-    async update(id: string, data: any) {
-        await this.courseRepository.update(id, data);
-        return this.findOne(id);
+  async updateLessonVideo(
+    lessonId: string,
+    videoUrl: string,
+    durationSeconds?: number,
+  ) {
+    const lesson = await this.lessonRepository.findOneBy({ id: lessonId });
+    if (lesson) {
+      lesson.videoUrl = videoUrl;
+      if (durationSeconds) lesson.durationSeconds = durationSeconds;
+      return this.lessonRepository.save(lesson);
     }
+    return null;
+  }
 
-    async findOneWithAccess(id: string, hasAccess: boolean) {
-        return this.findOne(id, { hasAccess });
-    }
+  async updateCourseThumbnail(courseId: string, thumbnailUrl: string) {
+    return this.courseRepository.update(courseId, { thumbnailUrl });
+  }
 
-    async findOne(id: string, opts?: { includePaid?: boolean; hasAccess?: boolean }) {
-        const course = await this.courseRepository.findOne({
-            where: { id },
-            relations: ['category', 'modules', 'modules.lessons'],
-            order: {
-                modules: {
-                    order: 'ASC',
-                    lessons: {
-                        order: 'ASC'
-                    }
-                }
-            }
+  async deleteCourse(id: string) {
+    return this.courseRepository.delete(id);
+  }
+
+  // --- Category CRUD ---
+  async updateCategory(id: string, data: any) {
+    await this.categoryRepository.update(id, data);
+    return this.categoryRepository.findOneBy({ id });
+  }
+
+  async deleteCategory(id: string) {
+    return this.categoryRepository.delete(id);
+  }
+
+  // --- Module CRUD ---
+  async updateModule(id: string, data: any) {
+    await this.moduleRepository.update(id, data);
+    return this.moduleRepository.findOneBy({ id });
+  }
+
+  async deleteModule(id: string) {
+    return this.moduleRepository.delete(id);
+  }
+
+  // --- Lesson CRUD ---
+  async updateLesson(id: string, data: any) {
+    await this.lessonRepository.update(id, data);
+    return this.lessonRepository.findOneBy({ id });
+  }
+
+  async deleteLesson(id: string) {
+    return this.lessonRepository.delete(id);
+  }
+
+  // --- Helpers for Cloudinary Hierarchy ---
+
+  private maskPaidContent(course: Course, hasAccess: boolean) {
+    if (hasAccess) return course;
+
+    const accessScope = (course as any).accessScope || 'course';
+    const courseIsPaid = (course as any).isPaid || false;
+    const previewLimit =
+      typeof (course as any).previewLimit === 'number'
+        ? (course as any).previewLimit
+        : 0;
+    let previewsRemaining = previewLimit;
+
+    const sortByOrder = <T extends { order?: number }>(arr: T[] = []) =>
+      [...arr].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    const maskedCourse = {
+      ...course,
+      modules: sortByOrder(course.modules || []).map((m: any) => {
+        const moduleIsPaid = !!m.isPaid;
+        const lessons = sortByOrder(m.lessons || []).map((l: any) => {
+          const lessonIsPaid = !!l.isPaid;
+          let isPreview = !!l.isFreePreview;
+
+          // Assign preview slots for course-level paywall if not already preview
+          if (
+            !isPreview &&
+            accessScope === 'course' &&
+            courseIsPaid &&
+            previewsRemaining > 0
+          ) {
+            isPreview = true;
+            previewsRemaining -= 1;
+          }
+
+          let locked = false;
+          if (accessScope === 'course' && courseIsPaid) {
+            locked = !isPreview;
+          } else if (accessScope === 'module' && moduleIsPaid) {
+            locked = !isPreview;
+          } else if (accessScope === 'lesson' && lessonIsPaid) {
+            locked = !isPreview;
+          }
+
+          return {
+            ...l,
+            isFreePreview: isPreview,
+            videoUrl: locked ? null : l.videoUrl,
+            locked,
+          };
         });
+        return { ...m, lessons };
+      }),
+    };
 
-        if (!course) return null;
+    return maskedCourse;
+  }
 
-        // If includePaid/hasAccess true, return without masking
-        if (opts?.includePaid || opts?.hasAccess) {
-            return course;
-        }
+  async getLessonHierarchy(lessonId: string) {
+    const lesson = await this.lessonRepository.findOne({
+      where: { id: lessonId },
+      relations: ['module', 'module.course', 'module.course.category'],
+    });
 
-        return this.maskPaidContent(course, !!opts?.hasAccess);
-    }
+    if (!lesson) return null;
 
-    async createModule(data: any) {
-        const module = this.moduleRepository.create(data);
-        return this.moduleRepository.save(module);
-    }
+    const categoryName =
+      lesson.module?.course?.category?.name || 'Uncategorized';
+    const courseTitle = lesson.module?.course?.title || 'Unknown Course';
+    const moduleTitle = lesson.module?.title || 'Unknown Module';
 
-    async createLesson(data: any) {
-        const lesson = this.lessonRepository.create(data);
-        return this.lessonRepository.save(lesson);
-    }
+    return { categoryName, courseTitle, moduleTitle };
+  }
 
-    async updateLessonVideo(lessonId: string, videoUrl: string, durationSeconds?: number) {
-        const lesson = await this.lessonRepository.findOneBy({ id: lessonId });
-        if (lesson) {
-            lesson.videoUrl = videoUrl;
-            if (durationSeconds) lesson.durationSeconds = durationSeconds;
-            return this.lessonRepository.save(lesson);
-        }
-        return null;
-    }
+  async getCourseHierarchy(courseId: string) {
+    const course = await this.courseRepository.findOne({
+      where: { id: courseId },
+      relations: ['category'],
+    });
 
-    async updateCourseThumbnail(courseId: string, thumbnailUrl: string) {
-        return this.courseRepository.update(courseId, { thumbnailUrl });
-    }
+    if (!course) return null;
 
-    async deleteCourse(id: string) {
-        return this.courseRepository.delete(id);
-    }
+    const categoryName = course.category?.name || 'Uncategorized';
+    const courseTitle = course.title || 'Unknown Course';
 
-    // --- Category CRUD ---
-    async updateCategory(id: string, data: any) {
-        await this.categoryRepository.update(id, data);
-        return this.categoryRepository.findOneBy({ id });
-    }
-
-    async deleteCategory(id: string) {
-        return this.categoryRepository.delete(id);
-    }
-
-    // --- Module CRUD ---
-    async updateModule(id: string, data: any) {
-        await this.moduleRepository.update(id, data);
-        return this.moduleRepository.findOneBy({ id });
-    }
-
-    async deleteModule(id: string) {
-        return this.moduleRepository.delete(id);
-    }
-
-    // --- Lesson CRUD ---
-    async updateLesson(id: string, data: any) {
-        await this.lessonRepository.update(id, data);
-        return this.lessonRepository.findOneBy({ id });
-    }
-
-    async deleteLesson(id: string) {
-        return this.lessonRepository.delete(id);
-    }
-
-    // --- Helpers for Cloudinary Hierarchy ---
-
-    private maskPaidContent(course: Course, hasAccess: boolean) {
-        if (hasAccess) return course;
-
-        const accessScope = (course as any).accessScope || 'course';
-        const courseIsPaid = (course as any).isPaid || false;
-        const previewLimit = typeof (course as any).previewLimit === 'number' ? (course as any).previewLimit : 0;
-        let previewsRemaining = previewLimit;
-
-        const sortByOrder = <T extends { order?: number }>(arr: T[] = []) =>
-            [...arr].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-        const maskedCourse = {
-            ...course,
-            modules: sortByOrder(course.modules || []).map((m: any) => {
-                const moduleIsPaid = !!m.isPaid;
-                const lessons = sortByOrder(m.lessons || []).map((l: any) => {
-                    const lessonIsPaid = !!l.isPaid;
-                    let isPreview = !!l.isFreePreview;
-
-                    // Assign preview slots for course-level paywall if not already preview
-                    if (!isPreview && accessScope === 'course' && courseIsPaid && previewsRemaining > 0) {
-                        isPreview = true;
-                        previewsRemaining -= 1;
-                    }
-
-                    let locked = false;
-                    if (accessScope === 'course' && courseIsPaid) {
-                        locked = !isPreview;
-                    } else if (accessScope === 'module' && moduleIsPaid) {
-                        locked = !isPreview;
-                    } else if (accessScope === 'lesson' && lessonIsPaid) {
-                        locked = !isPreview;
-                    }
-
-                    return {
-                        ...l,
-                        isFreePreview: isPreview,
-                        videoUrl: locked ? null : l.videoUrl,
-                        locked,
-                    };
-                });
-                return { ...m, lessons };
-            }),
-        };
-
-        return maskedCourse;
-    }
-
-    async getLessonHierarchy(lessonId: string) {
-        const lesson = await this.lessonRepository.findOne({
-            where: { id: lessonId },
-            relations: ['module', 'module.course', 'module.course.category'],
-        });
-
-        if (!lesson) return null;
-
-        const categoryName = lesson.module?.course?.category?.name || 'Uncategorized';
-        const courseTitle = lesson.module?.course?.title || 'Unknown Course';
-        const moduleTitle = lesson.module?.title || 'Unknown Module';
-
-        return { categoryName, courseTitle, moduleTitle };
-    }
-
-    async getCourseHierarchy(courseId: string) {
-        const course = await this.courseRepository.findOne({
-            where: { id: courseId },
-            relations: ['category'],
-        });
-
-        if (!course) return null;
-
-        const categoryName = course.category?.name || 'Uncategorized';
-        const courseTitle = course.title || 'Unknown Course';
-
-        return { categoryName, courseTitle };
-    }
+    return { categoryName, courseTitle };
+  }
 }

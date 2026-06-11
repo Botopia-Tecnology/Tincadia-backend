@@ -149,7 +149,24 @@ export class UpdateNotificationCategoryDto {
     icon?: string;
 
     @ApiPropertyOptional()
+    @ApiPropertyOptional()
     @IsOptional()
     @IsBoolean()
     isActive?: boolean;
+}
+
+export class PushTestDto {
+    @ApiProperty({ example: 'user-uuid-123', description: 'ID del usuario destinatario' })
+    @IsString()
+    userId: string;
+
+    @ApiProperty({ example: 'expo-push-token', description: 'Token de notificación push' })
+    @IsString()
+    token: string;
+}
+
+export class MarkReadBodyDto {
+    @ApiProperty({ example: 'user-uuid-123', description: 'ID del usuario' })
+    @IsString()
+    userId: string;
 }

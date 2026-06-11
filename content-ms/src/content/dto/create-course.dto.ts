@@ -1,13 +1,13 @@
 export class CreateCourseDto {
-    title: string;
-    description: string;
-    thumbnailUrl?: string; // Optional initially
-    categoryId: string;
-    accessScope?: 'course' | 'module' | 'lesson';
-    isPaid?: boolean;
-    previewLimit?: number | null;
-    priceInCents?: number;
-    priceLabel?: string;
-    learningPoints?: string[];
-    features?: string[];
+  title: string;
+  description: string;
+  thumbnailUrl?: string; // Optional initially
+  categoryId: string;
+  accessScope?: 'course' | 'module' | 'lesson';
+  isPaid?: boolean;
+  previewLimit?: number | null;
+  priceInCents?: number;
+  priceLabel?: string;
+  learningPoints?: string[];
+  features?: string[];
 }

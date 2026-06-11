@@ -22,11 +22,12 @@ import { LandingConfigModule } from './landing-config/landing-config.module';
           database: configService.get<string>('DB_NAME'),
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
           synchronize: false, // Disabled - use SQL migrations in Supabase
-          ssl: configService.get<string>('DB_HOST')?.includes('railway') ||
+          ssl:
+            configService.get<string>('DB_HOST')?.includes('railway') ||
             configService.get<string>('DB_HOST')?.includes('supabase') ||
             configService.get<string>('DB_HOST')?.includes('supabase.co')
-            ? { rejectUnauthorized: false }
-            : false,
+              ? { rejectUnauthorized: false }
+              : false,
         };
       },
     }),
@@ -34,4 +35,4 @@ import { LandingConfigModule } from './landing-config/landing-config.module';
     LandingConfigModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

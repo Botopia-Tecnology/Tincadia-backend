@@ -13,11 +13,17 @@ import { PricingService } from './pricing.service';
 import { PricingPlan } from './entities/pricing-plan.entity';
 
 @Module({
-    imports: [
-        ConfigModule.forRoot(),
-        TypeOrmModule.forFeature([Course, Category, CourseModule, Lesson, PricingPlan])
-    ],
-    controllers: [ContentController, PricingController],
-    providers: [ContentService, CloudinaryService, PricingService],
+  imports: [
+    ConfigModule.forRoot(),
+    TypeOrmModule.forFeature([
+      Course,
+      Category,
+      CourseModule,
+      Lesson,
+      PricingPlan,
+    ]),
+  ],
+  controllers: [ContentController, PricingController],
+  providers: [ContentService, CloudinaryService, PricingService],
 })
-export class ContentModule { }
+export class ContentModule {}

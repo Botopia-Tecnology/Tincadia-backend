@@ -17,9 +17,10 @@ import {
 import { ClientProxy } from '@nestjs/microservices';
 import { Inject } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { InitiatePaymentDto } from './dto/create-payment.dto';
+import { ChargeCardDto, UpdatePaymentDto } from './dto/payments.dto';
 
 @ApiTags('Payments')
 @Controller('payments')
@@ -59,6 +60,7 @@ export class PaymentsController {
     @Post('webhook')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Wompi webhook endpoint' })
+    @ApiBody({ schema: { type: 'object', description: 'Evento enviado por Wompi. Estructura definida por Wompi.' } })
     @ApiResponse({ status: 200, description: 'Event processed successfully' })
     handleWebhook(
         @Body() event: any,
@@ -78,6 +80,7 @@ export class PaymentsController {
     @Post('webhooks/revenuecat')
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'RevenueCat webhook — handles Apple & Google IAP events' })
+    @ApiBody({ schema: { type: 'object', description: 'Evento enviado por RevenueCat. Estructura definida por RevenueCat.' } })
     @ApiResponse({ status: 200, description: 'Event received and processed' })
     handleRevenueCatWebhook(@Body() event: any) {
         this.logger.log(`📲 [RevenueCat] Incoming event: ${event?.event?.type} | User: ${event?.event?.app_user_id}`);
@@ -135,9 +138,9 @@ export class PaymentsController {
      * Procesa un cargo directo a tarjeta
      */
     @Post('charge-card')
-    @ApiOperation({ summary: 'Process direct card charge' })
-    @ApiResponse({ status: 201, description: 'Card charged successfully' })
-    chargeCard(@Body() chargeCardDto: any) {
+    @ApiOperation({ summary: 'Procesar cargo directo a tarjeta de crédito' })
+    @ApiResponse({ status: 201, description: 'Cargo procesado exitosamente' })
+    chargeCard(@Body() chargeCardDto: ChargeCardDto) {
         this.logger.log(`Processing card charge through gateway`);
         return this.client.send('payments.charge-card', chargeCardDto);
     }
@@ -179,9 +182,9 @@ export class PaymentsController {
      */
     @Put(':id')
     @ApiBearerAuth()
-    @ApiOperation({ summary: 'Update payment' })
-    @ApiResponse({ status: 200, description: 'Payment updated' })
-    update(@Param('id') id: string, @Body() updatePaymentDto: any) {
+    @ApiOperation({ summary: 'Actualizar estado o datos de un pago' })
+    @ApiResponse({ status: 200, description: 'Pago actualizado' })
+    update(@Param('id') id: string, @Body() updatePaymentDto: UpdatePaymentDto) {
         return this.client.send('payments.update', { id, updatePaymentDto });
     }
 

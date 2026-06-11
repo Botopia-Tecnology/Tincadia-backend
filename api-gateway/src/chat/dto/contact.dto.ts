@@ -39,8 +39,11 @@ export class UpdateContactDto {
     @IsOptional()
     customFirstName?: string;
 
+    @ApiPropertyOptional({ description: 'Apellido personalizado' })
+    @IsString()
     @IsOptional()
     customLastName?: string;
+
 }
 
 export class GetContactsDto {

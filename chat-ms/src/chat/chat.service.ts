@@ -262,7 +262,7 @@ export class ChatService {
                 // Fetch push tokens for all recipients
                 const { data: recipientsProfiles } = await supabase
                     .from('profiles')
-                    .select('id, push_token')
+                    .select('id, push_token, voip_token, fcm_token')
                     .in('id', recipientIds);
 
                 // Send Notifications and Broadcasts (sin push para mensajes de sistema del grupo)
@@ -275,27 +275,40 @@ export class ChatService {
                         // Customize title: Group Name or Sender Name
                         const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
 
-                        await this.notificationsService.sendPushNotification(
-                            recipient.push_token,
-                            isCall ? `📞 Llamada de ${senderName}` : (notifTitle || 'Nuevo Mensaje'),
-                            isCall
-                                ? 'Toca para contestar...'
-                                : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
-                            {
-                                conversationId: data.conversationId,
-                                type: (isCall || isCallEnded || String(data.type) === 'call_rejected') ? data.type : 'new_message',
-                                senderId: data.senderId,
-                                senderName: senderName,
-                                roomName: isCall ? data.metadata?.roomName : undefined,
-                                isGroup: conversation.type === 'group' ? 'true' : 'false'
-                            },
-                            // Options — both call and call_ended use high-priority channel
-                            (isCall || isCallEnded || String(data.type) === 'call_rejected') ? {
-                                channelId: 'incoming_calls',
-                                priority: 'high',
-                                sound: isCall ? 'default' : undefined
-                            } : undefined
-                        );
+                        const payload = {
+                            conversationId: data.conversationId,
+                            type: (isCall || isCallEnded || String(data.type) === 'call_rejected') ? data.type : 'new_message',
+                            senderId: data.senderId,
+                            senderName: senderName,
+                            roomName: isCall ? data.metadata?.roomName : undefined,
+                            isGroup: conversation.type === 'group' ? 'true' : 'false'
+                        };
+
+                        if (isCall && (recipient.voip_token || recipient.fcm_token)) {
+                            // If it's a call and they have native call tokens
+                            if (recipient.voip_token) {
+                                await this.notificationsService.sendVoipPushNotification(recipient.voip_token, payload);
+                            }
+                            if (recipient.fcm_token) {
+                                await this.notificationsService.sendFcmDataNotification(recipient.fcm_token, payload);
+                            }
+                        } else if (recipient.push_token && !skipPushForSystem) {
+                            // Fallback to Expo Push Notification
+                            await this.notificationsService.sendPushNotification(
+                                recipient.push_token,
+                                isCall ? `📞 Llamada de ${senderName}` : (notifTitle || 'Nuevo Mensaje'),
+                                isCall
+                                    ? 'Toca para contestar...'
+                                    : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
+                                payload,
+                                // Options — both call and call_ended use high-priority channel
+                                (isCall || isCallEnded || String(data.type) === 'call_rejected') ? {
+                                    channelId: 'incoming_calls',
+                                    priority: 'high',
+                                    sound: isCall ? 'default' : undefined
+                                } : undefined
+                            );
+                        }
                     }
 
                     // 🚀 BROADCAST TO RECIPIENT'S USER CHANNEL
@@ -326,6 +339,20 @@ export class ChatService {
                             payload: {
                                 conversationId: data.conversationId,
                                 senderId: data.senderId,
+                            }
+                        });
+                    }
+
+                    if (data.type === 'call') {
+                        await recipientChannel.send({
+                            type: 'broadcast',
+                            event: 'incoming_call',
+                            payload: {
+                                conversationId: data.conversationId,
+                                senderId: data.senderId,
+                                senderName: senderName,
+                                roomName: data.metadata?.roomName,
+                                isGroup: conversation.type === 'group'
                             }
                         });
                     }

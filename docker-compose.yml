@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  api-gateway:
+    build:
+      context: ./api-gateway
+    container_name: api-gateway
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - authHost=auth-ms
+      - authPort=3002
+      - paymentsHost=payments-ms
+      - paymentsPort=3003
+      - formsHost=forms-ms
+      - formsPort=3004
+      - communicationHost=communication-ms
+      - communicationPort=3005
+      - chatHost=chat-ms
+      - chatPort=3006
+      - contactsHost=contacts-ms
+      - contactsPort=3007
+      - contentHost=content-ms
+      - contentPort=3008
+      - emergencyHost=emergency-ms
+      - emergencyPort=3009
+    env_file:
+      - ./api-gateway/.env
+    depends_on:
+      - auth-ms
+      - payments-ms
+      - forms-ms
+      - communication-ms
+      - chat-ms
+      - contacts-ms
+      - content-ms
+      - emergency-ms
+
+  auth-ms:
+    build:
+      context: ./auth-ms
+    container_name: auth-ms
+    environment:
+      - authPort=3002
+    env_file:
+      - ./auth-ms/.env
+
+  payments-ms:
+    build:
+      context: ./payments-ms
+    container_name: payments-ms
+    environment:
+      - paymentsPort=3003
+    env_file:
+      - ./payments-ms/.env
+
+  forms-ms:
+    build:
+      context: ./forms-ms
+    container_name: forms-ms
+    environment:
+      - formsPort=3004
+    env_file:
+      - ./forms-ms/.env
+
+  communication-ms:
+    build:
+      context: ./communication-ms
+    container_name: communication-ms
+    environment:
+      - communicationPort=3005
+    env_file:
+      - ./communication-ms/.env
+
+  chat-ms:
+    build:
+      context: ./chat-ms
+    container_name: chat-ms
+    environment:
+      - chatPort=3006
+    env_file:
+      - ./chat-ms/.env
+
+  contacts-ms:
+    build:
+      context: ./contacts-ms
+    container_name: contacts-ms
+    environment:
+      - contactsPort=3007
+    env_file:
+      - ./contacts-ms/.env
+
+  content-ms:
+    build:
+      context: ./content-ms
+    container_name: content-ms
+    environment:
+      - contentPort=3008
+    env_file:
+      - ./content-ms/.env
+
+  emergency-ms:
+    build:
+      context: ./emergency-ms
+    container_name: emergency-ms
+    environment:
+      - emergencyPort=3009
+    env_file:
+      - ./emergency-ms/.env
