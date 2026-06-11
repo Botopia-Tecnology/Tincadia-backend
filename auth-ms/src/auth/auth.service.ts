@@ -41,7 +41,15 @@ export class AuthService {
       });
 
       if (error) {
-        throw new UnauthorizedException(error.message);
+        const supabaseErrors: Record<string, string> = {
+          'Invalid login credentials': 'Correo electrónico o contraseña incorrectos.',
+          'Email not confirmed': 'Tu correo electrónico no ha sido verificado. Revisá tu bandeja de entrada.',
+          'User not found': 'No existe una cuenta con ese correo electrónico.',
+          'Too many requests': 'Demasiados intentos fallidos. Esperá unos minutos antes de intentar de nuevo.',
+          'Email rate limit exceeded': 'Demasiados intentos. Esperá unos minutos antes de intentar de nuevo.',
+        };
+        const localizedMessage = supabaseErrors[error.message] ?? 'Credenciales inválidas. Verificá tus datos e intentá de nuevo.';
+        throw new UnauthorizedException(localizedMessage);
       }
 
       const profile = await this.profileService.findById(authData.user.id);
@@ -68,6 +76,21 @@ export class AuthService {
     try {
       const supabase = this.supabaseService.getAdminClient();
 
+      // 0. Validar si el teléfono o documento ya existen antes de tocar Supabase Auth
+      if (phone) {
+        const existingPhone = await this.profileService.findByPhone(phone);
+        if (existingPhone) {
+          throw new ConflictException('El número ya se encuentra registrado');
+        }
+      }
+      
+      if (documentNumber) {
+        const docCheck = await this.checkDocumentExists(documentNumber);
+        if (docCheck.exists) {
+          throw new ConflictException('Este número de documento ya está registrado.');
+        }
+      }
+
       // 1. Create user in Supabase Auth
       const { data: authData, error: signUpError } = await supabase.auth.signUp({
         email,
@@ -91,25 +114,35 @@ export class AuthService {
         throw new BadRequestException('El registro de usuario falló.');
       }
 
-      // 2. Create profile in local database
-      const profile = await this.profileService.create({
-        id: authData.user.id,
-        firstName,
-        lastName,
-        documentTypeId,
-        documentNumber: documentNumber || '',
-        phone: phone || '',
-      });
+      try {
+        // 2. Create profile in local database
+        const profile = await this.profileService.create({
+          id: authData.user.id,
+          firstName,
+          lastName,
+          documentTypeId,
+          documentNumber: documentNumber || '',
+          phone: phone || '',
+        });
 
-      // 3. Generate JWT token
-      const token = this.tokenService.generateToken({ id: authData.user.id, email });
+        // 3. Generate JWT token
+        const token = this.tokenService.generateToken({ id: authData.user.id, email });
 
-      return {
-        user: this.profileService.toUserResponse(profile, authData.user),
-        token,
-        session: authData.session,
-        isProfileComplete: this.profileService.isProfileComplete(profile),
-      };
+        return {
+          user: this.profileService.toUserResponse(profile, authData.user),
+          token,
+          session: authData.session,
+          isProfileComplete: this.profileService.isProfileComplete(profile),
+        };
+      } catch (innerError) {
+        // ROLLBACK: Eliminar el usuario en Supabase Auth porque falló la creación del perfil
+        await supabase.auth.admin.deleteUser(authData.user.id);
+        
+        if (innerError.code === '23505' || (innerError.message && innerError.message.toLowerCase().includes('unique'))) {
+          throw new ConflictException('El número ya se encuentra registrado');
+        }
+        throw innerError;
+      }
     } catch (error) {
       if (error instanceof ConflictException || error instanceof BadRequestException) {
         throw error;
@@ -520,6 +553,58 @@ export class AuthService {
     } catch (error) {
       this.logger.error(`Error updating push token: ${error.message}`);
       throw new BadRequestException('Error al actualizar token de notificaciones');
+    }
+  }
+
+  async updateVoipToken(userId: string, voipToken: string): Promise<void> {
+    try {
+      const supabase = this.supabaseService.getAdminClient();
+      this.logger.log(`📞 Updating VoIP token for user ${userId}`);
+
+      if (voipToken) {
+        await supabase
+          .from('profiles')
+          .update({ voip_token: null })
+          .eq('voip_token', voipToken)
+          .neq('id', userId);
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ voip_token: voipToken || null })
+        .eq('id', userId);
+
+      if (error) throw new Error(error.message);
+      this.logger.log('✅ VoIP token updated successfully');
+    } catch (error) {
+      this.logger.error(`Error updating VoIP token: ${error.message}`);
+      throw new BadRequestException('Error al actualizar token de VoIP');
+    }
+  }
+
+  async updateFcmToken(userId: string, fcmToken: string): Promise<void> {
+    try {
+      const supabase = this.supabaseService.getAdminClient();
+      this.logger.log(`🤖 Updating FCM token for user ${userId}`);
+
+      if (fcmToken) {
+        await supabase
+          .from('profiles')
+          .update({ fcm_token: null })
+          .eq('fcm_token', fcmToken)
+          .neq('id', userId);
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ fcm_token: fcmToken || null })
+        .eq('id', userId);
+
+      if (error) throw new Error(error.message);
+      this.logger.log('✅ FCM token updated successfully');
+    } catch (error) {
+      this.logger.error(`Error updating FCM token: ${error.message}`);
+      throw new BadRequestException('Error al actualizar token de FCM');
     }
   }
 

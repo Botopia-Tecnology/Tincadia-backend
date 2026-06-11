@@ -9,6 +9,9 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
+import { LogoutDto } from './dto/logout.dto';
+import { VerifyTokenDto } from './dto/verify-token.dto';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('Authentication')
@@ -117,22 +120,33 @@ export class AuthController {
     return this.client.send('update_push_token', data);
   }
 
+  @Post('update-voip-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Actualizar token VoIP (iOS)',
+    description: 'Guarda el token de PushKit para llamadas nativas.'
+  })
+  updateVoipToken(@Body() data: { userId: string; voipToken: string }) {
+    return this.client.send('update_voip_token', data);
+  }
+
+  @Post('update-fcm-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Actualizar token FCM (Android)',
+    description: 'Guarda el token de FCM para llamadas nativas por Data Message.'
+  })
+  updateFcmToken(@Body() data: { userId: string; fcmToken: string }) {
+    return this.client.send('update_fcm_token', data);
+  }
+
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Cerrar sesión',
     description: 'Invalida el token del usuario y cierra todas sus sesiones activas en Supabase'
   })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      properties: {
-        userId: { type: 'string', example: 'uuid-123' },
-        token: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' }
-      },
-      required: ['userId', 'token']
-    }
-  })
+  @ApiBody({ type: LogoutDto })
   @ApiResponse({
     status: 200,
     description: 'Sesión cerrada exitosamente',
@@ -140,7 +154,7 @@ export class AuthController {
   })
   @ApiResponse({ status: 401, description: 'Token inválido o no corresponde al usuario' })
   @ApiResponse({ status: 400, description: 'Error al cerrar sesión' })
-  logout(@Body() logoutDto: { userId: string; token: string }) {
+  logout(@Body() logoutDto: LogoutDto) {
     return this.client.send('logout', logoutDto);
   }
 
@@ -244,7 +258,7 @@ export class AuthController {
     }
   })
   @ApiResponse({ status: 401, description: 'Token inválido, expirado o malformado' })
-  verifyToken(@Body() data: { token: string }) {
+  verifyToken(@Body() data: VerifyTokenDto) {
     return this.client.send('verify_token', data);
   }
 
@@ -390,9 +404,9 @@ export class AuthController {
   @Post('users/:userId/role')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Actualizar rol de usuario (Admin)' })
-  @ApiBody({ schema: { type: 'object', properties: { role: { type: 'string', enum: ['User', 'Admin', 'Interpreter'] } } } })
+  @ApiBody({ type: UpdateUserRoleDto })
   @ApiResponse({ status: 200, description: 'Rol actualizado exitosamente' })
-  updateUserRole(@Param('userId') userId: string, @Body() body: { role: string }) {
+  updateUserRole(@Param('userId') userId: string, @Body() body: UpdateUserRoleDto) {
     return this.client.send('update_role', { userId, role: body.role });
   }
 

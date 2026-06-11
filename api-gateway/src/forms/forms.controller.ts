@@ -2,9 +2,13 @@ import { Controller, Get, Post, Put, Delete, Body, Param, UseInterceptors, Uploa
 import { ClientProxy } from '@nestjs/microservices';
 import { Inject } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { FormsService } from './forms.service';
 import { CreateFormDto } from './dto/create-form.dto';
+import { UpdateFormDto, SubmitFormDto, UpdateSubmissionDto } from './dto/forms.dto';
 
+@ApiTags('Forms')
+@ApiBearerAuth()
 @Controller('forms')
 export class FormsController {
   constructor(
@@ -13,170 +17,146 @@ export class FormsController {
   ) { }
 
   @Post()
+  @ApiOperation({ summary: 'Crear un nuevo formulario' })
+  @ApiResponse({ status: 201, description: 'Formulario creado exitosamente' })
   create(@Body() createFormDto: CreateFormDto) {
-    return this.client.send('create_form', createFormDto);
+    return this.client.send('create_form', createFormDto) ;
   }
 
   @Get()
+  @ApiOperation({ summary: 'Obtener todos los formularios' })
+  @ApiResponse({ status: 200, description: 'Lista de formularios' })
   findAll() {
     return this.client.send('find_all_forms', {});
   }
 
   @Get('submissions')
+  @ApiOperation({ summary: 'Obtener todas las respuestas de formularios' })
+  @ApiResponse({ status: 200, description: 'Lista de respuestas' })
   async findAllSubmissions() {
     try {
-      console.log('📝 [API Gateway] Fetching all submissions');
-      const result = await this.client.send('find_all_submissions', {}).toPromise();
-      console.log(`✅ [API Gateway] Received ${Array.isArray(result) ? result.length : 'invalid'} submissions`);
-      return result;
+      return await this.client.send('find_all_submissions', {}).toPromise();
     } catch (error) {
-      console.error('❌ [API Gateway] Error fetching submissions:', error);
-
       const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
-      const message = error?.message || 'Internal server error fetching submissions';
-
-      throw new HttpException({
-        status,
-        message,
-        timestamp: new Date().toISOString(),
-      }, status);
+      const message = error?.message || 'Error interno al obtener las respuestas';
+      throw new HttpException({ status, message, timestamp: new Date().toISOString() }, status);
     }
   }
 
   @Get('my-applications')
+  @ApiOperation({ summary: 'Obtener mis solicitudes (respuestas de formularios)' })
+  @ApiQuery({ name: 'userId', required: false })
+  @ApiQuery({ name: 'email', required: false })
+  @ApiQuery({ name: 'documentNumber', required: false })
+  @ApiResponse({ status: 200, description: 'Lista de solicitudes del usuario' })
   async findMyApplications(
     @Query('userId') userId?: string,
     @Query('email') email?: string,
     @Query('documentNumber') documentNumber?: string
   ) {
     try {
-      console.log('📝 [API Gateway] Fetching my applications for:', { userId, email, documentNumber });
       if (!userId && !email && !documentNumber) {
-        throw new HttpException('At least one of userId, email, or documentNumber is required', HttpStatus.BAD_REQUEST);
+        throw new HttpException('Se requiere al menos uno de los siguientes: userId, email o documentNumber', HttpStatus.BAD_REQUEST);
       }
-      const result = await this.client.send('find_submissions_by_user', { userId, email, documentNumber }).toPromise();
-      console.log(`✅ [API Gateway] Received ${Array.isArray(result) ? result.length : 'invalid'} applications for user`);
-      return result;
+      return await this.client.send('find_submissions_by_user', { userId, email, documentNumber }).toPromise();
     } catch (error) {
-      console.error('❌ [API Gateway] Error fetching user applications:', error);
       const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
-      const message = error?.message || 'Internal server error fetching user applications';
+      const message = error?.message || 'Error interno al obtener las solicitudes del usuario';
       throw new HttpException({ status, message }, status);
     }
   }
 
   @Delete('submissions/:id')
+  @ApiOperation({ summary: 'Eliminar una respuesta de formulario' })
+  @ApiParam({ name: 'id', description: 'ID de la respuesta' })
+  @ApiResponse({ status: 200, description: 'Respuesta eliminada' })
   async deleteSubmission(@Param('id') id: string) {
     try {
-      console.log('🗑️ [API Gateway] Deleting submission:', id);
-      const result = await this.client.send('delete_submission', { id }).toPromise();
-      console.log('✅ [API Gateway] Submission deleted');
-      return result;
+      return await this.client.send('delete_submission', { id }).toPromise();
     } catch (error) {
-      console.error('❌ [API Gateway] Error deleting submission:', error);
       const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
-      const message = error?.message || 'Internal server error deleting submission';
+      const message = error?.message || 'Error interno al eliminar la respuesta';
       throw new HttpException({ status, message }, status);
     }
   }
 
   @Put('submissions/:id')
-  async updateSubmission(@Param('id') id: string, @Body() updateData: any) {
+  @ApiOperation({ summary: 'Actualizar una respuesta de formulario' })
+  @ApiParam({ name: 'id', description: 'ID de la respuesta' })
+  @ApiResponse({ status: 200, description: 'Respuesta actualizada' })
+  async updateSubmission(@Param('id') id: string, @Body() dto: UpdateSubmissionDto) {
     try {
-      console.log('📝 [API Gateway] Updating submission:', id);
-      const result = await this.client.send('update_submission', { id, updateData }).toPromise();
-      console.log('✅ [API Gateway] Submission updated');
-      return result;
+      return await this.client.send('update_submission', { id, updateData: dto.updateData }).toPromise();
     } catch (error) {
-      console.error('❌ [API Gateway] Error updating submission:', error);
       const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
-      const message = error?.message || 'Internal server error updating submission';
+      const message = error?.message || 'Error interno al actualizar la respuesta';
       throw new HttpException({ status, message }, status);
     }
   }
 
   @Get(':id')
+  @ApiOperation({ summary: 'Obtener un formulario por ID' })
+  @ApiParam({ name: 'id', description: 'ID del formulario' })
+  @ApiResponse({ status: 200, description: 'Detalle del formulario' })
   findOne(@Param('id') id: string) {
     return this.client.send('find_one_form', { id });
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateFormDto: any) {
+  @ApiOperation({ summary: 'Actualizar un formulario' })
+  @ApiParam({ name: 'id', description: 'ID del formulario' })
+  @ApiResponse({ status: 200, description: 'Formulario actualizado' })
+  update(@Param('id') id: string, @Body() updateFormDto: UpdateFormDto) {
     return this.client.send('update_form', { id, updateData: updateFormDto });
   }
 
   @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar un formulario' })
+  @ApiParam({ name: 'id', description: 'ID del formulario' })
+  @ApiResponse({ status: 200, description: 'Formulario eliminado' })
   remove(@Param('id') id: string) {
     return this.client.send('delete_form', { id });
   }
 
   @Get('type/:type')
+  @ApiOperation({ summary: 'Obtener un formulario por su código de tipo' })
+  @ApiParam({ name: 'type', description: 'Código del tipo (ej: voluntariado, interprete)' })
+  @ApiResponse({ status: 200, description: 'Formulario encontrado' })
   async findByType(@Param('type') type: string) {
     try {
-      console.log('📝 [API Gateway] Finding form by type:', type);
-      const result = await this.client.send('find_form_by_type', { type }).toPromise();
-      console.log('✅ [API Gateway] Form found:', result?.id);
-      return result;
+      return await this.client.send('find_form_by_type', { type }).toPromise();
     } catch (error: any) {
-      console.error('❌ [API Gateway] Error fetching form by type:', error);
-      console.error('❌ [API Gateway] Error details:', {
-        message: error?.message,
-        status: error?.status,
-        statusCode: error?.statusCode,
-      });
-
-      // Convert RpcException to HttpException
       const status = error?.status || error?.statusCode || HttpStatus.INTERNAL_SERVER_ERROR;
-      const message = error?.message || 'Internal server error';
-
+      const message = error?.message || 'Error interno al buscar el formulario';
       throw new HttpException(message, status);
     }
   }
 
   @Post('submit')
-  async submit(@Body() submissionDto: any) {
+  @ApiOperation({ summary: 'Enviar respuesta de un formulario' })
+  @ApiResponse({ status: 201, description: 'Respuesta enviada exitosamente' })
+  async submit(@Body() submissionDto: SubmitFormDto) {
     try {
-      console.log('📝 [API Gateway] Received form submission:', {
-        formId: submissionDto.formId,
-        submittedBy: submissionDto.submittedBy,
-        hasData: !!submissionDto.data,
-        dataSize: JSON.stringify(submissionDto.data || {}).length,
-      });
-
-      // Add timeout to prevent hanging
-      const result = await Promise.race([
+      return await Promise.race([
         this.client.send('submit_form', submissionDto).toPromise(),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Request timeout after 30s')), 30000)
+          setTimeout(() => reject(new Error('Tiempo de espera agotado (30s)')), 30000)
         ),
       ]) as any;
-
-      console.log('✅ [API Gateway] Form submission successful:', {
-        submissionId: result?.submission?.id,
-        userStatus: result?.userStatus,
-      });
-
-      return result;
     } catch (error) {
-      console.error('❌ [API Gateway] Error in form submission:', error);
-      console.error('❌ [API Gateway] Error details:', {
-        message: error?.message,
-        name: error?.name,
-        stack: error?.stack,
-        code: error?.code,
-      });
       throw error;
     }
   }
 
   @Post('upload')
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Subir un archivo adjunto para un formulario' })
   @UseInterceptors(FileInterceptor('file'))
   uploadFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
-      throw new Error('No file uploaded');
+      throw new HttpException('No se subió ningún archivo', HttpStatus.BAD_REQUEST);
     }
 
-    // Convert file buffer to base64 for TCP transport
     const fileBase64 = file.buffer.toString('base64');
 
     return this.client.send('upload_file', {
@@ -185,5 +165,4 @@ export class FormsController {
       mimeType: file.mimetype,
     });
   }
-
 }

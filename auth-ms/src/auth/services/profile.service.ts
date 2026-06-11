@@ -45,6 +45,12 @@ export class ProfileService {
         });
     }
 
+    async findByPhone(phone: string): Promise<Profile | null> {
+        return this.profileRepository.findOne({
+            where: { phone },
+        });
+    }
+
     async findByIdOrFail(id: string): Promise<Profile> {
         const profile = await this.findById(id);
         if (!profile) {

@@ -15,6 +15,7 @@ import { lastValueFrom } from 'rxjs';
 import { StartContactsSyncDto } from './dto/start-contacts-sync.dto';
 import { ContactsSyncChunkDto } from './dto/contacts-sync-chunk.dto';
 import { CompleteContactsSyncDto } from './dto/complete-contacts-sync.dto';
+import { BatchIdDto } from './dto/batch-id.dto';
 
 @ApiTags('Contacts')
 @Controller('contacts/sync')
@@ -26,17 +27,17 @@ export class ContactsController {
 
   private async getUserIdFromAuthHeader(authHeader?: string): Promise<string> {
     if (!authHeader) {
-      throw new UnauthorizedException('Authorization header is required');
+      throw new UnauthorizedException('El encabezado de autorización es requerido');
     }
     const token = authHeader.replace('Bearer ', '').trim();
     if (!token) {
-      throw new UnauthorizedException('Token is required');
+      throw new UnauthorizedException('El token es requerido');
     }
 
     const res = await lastValueFrom(this.authClient.send('verify_token', { token }));
     const userId = res?.user?.id;
     if (!userId) {
-      throw new UnauthorizedException('Invalid or expired token');
+      throw new UnauthorizedException('Token inválido o expirado');
     }
     return userId;
   }
@@ -92,7 +93,7 @@ export class ContactsController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Pausar sincronización' })
-  pause(@Headers('authorization') authHeader: string, @Body() body: { batchId: string }) {
+  pause(@Headers('authorization') authHeader: string, @Body() body: BatchIdDto) {
     return (async () => {
       const userId = await this.getUserIdFromAuthHeader(authHeader);
       return lastValueFrom(this.contactsClient.send('contacts_sync_pause', { userId, ...body }));
@@ -103,7 +104,7 @@ export class ContactsController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Reanudar sincronización' })
-  resume(@Headers('authorization') authHeader: string, @Body() body: { batchId: string }) {
+  resume(@Headers('authorization') authHeader: string, @Body() body: BatchIdDto) {
     return (async () => {
       const userId = await this.getUserIdFromAuthHeader(authHeader);
       return lastValueFrom(this.contactsClient.send('contacts_sync_resume', { userId, ...body }));

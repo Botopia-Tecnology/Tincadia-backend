@@ -11,6 +11,7 @@ import { SendChatMessageDto } from './dto/send-message.dto';
 import { GetMessagesDto, GetConversationsDto, MarkAsReadDto, EditMessageDto, DeleteMessageDto } from './dto/chat.dto';
 import { AddContactDto, UpdateContactDto } from './dto/contact.dto';
 import { RemoveParticipantDto, PromoteToAdminDto, LeaveGroupDto, UpdateGroupDto, AddParticipantDto } from './dto/group-management.dto';
+import { InviteInterpretersDto, SetInterpreterStatusDto, ClaimInterpreterInviteDto } from './dto/interpreter.dto';
 
 @ApiTags('Chat')
 @ApiBearerAuth()
@@ -162,21 +163,21 @@ export class ChatController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Invitar intérpretes a una llamada' })
     @ApiResponse({ status: 200, description: 'Invitaciones enviadas' })
-    inviteInterpreters(@Body() dto: { roomName: string; userId: string; username: string }) {
+    inviteInterpreters(@Body() dto: InviteInterpretersDto) {
         return this.client.send('invite_interpreters', dto);
     }
 
     @Post('interpreter/status')
-    @ApiOperation({ summary: 'Update interpreter busy status' })
-    @ApiBody({ schema: { type: 'object', properties: { userId: { type: 'string' }, isBusy: { type: 'boolean' } } } })
-    setInterpreterStatus(@Body() body: { userId: string; isBusy: boolean }) {
+    @ApiOperation({ summary: 'Actualizar estado de disponibilidad del intérprete' })
+    @ApiBody({ type: SetInterpreterStatusDto })
+    setInterpreterStatus(@Body() body: SetInterpreterStatusDto) {
         return this.client.send('set_interpreter_status', body);
     }
 
     @Post('interpreter/claim')
     @ApiOperation({ summary: 'Reclamar una invitación de intérprete' })
-    @ApiBody({ schema: { type: 'object', properties: { inviteId: { type: 'string' }, userId: { type: 'string' } } } })
-    claimInterpreterInvite(@Body() body: { inviteId: string; userId: string }) {
+    @ApiBody({ type: ClaimInterpreterInviteDto })
+    claimInterpreterInvite(@Body() body: ClaimInterpreterInviteDto) {
         return this.client.send('claim_interpreter_invite', body);
     }
 

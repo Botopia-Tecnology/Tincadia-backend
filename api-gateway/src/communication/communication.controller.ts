@@ -1,13 +1,14 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
 import { Inject } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { CommunicationService } from './communication.service';
-import { SendMessageDto } from './dto/send-message.dto';
-import { CreateAppNotificationDto, UpdateAppNotificationDto } from './dto/app-notification.dto';
+import { SendMessageDto, UpdateMessageDto } from './dto/send-message.dto';
+import { CreateAppNotificationDto, UpdateAppNotificationDto, CreateNotificationCategoryDto, UpdateNotificationCategoryDto, PushTestDto, MarkReadBodyDto } from './dto/app-notification.dto';
 
-@Controller('communication')
 @ApiTags('Communication')
+@ApiBearerAuth()
+@Controller('communication')
 export class CommunicationController {
   constructor(
     @Inject('COMMUNICATION_SERVICE') private readonly client: ClientProxy,
@@ -15,26 +16,39 @@ export class CommunicationController {
   ) { }
 
   @Post('send')
+  @ApiOperation({ summary: 'Enviar un mensaje (Email, SMS, Push, In-App)' })
+  @ApiResponse({ status: 201, description: 'Mensaje enviado correctamente' })
   send(@Body() sendDto: SendMessageDto) {
     return this.client.send('send_message', sendDto);
   }
 
   @Get()
+  @ApiOperation({ summary: 'Obtener historial de mensajes enviados' })
+  @ApiResponse({ status: 200, description: 'Lista de mensajes' })
   findAll() {
     return this.client.send('find_all_messages', {});
   }
 
   @Get(':id')
+  @ApiOperation({ summary: 'Obtener un mensaje específico por ID' })
+  @ApiParam({ name: 'id', description: 'ID del mensaje' })
+  @ApiResponse({ status: 200, description: 'Detalle del mensaje' })
   findOne(@Param('id') id: string) {
     return this.client.send('find_one_message', { id });
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateDto: any) {
+  @ApiOperation({ summary: 'Actualizar un mensaje' })
+  @ApiParam({ name: 'id', description: 'ID del mensaje' })
+  @ApiResponse({ status: 200, description: 'Mensaje actualizado' })
+  update(@Param('id') id: string, @Body() updateDto: UpdateMessageDto) {
     return this.client.send('update_message', { id, updateData: updateDto });
   }
 
   @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar un mensaje del historial' })
+  @ApiParam({ name: 'id', description: 'ID del mensaje' })
+  @ApiResponse({ status: 200, description: 'Mensaje eliminado' })
   remove(@Param('id') id: string) {
     return this.client.send('delete_message', { id });
   }
@@ -42,8 +56,9 @@ export class CommunicationController {
 
 // ==================== App Notifications Controller ====================
 
-@Controller('notifications')
 @ApiTags('App Notifications')
+@ApiBearerAuth()
+@Controller('notifications')
 export class AppNotificationsController {
   constructor(
     @Inject('COMMUNICATION_SERVICE') private readonly client: ClientProxy,
@@ -69,7 +84,7 @@ export class AppNotificationsController {
   @ApiOperation({ summary: 'Marcar notificación como leída' })
   @ApiParam({ name: 'id', description: 'ID de la notificación' })
   @ApiResponse({ status: 200, description: 'Marcada como leída' })
-  markAsRead(@Param('id') notificationId: string, @Body() body: { userId: string }) {
+  markAsRead(@Param('id') notificationId: string, @Body() body: MarkReadBodyDto) {
     return this.client.send('mark_notification_read', { userId: body.userId, notificationId });
   }
 
@@ -125,7 +140,7 @@ export class AppNotificationsController {
   @Post('categories')
   @ApiOperation({ summary: '[Admin] Crear categoría de notificación' })
   @ApiResponse({ status: 201, description: 'Categoría creada' })
-  createCategory(@Body() dto: any) {
+  createCategory(@Body() dto: CreateNotificationCategoryDto) {
     return this.client.send('create_notification_category', dto);
   }
 
@@ -133,7 +148,7 @@ export class AppNotificationsController {
   @ApiOperation({ summary: '[Admin] Actualizar categoría' })
   @ApiParam({ name: 'id', description: 'ID de la categoría' })
   @ApiResponse({ status: 200, description: 'Categoría actualizada' })
-  updateCategory(@Param('id') id: string, @Body() dto: any) {
+  updateCategory(@Param('id') id: string, @Body() dto: UpdateNotificationCategoryDto) {
     return this.client.send('update_notification_category', { id, dto });
   }
 
@@ -150,7 +165,7 @@ export class AppNotificationsController {
   @Post('push-test')
   @ApiOperation({ summary: 'Enviar notificación push de prueba' })
   @ApiResponse({ status: 200, description: 'Notificación enviada' })
-  sendPushTest(@Body() body: { userId: string; token: string }) {
+  sendPushTest(@Body() body: PushTestDto) {
     return this.client.send('send_push_notification', {
       to: body.token,
       title: 'Prueba Tincadia',

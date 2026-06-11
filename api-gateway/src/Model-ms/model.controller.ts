@@ -1,14 +1,20 @@
 import { Controller, Post, UploadedFile, UseInterceptors, Body, Res, StreamableFile, Header } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes, ApiBearerAuth } from '@nestjs/swagger';
 import { ModelService } from './model.service';
 import { Response } from 'express';
+import { TextToSpeechDto, ConfirmWordDto, TranscriptionDto } from './dto/model.dto';
 
+@ApiTags('AI Models')
+@ApiBearerAuth()
 @Controller('model')
 export class ModelController {
     constructor(private readonly modelService: ModelService) { }
 
-    // POST /model/video-to-text
     @Post('video-to-text')
+    @ApiConsumes('multipart/form-data')
+    @ApiOperation({ summary: 'Convertir video (señas) a texto' })
+    @ApiResponse({ status: 200, description: 'Traducción exitosa' })
     @UseInterceptors(FileInterceptor('file'))
     async videoToText(
         @UploadedFile() file: Express.Multer.File
@@ -16,8 +22,10 @@ export class ModelController {
         return this.modelService.videoToText(file);
     }
 
-    // POST /model/video-to-audio
     @Post('video-to-audio')
+    @ApiConsumes('multipart/form-data')
+    @ApiOperation({ summary: 'Convertir video (señas) a audio' })
+    @ApiResponse({ status: 200, description: 'Conversión exitosa' })
     @UseInterceptors(FileInterceptor('file'))
     async videoToAudio(
         @UploadedFile() file?: Express.Multer.File
@@ -25,37 +33,39 @@ export class ModelController {
         return this.modelService.videoToAudio(file);
     }
 
-    // POST /model/tts
     @Post('tts')
+    @ApiOperation({ summary: 'Texto a Voz (TTS)' })
+    @ApiResponse({ status: 200, description: 'Audio generado' })
     async textToSpeech(
-        @Body() body: { text: string }
+        @Body() dto: TextToSpeechDto
     ) {
-        return this.modelService.textToSpeech(body.text);
+        return this.modelService.textToSpeech(dto.text);
     }
 
-    // POST /model/confirm-word
     @Post('confirm-word')
+    @ApiOperation({ summary: 'Confirmar palabra o seña detectada' })
+    @ApiResponse({ status: 200, description: 'Confirmación registrada' })
     async confirmWord(
-        @Body() body: { word: string; userId?: string; timestamp?: Date }
+        @Body() dto: ConfirmWordDto
     ) {
-        console.log(`🌐 [ModelController] HTTP POST /model/confirm-word recibido:`, body);
-        return this.modelService.confirmWord(body.word, body.userId, body.timestamp);
+        return this.modelService.confirmWord(dto.word, dto.userId, dto.timestamp);
     }
 
-    // POST /model/transcribe
     @Post('transcribe')
+    @ApiOperation({ summary: 'Iniciar transcripción en tiempo real de una sala' })
+    @ApiResponse({ status: 200, description: 'Transcripción iniciada' })
     async startTranscription(
-        @Body() body: { room_name: string }
+        @Body() dto: TranscriptionDto
     ) {
-        // Enforce snake_case from body if needed, or mapping
-        return this.modelService.startTranscription(body.room_name);
+        return this.modelService.startTranscription(dto.room_name);
     }
 
-    // POST /model/transcribe/stop
     @Post('transcribe/stop')
+    @ApiOperation({ summary: 'Detener transcripción de una sala' })
+    @ApiResponse({ status: 200, description: 'Transcripción detenida' })
     async stopTranscription(
-        @Body() body: { room_name: string }
+        @Body() dto: TranscriptionDto
     ) {
-        return this.modelService.stopTranscription(body.room_name);
+        return this.modelService.stopTranscription(dto.room_name);
     }
 }

@@ -56,6 +56,16 @@ export class AuthController {
     return this.authService.updatePushToken(data.userId, data.pushToken);
   }
 
+  @MessagePattern('update_voip_token')
+  updateVoipToken(@Payload() data: { userId: string; voipToken: string }): Promise<void> {
+    return this.authService.updateVoipToken(data.userId, data.voipToken);
+  }
+
+  @MessagePattern('update_fcm_token')
+  updateFcmToken(@Payload() data: { userId: string; fcmToken: string }): Promise<void> {
+    return this.authService.updateFcmToken(data.userId, data.fcmToken);
+  }
+
   @MessagePattern('reset_password')
   resetPassword(@Payload() data: ResetPasswordDto): Promise<any> {
     return this.authService.resetPassword(data);

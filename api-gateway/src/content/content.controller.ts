@@ -2,9 +2,17 @@ import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, Uplo
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-// ...
+import {
+    CreateCategoryDto, UpdateCategoryDto,
+    CreateCourseDto, UpdateCourseDto,
+    CreateModuleDto, UpdateModuleDto,
+    CreateLessonDto, UpdateLessonDto,
+    CreateTestimonialDto, UpdateTestimonialDto,
+    CreateFaqDto, UpdateFaqDto,
+} from './dto/content.dto';
+
 @Controller('content')
-@ApiTags('content')
+@ApiTags('Content')
 export class ContentController {
     constructor(
         @Inject('CONTENT_SERVICE') private readonly client: ClientProxy,
@@ -25,13 +33,13 @@ export class ContentController {
 
     @Post('categories')
     @ApiOperation({ summary: 'Create a new category' })
-    async createCategory(@Body() data: any) {
+    async createCategory(@Body() data: CreateCategoryDto) {
         return this.client.send('createCategory', data);
     }
 
     @Put('categories/:id')
     @ApiOperation({ summary: 'Update category' })
-    async updateCategory(@Param('id') id: string, @Body() data: any) {
+    async updateCategory(@Param('id') id: string, @Body() data: UpdateCategoryDto) {
         return this.client.send('updateCategory', { id, updateData: data });
     }
 
@@ -45,13 +53,13 @@ export class ContentController {
 
     @Post('courses')
     @ApiOperation({ summary: 'Create a new course' })
-    async create(@Body() data: any) {
+    async create(@Body() data: CreateCourseDto) {
         return this.client.send('createCourse', data);
     }
 
     @Put('courses/:id')
     @ApiOperation({ summary: 'Update course' })
-    async update(@Param('id') id: string, @Body() data: any) {
+    async update(@Param('id') id: string, @Body() data: UpdateCourseDto) {
         return this.client.send('updateCourse', { id, updateData: data });
     }
 
@@ -72,13 +80,13 @@ export class ContentController {
 
     @Post('courses/:courseId/modules')
     @ApiOperation({ summary: 'Create a module for a course' })
-    async createModule(@Param('courseId') courseId: string, @Body() data: any) {
+    async createModule(@Param('courseId') courseId: string, @Body() data: CreateModuleDto) {
         return this.client.send('createModule', { ...data, courseId });
     }
 
     @Put('modules/:id')
     @ApiOperation({ summary: 'Update module' })
-    async updateModule(@Param('id') id: string, @Body() data: any) {
+    async updateModule(@Param('id') id: string, @Body() data: UpdateModuleDto) {
         return this.client.send('updateModule', { id, updateData: data });
     }
 
@@ -92,13 +100,13 @@ export class ContentController {
 
     @Post('modules/:moduleId/lessons')
     @ApiOperation({ summary: 'Create a lesson for a module' })
-    async createLesson(@Param('moduleId') moduleId: string, @Body() data: any) {
+    async createLesson(@Param('moduleId') moduleId: string, @Body() data: CreateLessonDto) {
         return this.client.send('createLesson', { ...data, moduleId });
     }
 
     @Put('lessons/:id')
     @ApiOperation({ summary: 'Update lesson' })
-    async updateLesson(@Param('id') id: string, @Body() data: any) {
+    async updateLesson(@Param('id') id: string, @Body() data: UpdateLessonDto) {
         return this.client.send('updateLesson', { id, updateData: data });
     }
 
@@ -219,13 +227,13 @@ export class ContentController {
 
     @Post('testimonials')
     @ApiOperation({ summary: 'Create testimonial' })
-    async createTestimonial(@Body() data: any) {
+    async createTestimonial(@Body() data: CreateTestimonialDto) {
         return this.client.send('create_testimonial', data);
     }
 
     @Put('testimonials/:id')
     @ApiOperation({ summary: 'Update testimonial' })
-    async updateTestimonial(@Param('id') id: string, @Body() data: any) {
+    async updateTestimonial(@Param('id') id: string, @Body() data: UpdateTestimonialDto) {
         return this.client.send('update_testimonial', { ...data, id });
     }
 
@@ -251,13 +259,13 @@ export class ContentController {
 
     @Post('faqs')
     @ApiOperation({ summary: 'Create faq' })
-    async createFaq(@Body() data: any) {
+    async createFaq(@Body() data: CreateFaqDto) {
         return this.client.send('create_faq', data);
     }
 
     @Put('faqs/:id')
     @ApiOperation({ summary: 'Update faq' })
-    async updateFaq(@Param('id') id: string, @Body() data: any) {
+    async updateFaq(@Param('id') id: string, @Body() data: UpdateFaqDto) {
         return this.client.send('update_faq', { ...data, id });
     }
 
