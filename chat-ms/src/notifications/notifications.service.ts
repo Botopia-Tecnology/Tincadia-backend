@@ -43,14 +43,24 @@ export class NotificationsService {
     private initializeFcm() {
         try {
             if (!getApps().length) {
-                if (process.env.GOOGLE_APPLICATION_CREDENTIALS || process.env.FIREBASE_PROJECT_ID) {
+                if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PROJECT_ID) {
                     initializeApp({
-                        credential: process.env.GOOGLE_APPLICATION_CREDENTIALS ? 
-                            cert(process.env.GOOGLE_APPLICATION_CREDENTIALS) : 
-                            applicationDefault()
+                        credential: cert({
+                            projectId: process.env.FIREBASE_PROJECT_ID,
+                            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+                        })
                     });
                     this.fcmInitialized = true;
-                    this.logger.log('🤖 Firebase Admin initialized for FCM Data Push');
+                    this.logger.log('🤖 Firebase Admin initialized for FCM Data Push (using env variables)');
+                } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+                    let creds: any = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+                    if (creds.startsWith('{')) {
+                        creds = JSON.parse(creds);
+                    }
+                    initializeApp({ credential: cert(creds) });
+                    this.fcmInitialized = true;
+                    this.logger.log('🤖 Firebase Admin initialized for FCM Data Push (using GOOGLE_APPLICATION_CREDENTIALS)');
                 } else {
                     this.logger.warn('🤖 Firebase credentials not found. FCM Data Push will be simulated.');
                 }
