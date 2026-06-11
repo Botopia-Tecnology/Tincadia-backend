@@ -52,18 +52,21 @@ export class AuthController {
   }
 
   @MessagePattern('update_push_token')
-  updatePushToken(@Payload() data: UpdatePushTokenDto): Promise<void> {
-    return this.authService.updatePushToken(data.userId, data.pushToken);
+  async updatePushToken(@Payload() data: UpdatePushTokenDto): Promise<{success: boolean}> {
+    await this.authService.updatePushToken(data.userId, data.pushToken);
+    return { success: true };
   }
 
   @MessagePattern('update_voip_token')
-  updateVoipToken(@Payload() data: { userId: string; voipToken: string }): Promise<void> {
-    return this.authService.updateVoipToken(data.userId, data.voipToken);
+  async updateVoipToken(@Payload() data: { userId: string; voipToken: string }): Promise<{success: boolean}> {
+    await this.authService.updateVoipToken(data.userId, data.voipToken);
+    return { success: true };
   }
 
   @MessagePattern('update_fcm_token')
-  updateFcmToken(@Payload() data: { userId: string; fcmToken: string }): Promise<void> {
-    return this.authService.updateFcmToken(data.userId, data.fcmToken);
+  async updateFcmToken(@Payload() data: { userId: string; fcmToken: string }): Promise<{success: boolean}> {
+    await this.authService.updateFcmToken(data.userId, data.fcmToken);
+    return { success: true };
   }
 
   @MessagePattern('reset_password')
