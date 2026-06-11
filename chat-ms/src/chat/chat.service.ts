@@ -268,31 +268,31 @@ export class ChatService {
                 // Send Notifications and Broadcasts (sin push para mensajes de sistema del grupo)
                 const skipPushForSystem = data.metadata?.isSystem === true;
                 for (const recipient of recipientsProfiles || []) {
-                    if (recipient.push_token && !skipPushForSystem) {
+                    const hasAnyToken = recipient.push_token || recipient.voip_token || recipient.fcm_token;
+                    
+                    if (hasAnyToken && !skipPushForSystem) {
                         const isCall = data.type === 'call';
-                        const isCallEnded = data.type === 'call_ended';
-
-                        // Customize title: Group Name or Sender Name
+                        const isCallEnded = data.type === 'call_ended' || String(data.type) === 'call_missed' || String(data.type) === 'call_rejected';
                         const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
 
                         const payload = {
                             conversationId: data.conversationId,
-                            type: (isCall || isCallEnded || String(data.type) === 'call_rejected') ? data.type : 'new_message',
+                            type: (isCall || isCallEnded) ? data.type : 'new_message',
                             senderId: data.senderId,
                             senderName: senderName,
                             roomName: isCall ? data.metadata?.roomName : undefined,
                             isGroup: conversation.type === 'group' ? 'true' : 'false'
                         };
 
-                        if (isCall && (recipient.voip_token || recipient.fcm_token)) {
-                            // If it's a call and they have native call tokens
+                        if ((isCall || isCallEnded) && (recipient.voip_token || recipient.fcm_token)) {
+                            // If it's a call event and they have native call tokens
                             if (recipient.voip_token) {
-                                await this.notificationsService.sendVoipPushNotification(recipient.voip_token, payload);
+                                await this.notificationsService.sendVoipPushNotification(recipient.voip_token, payload).catch(e => this.logger.error(`VoIP Push Error: ${e.message}`));
                             }
                             if (recipient.fcm_token) {
-                                await this.notificationsService.sendFcmDataNotification(recipient.fcm_token, payload);
+                                await this.notificationsService.sendFcmDataNotification(recipient.fcm_token, payload).catch(e => this.logger.error(`FCM Push Error: ${e.message}`));
                             }
-                        } else if (recipient.push_token && !skipPushForSystem) {
+                        } else if (recipient.push_token) {
                             // Fallback to Expo Push Notification
                             await this.notificationsService.sendPushNotification(
                                 recipient.push_token,
@@ -329,10 +329,10 @@ export class ChatService {
                         }
                     });
 
-                    // For call_ended/call_rejected, send an additional broadcast so the
+                    // For call_ended/call_rejected/call_missed, send an additional broadcast so the
                     // global notification listener can dismiss the incoming-call modal
                     // even if the user is NOT inside the chat screen.
-                    if (data.type === 'call_ended' || String(data.type) === 'call_rejected') {
+                    if (data.type === 'call_ended' || String(data.type) === 'call_rejected' || String(data.type) === 'call_missed') {
                         await recipientChannel.send({
                             type: 'broadcast',
                             event: 'call_ended',
