@@ -267,12 +267,15 @@ export class ChatService {
 
                 // Send Notifications and Broadcasts (sin push para mensajes de sistema del grupo)
                 const skipPushForSystem = data.metadata?.isSystem === true;
+                const isGroup = conversation.type === 'group';
+
                 for (const recipient of recipientsProfiles || []) {
                     const hasAnyToken = recipient.push_token || recipient.voip_token || recipient.fcm_token;
                     
                     if (hasAnyToken && !skipPushForSystem) {
                         const isCall = data.type === 'call';
-                        const isCallEnded = data.type === 'call_ended' || String(data.type) === 'call_missed' || String(data.type) === 'call_rejected';
+                        // Para grupos, un call_rejected no debe finalizar la llamada para el resto (ni matar sus interfaces nativas)
+                        const isCallEnded = data.type === 'call_ended' || String(data.type) === 'call_missed' || (!isGroup && String(data.type) === 'call_rejected');
                         
                         if (isCallEnded) {
                             this.logger.log(`[CALL_DEBUG] 🛑 Processed ${data.type} from sender: ${data.senderId} for conversation: ${data.conversationId}`);
@@ -286,7 +289,7 @@ export class ChatService {
                             senderId: data.senderId,
                             senderName: senderName,
                             roomName: isCall ? data.metadata?.roomName : undefined,
-                            isGroup: conversation.type === 'group' ? 'true' : 'false'
+                            isGroup: isGroup ? 'true' : 'false'
                         };
 
                         if ((isCall || isCallEnded) && (recipient.voip_token || recipient.fcm_token)) {
@@ -325,25 +328,35 @@ export class ChatService {
                             id: message.id,
                             conversationId: data.conversationId,
                             senderId: data.senderId,
-                            content: data.type === 'text' ? data.content : (data.type === 'image' ? '📷 Foto' : '🎤 Audio'),
+                            content: (data.type === 'text' || data.type === 'call' || data.type === 'call_ended' || data.type === 'call_rejected' || data.type === 'call_missed') 
+                                ? data.content 
+                                : (data.type === 'image' ? '📷 Foto' : '🎤 Audio'),
                             type: data.type,
                             createdAt: message.created_at,
                             isMine: false,
-                            isGroup: conversation.type === 'group',
-                            groupTitle: groupTitle
+                            isGroup: isGroup,
+                            groupTitle: groupTitle,
+                            metadata: data.metadata || undefined,
                         }
                     });
 
                     // For call_ended/call_rejected/call_missed, send an additional broadcast so the
                     // global notification listener can dismiss the incoming-call modal
-                    // even if the user is NOT inside the chat screen.
-                    if (data.type === 'call_ended' || String(data.type) === 'call_rejected' || String(data.type) === 'call_missed') {
+                    // (But don't do it for call_rejected in groups, as the call continues for others)
+                    const shouldBroadcastEnd = data.type === 'call_ended' || String(data.type) === 'call_missed' || (!isGroup && String(data.type) === 'call_rejected');
+                    if (shouldBroadcastEnd) {
                         await recipientChannel.send({
                             type: 'broadcast',
                             event: 'call_ended',
                             payload: {
+                                id: message.id,
                                 conversationId: data.conversationId,
                                 senderId: data.senderId,
+                                content: data.content,
+                                type: data.type,
+                                createdAt: message.created_at,
+                                roomName: data.metadata?.roomName,
+                                metadata: data.metadata || undefined,
                             }
                         });
                     }
@@ -650,6 +663,7 @@ export class ChatService {
                     // For Group: Use group title/image. For Direct: Use other user name/avatar.
                     title: isGroup ? conv.title : (otherUser ? `${otherUser.first_name || ''} ${otherUser.last_name || ''}`.trim() : 'Chat'),
                     imageUrl: isGroup ? conv.image_url : (otherUser?.avatar_url || null),
+                    description: isGroup ? (conv.description || null) : null,
 
                     // Legacy fields for frontend compatibility (if it expects otherUser...)
                     otherUserId: !isGroup ? (conv.user1_id === data.userId ? conv.user2_id : conv.user1_id) : null,
@@ -871,6 +885,7 @@ export class ChatService {
 
             const at = new AccessToken(apiKey, apiSecret, {
                 identity: username,
+                ttl: '24h',
             });
 
             at.addGrant({
@@ -967,12 +982,27 @@ export class ChatService {
                 throw new BadRequestException('Error al crear invitación');
             }
 
-            // 2. Find all users with role 'interpreter' AND not busy
+            // 2. Auto-free interpreters stuck with is_busy=true for > 10 minutes
+            // (crashed calls, network loss, etc.)
+            const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+            const { data: freedCount } = await supabase
+                .from('profiles')
+                .update({ is_busy: false })
+                .eq('role', 'interpreter')
+                .eq('is_busy', true)
+                .lte('updated_at', staleThreshold)
+                .select('id');
+
+            if (freedCount && freedCount.length > 0) {
+                this.logger.log(`Auto-freed ${freedCount.length} stuck interpreters (is_busy=true > 10min)`);
+            }
+
+            // 3. Find available interpreters
             const { data: interpreters, error } = await supabase
                 .from('profiles')
                 .select('id, push_token')
                 .eq('role', 'interpreter')
-                .eq('is_busy', false); // Only available interpreters
+                .eq('is_busy', false);
 
             if (error) {
                 this.logger.error(`Error fetching interpreters: ${error.message}`);
@@ -985,10 +1015,11 @@ export class ChatService {
 
             this.logger.log(`Found ${interpreters.length} interpreters`);
 
-            // 3. Notify them
+            // 4. Notify them
+            const invalidTokens: string[] = [];
             const notifications = interpreters.map(async (interpreter) => {
                 if (interpreter.push_token) {
-                    await this.notificationsService.sendPushNotification(
+                    const result = await this.notificationsService.sendPushNotification(
                         interpreter.push_token,
                         '📞 Solicitud de Intérprete',
                         `${data.username} requiere un intérprete en una llamada.`,
@@ -1005,6 +1036,9 @@ export class ChatService {
                             sound: 'default'
                         }
                     );
+                    if (result.tokenInvalid) {
+                        invalidTokens.push(interpreter.id);
+                    }
                 }
 
                 const channel = supabase.channel(`user:${interpreter.id}`);
@@ -1018,8 +1052,20 @@ export class ChatService {
                         senderName: data.username,
                     }
                 });
-                supabase.removeChannel(channel);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                await supabase.removeChannel(channel);
             });
+
+            await Promise.all(notifications);
+
+            // 5. Clean up invalid push tokens
+            if (invalidTokens.length > 0) {
+                this.logger.log(`Cleaning up ${invalidTokens.length} invalid push tokens`);
+                await supabase
+                    .from('profiles')
+                    .update({ push_token: null })
+                    .in('id', invalidTokens);
+            }
 
             await Promise.all(notifications);
 
@@ -1059,7 +1105,8 @@ export class ChatService {
                             event: 'call_invite_taken',
                             payload: { acceptedBy: userId },
                         });
-                        supabase.removeChannel(ch);
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        await supabase.removeChannel(ch);
 
                         // 2. Silent push (funciona aunque el celular esté bloqueado o la app cerrada)
                         // sound: null → no suena, title: '' → no se muestra en el drawer
@@ -1352,9 +1399,9 @@ export class ChatService {
             const supabase = this.supabaseService.getAdminClient();
 
             const updates: any = { updated_at: new Date().toISOString() };
-            if (data.title) updates.title = data.title;
-            if (data.imageUrl) updates.image_url = data.imageUrl;
-            if (data.description) updates.description = data.description;
+            if (data.title !== undefined) updates.title = data.title;
+            if (data.imageUrl !== undefined) updates.image_url = data.imageUrl;
+            if (data.description !== undefined) updates.description = data.description;
 
             const { data: group, error } = await supabase
                 .from('conversations')
@@ -1368,10 +1415,47 @@ export class ChatService {
                 throw new BadRequestException('Error al actualizar la información del grupo');
             }
 
+            await this.notifyGroupUpdated(data.conversationId, group);
+
             return { group };
         } catch (error) {
             if (error instanceof BadRequestException) throw error;
             throw new BadRequestException('Error al actualizar el grupo');
+        }
+    }
+
+    /** Notifica a todos los participantes (incluido quien editó) que cambió metadata del grupo. */
+    private async notifyGroupUpdated(conversationId: string, group: { title?: string; description?: string; image_url?: string | null }): Promise<void> {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+            const { data: participants } = await supabase
+                .from('conversation_participants')
+                .select('user_id')
+                .eq('conversation_id', conversationId);
+
+            if (!participants?.length) return;
+
+            const payload = {
+                conversationId,
+                title: group.title ?? null,
+                description: group.description ?? null,
+                imageUrl: group.image_url ?? null,
+            };
+
+            for (const participant of participants) {
+                const userChannel = supabase.channel(`user:${participant.user_id}`);
+                await userChannel.send({
+                    type: 'broadcast',
+                    event: 'group_updated',
+                    payload,
+                });
+                setTimeout(() => {
+                    supabase.removeChannel(userChannel);
+                }, 2000);
+            }
+        } catch (e) {
+            const err = e as Error;
+            this.logger.warn(`Group metadata broadcast failed: ${err?.message ?? e}`);
         }
     }
 
