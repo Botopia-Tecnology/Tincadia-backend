@@ -81,10 +81,10 @@ export class NotificationsService {
         body: string,
         data?: any,
         options?: { channelId?: string; sound?: string | null; priority?: 'default' | 'normal' | 'high' }
-    ) {
+    ): Promise<{ success: boolean; tokenInvalid?: boolean }> {
         if (!Expo.isExpoPushToken(pushToken)) {
             this.logger.error(`Push token ${pushToken} is not a valid Expo push token`);
-            return;
+            return { success: false, tokenInvalid: true };
         }
 
         const message: ExpoPushMessage = {
@@ -102,13 +102,26 @@ export class NotificationsService {
             for (const chunk of chunks) {
                 try {
                     const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
-                    this.logger.log('Notification sent successfully:', ticketChunk);
+                    for (const ticket of ticketChunk) {
+                        if (ticket.status === 'error') {
+                            const errorMsg = ticket.details?.error || 'unknown';
+                            this.logger.error(`Expo push error for ${pushToken.substring(0, 15)}...: ${errorMsg}`);
+                            if (errorMsg === 'DeviceNotRegistered' || ticket.details?.fault === 'developer') {
+                                return { success: false, tokenInvalid: true };
+                            }
+                        }
+                    }
+                    this.logger.log('Notification sent successfully');
+                    return { success: true };
                 } catch (error) {
                     this.logger.error('Error sending notification chunk:', error);
+                    return { success: false };
                 }
             }
+            return { success: false };
         } catch (error) {
             this.logger.error('Error chunking notifications:', error);
+            return { success: false };
         }
     }
 
@@ -166,7 +179,8 @@ export class NotificationsService {
                 isGroup: String(payload.isGroup || 'false')
             },
             android: {
-                priority: 'high' // Required for background wakeup
+                priority: 'high', // Required for background wakeup
+                ttl: 0 // Required for VoIP to bypass aggressive Doze on older devices
             }
         };
 
@@ -177,4 +191,5 @@ export class NotificationsService {
             this.logger.error(`🤖 Error sending FCM Data Message: ${error.message}`);
         }
     }
+
 }
