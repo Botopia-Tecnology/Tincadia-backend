@@ -106,7 +106,7 @@ export class NotificationsService {
                         if (ticket.status === 'error') {
                             const errorMsg = ticket.details?.error || 'unknown';
                             this.logger.error(`Expo push error for ${pushToken.substring(0, 15)}...: ${errorMsg}`);
-                            if (errorMsg === 'DeviceNotRegistered' || ticket.details?.fault === 'developer') {
+                            if (errorMsg === 'DeviceNotRegistered') {
                                 return { success: false, tokenInvalid: true };
                             }
                         }
