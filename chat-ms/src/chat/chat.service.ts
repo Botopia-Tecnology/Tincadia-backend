@@ -273,6 +273,11 @@ export class ChatService {
                     if (hasAnyToken && !skipPushForSystem) {
                         const isCall = data.type === 'call';
                         const isCallEnded = data.type === 'call_ended' || String(data.type) === 'call_missed' || String(data.type) === 'call_rejected';
+                        
+                        if (isCallEnded) {
+                            this.logger.log(`[CALL_DEBUG] 🛑 Processed ${data.type} from sender: ${data.senderId} for conversation: ${data.conversationId}`);
+                        }
+                        
                         const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
 
                         const payload = {
@@ -357,7 +362,10 @@ export class ChatService {
                         });
                     }
 
-                    supabase.removeChannel(recipientChannel);
+                    // Delay channel removal to ensure WebSocket flushes the message
+                    setTimeout(() => {
+                        supabase.removeChannel(recipientChannel);
+                    }, 2000);
                 }
             }
 

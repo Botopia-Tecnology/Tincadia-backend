@@ -8,6 +8,8 @@ export enum MessageType {
     VIDEO = 'video',
     CALL = 'call',
     CALL_ENDED = 'call_ended',
+    CALL_MISSED = 'call_missed',
+    CALL_REJECTED = 'call_rejected',
 }
 
 export class SendMessageDto {
