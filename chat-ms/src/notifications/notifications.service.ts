@@ -18,6 +18,15 @@ export class NotificationsService {
         this.initializeFcm();
     }
 
+    private isApnProduction(): boolean {
+        const explicit = process.env.APN_PRODUCTION;
+        if (explicit !== undefined) {
+            return ['1', 'true', 'yes', 'production'].includes(explicit.trim().toLowerCase());
+        }
+
+        return process.env.NODE_ENV === 'production';
+    }
+
     private initializeApn() {
         try {
             // Usually configured via env variables
@@ -29,9 +38,9 @@ export class NotificationsService {
                         keyId: process.env.APN_KEY_ID || '',
                         teamId: process.env.APN_TEAM_ID || ''
                     },
-                    production: process.env.NODE_ENV === 'production'
+                    production: this.isApnProduction()
                 });
-                this.logger.log('🍏 APNs provider initialized for VoIP push');
+                this.logger.log(`APNs provider initialized for VoIP push (${this.isApnProduction() ? 'production' : 'sandbox'})`);
             } else {
                 this.logger.warn('🍏 APNs credentials not found. VoIP push will be simulated.');
             }
@@ -139,6 +148,16 @@ export class NotificationsService {
         const notification = new apn.Notification();
         // VoIP pushes do not require alert/sound. They wake the app up in the background.
         notification.topic = `${process.env.BUNDLE_ID || 'com.tincadia.app'}.voip`;
+        notification.priority = 10;
+        notification.expiry = 0;
+
+        // apn@2.2.0 does not expose apns-push-type, but iOS 13+ requires it for PushKit.
+        const originalHeaders = (notification as any).headers.bind(notification);
+        (notification as any).headers = () => ({
+            ...originalHeaders(),
+            'apns-push-type': 'voip'
+        });
+
         notification.payload = {
             callUUID: crypto.randomUUID(), // Unique UUID for CallKit
             ...payload
@@ -176,6 +195,7 @@ export class NotificationsService {
                 senderId: String(payload.senderId || ''),
                 senderName: String(payload.senderName || ''),
                 roomName: String(payload.roomName || ''),
+                callSessionId: String(payload.callSessionId || payload.call_session_id || ''),
                 isGroup: String(payload.isGroup || 'false')
             },
             android: {
