@@ -283,12 +283,14 @@ export class ChatService {
                         
                         const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
 
+                        const callSessionId = data.metadata?.callSessionId || data.metadata?.call_session_id;
                         const payload = {
                             conversationId: data.conversationId,
                             type: (isCall || isCallEnded) ? data.type : 'new_message',
                             senderId: data.senderId,
                             senderName: senderName,
-                            roomName: isCall ? data.metadata?.roomName : undefined,
+                            roomName: (isCall || isCallEnded) ? data.metadata?.roomName : undefined,
+                            callSessionId: (isCall || isCallEnded) ? callSessionId : undefined,
                             isGroup: isGroup ? 'true' : 'false'
                         };
 
@@ -356,6 +358,7 @@ export class ChatService {
                                 type: data.type,
                                 createdAt: message.created_at,
                                 roomName: data.metadata?.roomName,
+                                callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
                                 metadata: data.metadata || undefined,
                             }
                         });
@@ -370,6 +373,7 @@ export class ChatService {
                                 senderId: data.senderId,
                                 senderName: senderName,
                                 roomName: data.metadata?.roomName,
+                                callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
                                 isGroup: conversation.type === 'group'
                             }
                         });
