@@ -135,6 +135,20 @@ export class NotificationsService {
     }
 
     /**
+     * The same call session must produce the same CallKit UUID across pushes
+     * (call + call_ended/call_missed/call_rejected) so the terminal push can
+     * end the original native call instead of orphaning it.
+     */
+    private stableCallUUID(seed?: string): string {
+        if (!seed) return crypto.randomUUID();
+        const hash = crypto.createHash('sha1').update(`tincadia-call:${seed}`).digest();
+        hash[6] = (hash[6] & 0x0f) | 0x50;
+        hash[8] = (hash[8] & 0x3f) | 0x80;
+        const hex = hash.subarray(0, 16).toString('hex');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+    }
+
+    /**
      * Send native VoIP Push via APNs (Apple Push Notification service)
      */
     async sendVoipPushNotification(voipToken: string, payload: any) {
@@ -149,7 +163,9 @@ export class NotificationsService {
         // VoIP pushes do not require alert/sound. They wake the app up in the background.
         notification.topic = `${process.env.BUNDLE_ID || 'com.tincadia.app'}.voip`;
         notification.priority = 10;
-        notification.expiry = 0;
+        // Give APNs a short retry window; expiry=0 means single delivery attempt
+        // and the push is dropped if the device is momentarily offline.
+        notification.expiry = Math.floor(Date.now() / 1000) + 30;
 
         // apn@2.2.0 does not expose apns-push-type, but iOS 13+ requires it for PushKit.
         const originalHeaders = (notification as any).headers.bind(notification);
@@ -159,14 +175,20 @@ export class NotificationsService {
         });
 
         notification.payload = {
-            callUUID: crypto.randomUUID(), // Unique UUID for CallKit
+            callUUID: this.stableCallUUID(payload.callSessionId || payload.call_session_id), // Stable UUID per call session for CallKit
             ...payload
         };
 
         try {
             const result = await this.apnProvider.send(notification, voipToken);
             if (result.failed.length > 0) {
-                this.logger.error(`🍏 VoIP Push failed:`, result.failed);
+                const reasons = result.failed.map((f: any) => ({
+                    device: f.device,
+                    status: f.status,
+                    reason: f.response?.reason,
+                    error: f.error?.message,
+                }));
+                this.logger.error(`🍏 VoIP Push failed: ${JSON.stringify(reasons)}`);
             } else {
                 this.logger.log(`🍏 VoIP Push sent successfully.`);
             }
