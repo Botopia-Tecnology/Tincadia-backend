@@ -6,7 +6,7 @@ import {
     Inject,
 } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { SupabaseService } from '../supabase/supabase.service';
 import { EncryptionService } from './encryption.service';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -874,6 +874,45 @@ export class ChatService {
             throw new BadRequestException('Error al eliminar mensaje');
         }
     }
+    private roomServiceClient: RoomServiceClient | null = null;
+
+    private getRoomServiceClient(): RoomServiceClient | null {
+        if (this.roomServiceClient) return this.roomServiceClient;
+        const url = process.env.LIVEKIT_URL;
+        const apiKey = process.env.LIVEKIT_API_KEY;
+        const apiSecret = process.env.LIVEKIT_API_SECRET;
+        if (!url || !apiKey || !apiSecret) return null;
+        // La API REST de LiveKit va por HTTP(S); LIVEKIT_URL viene como wss://
+        const httpUrl = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+        this.roomServiceClient = new RoomServiceClient(httpUrl, apiKey, apiSecret);
+        return this.roomServiceClient;
+    }
+
+    /**
+     * La app identifica a los intérpretes por el prefijo de su identity
+     * ("Intérprete: <nombre>"), que es lo único visible desde LiveKit.
+     */
+    private isInterpreterIdentity(identity: string | undefined | null): boolean {
+        const normalized = (identity || '').trim().toLowerCase();
+        return normalized.startsWith('intérprete') || normalized.startsWith('interprete');
+    }
+
+    /**
+     * Verifica contra LiveKit si la sala ya tiene un intérprete conectado.
+     * Ante cualquier error (sala inexistente, LiveKit caído) responde false
+     * para no bloquear llamadas legítimas.
+     */
+    private async roomHasInterpreter(roomName: string): Promise<boolean> {
+        try {
+            const client = this.getRoomServiceClient();
+            if (!client) return false;
+            const participants = await client.listParticipants(roomName);
+            return participants.some(p => this.isInterpreterIdentity(p.identity));
+        } catch {
+            return false;
+        }
+    }
+
     /**
      * Generar Token para LiveKit Video Calls
      */
@@ -885,6 +924,17 @@ export class ChatService {
             if (!apiKey || !apiSecret) {
                 this.logger.error('LiveKit keys not found in environment variables');
                 throw new BadRequestException('Servicio de video no configurado correctamente');
+            }
+
+            // Regla de negocio: máximo un intérprete por llamada. Se valida al
+            // emitir el token porque es el único punto por el que pasa todo
+            // camino de entrada (modal, tap en notificación, deep link).
+            if (this.isInterpreterIdentity(username) && await this.roomHasInterpreter(roomName)) {
+                this.logger.log(`Interpreter token rejected for room ${roomName}: another interpreter is already connected`);
+                return {
+                    error: 'interpreter_present',
+                    message: 'Esta llamada ya se encuentra atendida por otro intérprete.',
+                };
             }
 
             const at = new AccessToken(apiKey, apiSecret, {
@@ -969,6 +1019,12 @@ export class ChatService {
         try {
             const supabase = this.supabaseService.getAdminClient();
             this.logger.log(`📞 Inviting interpreters for call ${data.roomName} by ${data.username}`);
+
+            // 0. Si la llamada ya tiene un intérprete conectado, no crear ni
+            // enviar nuevas invitaciones (regla: un intérprete por llamada).
+            if (await this.roomHasInterpreter(data.roomName)) {
+                return { success: false, message: 'Esta llamada ya cuenta con un intérprete.' };
+            }
 
             // 1. Persist the invite to handle concurrency
             const { data: invite, error: inviteError } = await supabase
@@ -1142,6 +1198,24 @@ export class ChatService {
     async claimInterpreterInvite(data: { inviteId: string; userId: string }) {
         try {
             const supabase = this.supabaseService.getAdminClient();
+
+            // 0. Aunque la invitación siga pendiente (p. ej. el usuario volvió a
+            // solicitar intérprete), si la sala ya tiene uno conectado no se
+            // permite un segundo.
+            const { data: inviteRow } = await supabase
+                .from('interpreter_invites')
+                .select('room_name')
+                .eq('id', data.inviteId)
+                .single();
+
+            if (inviteRow?.room_name && await this.roomHasInterpreter(inviteRow.room_name)) {
+                this.logger.log(`Claim rejected for invite ${data.inviteId}: room ${inviteRow.room_name} already has an interpreter`);
+                return {
+                    success: false,
+                    code: 'interpreter_present',
+                    message: 'Esta llamada ya se encuentra atendida por otro intérprete.',
+                };
+            }
 
             // 1. Intento atómico de reclamar la invitación
             const { data: updated, error } = await supabase
