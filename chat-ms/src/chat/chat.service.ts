@@ -235,7 +235,7 @@ export class ChatService {
                         .from('profiles')
                         .update({ is_busy: false })
                         .in('id', allParticipantIds)
-                        .eq('role', 'interpreter')
+                        .in('role', ['interpreter', 'Interpreter'])
                         .eq('is_busy', true); // Only update if currently busy
 
                     if (updateError) {
@@ -889,18 +889,25 @@ export class ChatService {
     }
 
     /**
-     * La app identifica a los intérpretes por el prefijo de su identity
-     * ("Intérprete: <nombre>"), que es lo único visible desde LiveKit.
+     * La app identifica a los int?rpretes por el prefijo de su identity.
+     * Mantenemos compatibilidad con el esquema legado ("Int?rprete: <nombre>"),
+     * el prefijo sin tilde y el nuevo prefijo por rol ("interpreter:<userId>").
      */
     private isInterpreterIdentity(identity: string | undefined | null): boolean {
         const normalized = (identity || '').trim().toLowerCase();
-        return normalized.startsWith('intérprete') || normalized.startsWith('interprete');
+        return normalized.startsWith('int?rprete')
+            || normalized.startsWith('interprete')
+            || normalized.startsWith('interpreter:');
+    }
+
+    private isInterpreterRole(role: string | undefined | null): boolean {
+        return (role || '').trim().toLowerCase() === 'interpreter';
     }
 
     /**
-     * Verifica contra LiveKit si la sala ya tiene un intérprete conectado.
-     * Ante cualquier error (sala inexistente, LiveKit caído) responde false
-     * para no bloquear llamadas legítimas.
+     * Verifica contra LiveKit si la sala ya tiene un int?rprete conectado.
+     * Ante cualquier error (sala inexistente, LiveKit ca?do) responde false
+     * para no bloquear llamadas leg?timas.
      */
     private async roomHasInterpreter(roomName: string): Promise<boolean> {
         try {
@@ -916,7 +923,7 @@ export class ChatService {
     /**
      * Generar Token para LiveKit Video Calls
      */
-    async generateVideoToken(roomName: string, username: string) {
+    async generateVideoToken(roomName: string, username: string, userId: string) {
         try {
             const apiKey = process.env.LIVEKIT_API_KEY;
             const apiSecret = process.env.LIVEKIT_API_SECRET;
@@ -926,19 +933,36 @@ export class ChatService {
                 throw new BadRequestException('Servicio de video no configurado correctamente');
             }
 
-            // Regla de negocio: máximo un intérprete por llamada. Se valida al
-            // emitir el token porque es el único punto por el que pasa todo
-            // camino de entrada (modal, tap en notificación, deep link).
-            if (this.isInterpreterIdentity(username) && await this.roomHasInterpreter(roomName)) {
+            const { data: profile, error: profileError } = await this.supabaseService
+                .getAdminClient()
+                .from('profiles')
+                .select('role')
+                .eq('id', userId)
+                .single();
+
+            if (profileError || !profile) {
+                this.logger.warn(`Could not resolve role for user ${userId}: ${profileError?.message || 'profile not found'}`);
+                return {
+                    error: 'profile_not_found',
+                    message: 'No se pudo verificar el rol del usuario.',
+                };
+            }
+
+            const isInterpreter = this.isInterpreterRole(profile.role);
+
+            // Regla de negocio: m?ximo un int?rprete por llamada. Se valida al
+            // emitir el token porque es el ?nico punto por el que pasa todo
+            // camino de entrada (modal, tap en notificaci?n, deep link).
+            if (isInterpreter && await this.roomHasInterpreter(roomName)) {
                 this.logger.log(`Interpreter token rejected for room ${roomName}: another interpreter is already connected`);
                 return {
                     error: 'interpreter_present',
-                    message: 'Esta llamada ya se encuentra atendida por otro intérprete.',
+                    message: 'Esta llamada ya se encuentra atendida por otro int?rprete.',
                 };
             }
 
             const at = new AccessToken(apiKey, apiSecret, {
-                identity: username,
+                identity: isInterpreter ? `interpreter:${userId}` : username,
                 ttl: '24h',
             });
 
@@ -952,17 +976,17 @@ export class ChatService {
 
             const token = await at.toJwt();
 
-            // 🚀 TRIGGER TRANSCRIPTION AGENT
+            // ?? TRIGGER TRANSCRIPTION AGENT
             try {
                 const modelMsUrl = (process.env.MODEL_MS_URL || '').trim();
 
                 if (!modelMsUrl) {
-                    this.logger.error(`❌ [Transcription Agent] ERROR: Variable MODEL_MS_URL no definida.`);
+                    this.logger.error(`? [Transcription Agent] ERROR: Variable MODEL_MS_URL no definida.`);
                     return;
                 }
 
                 const triggerAgent = async (url: string, isFallback = false) => {
-                    this.logger.log(`📡 [Transcription Agent] Triggering (${isFallback ? 'Fallback' : 'Primary'}) at: ${url}/transcribe`);
+                    this.logger.log(`?? [Transcription Agent] Triggering (${isFallback ? 'Fallback' : 'Primary'}) at: ${url}/transcribe`);
 
                     try {
                         const res = await fetch(`${url}/transcribe`, {
@@ -973,15 +997,15 @@ export class ChatService {
                         });
 
                         if (res.ok) {
-                            this.logger.log(`✅ [Transcription Agent] Trigger exitoso en ${isFallback ? 'Pública' : 'Privada'}`);
+                            this.logger.log(`? [Transcription Agent] Trigger exitoso en ${isFallback ? 'P?blica' : 'Privada'}`);
                             return true;
                         } else {
                             const errorBody = await res.text();
-                            this.logger.warn(`⚠️ [Transcription Agent] El modelo respondió error (${res.status}): ${errorBody}`);
+                            this.logger.warn(`?? [Transcription Agent] El modelo respondi? error (${res.status}): ${errorBody}`);
                             return false;
                         }
                     } catch (e) {
-                        this.logger.error(`❌ [Transcription Agent] Error en ${isFallback ? 'Pública' : 'Privada'}: ${e.message}`);
+                        this.logger.error(`? [Transcription Agent] Error en ${isFallback ? 'P?blica' : 'Privada'}: ${e.message}`);
                         return false;
                     }
                 };
@@ -989,15 +1013,15 @@ export class ChatService {
                 // Intento 1: URL configurada (Privada)
                 const success = await triggerAgent(modelMsUrl);
 
-                // Intento 2: Fallback a URL Pública si la primera falló y no es ya la pública
+                // Intento 2: Fallback a URL P?blica si la primera fall? y no es ya la p?blica
                 if (!success && modelMsUrl.includes('.internal')) {
                     const publicUrl = modelMsUrl.replace('.railway.internal', '.up.railway.app').replace(':8000', '');
-                    this.logger.log(`🔄 [Transcription Agent] Reintentando vía URL Pública: ${publicUrl}`);
+                    this.logger.log(`?? [Transcription Agent] Reintentando v?a URL P?blica: ${publicUrl}`);
                     await triggerAgent(publicUrl, true);
                 }
 
             } catch (err) {
-                this.logger.warn(`⚠️ Error inesperado lanzando transcripción: ${err.message}`);
+                this.logger.warn(`?? Error inesperado lanzando transcripci?n: ${err.message}`);
             }
 
             const livekitUrl = process.env.LIVEKIT_URL;
@@ -1048,7 +1072,7 @@ export class ChatService {
             const { data: freedCount } = await supabase
                 .from('profiles')
                 .update({ is_busy: false })
-                .eq('role', 'interpreter')
+                .in('role', ['interpreter', 'Interpreter'])
                 .eq('is_busy', true)
                 .lte('updated_at', staleThreshold)
                 .select('id');
@@ -1061,7 +1085,7 @@ export class ChatService {
             const { data: interpreters, error } = await supabase
                 .from('profiles')
                 .select('id, push_token')
-                .eq('role', 'interpreter')
+                .in('role', ['interpreter', 'Interpreter'])
                 .eq('is_busy', false);
 
             if (error) {
@@ -1153,7 +1177,7 @@ export class ChatService {
                 const { data: others } = await supabase
                     .from('profiles')
                     .select('id, push_token')
-                    .eq('role', 'interpreter')
+                    .in('role', ['interpreter', 'Interpreter'])
                     .neq('id', userId);
 
                 if (others?.length) {

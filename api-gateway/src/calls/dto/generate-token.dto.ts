@@ -7,7 +7,12 @@ export class GenerateTokenDto {
     @IsNotEmpty()
     roomName: string;
 
-    @ApiPropertyOptional({ example: 'Juan Pérez', description: 'Nombre que se mostrará en la llamada', default: 'Guest' })
+    @ApiProperty({ example: 'uuid-123', description: 'ID del usuario que solicita el token' })
+    @IsString()
+    @IsNotEmpty()
+    userId: string;
+
+    @ApiPropertyOptional({ example: 'Juan P?rez', description: 'Nombre que se mostrar? en la llamada', default: 'Guest' })
     @IsString()
     @IsOptional()
     username?: string;

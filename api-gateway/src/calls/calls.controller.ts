@@ -17,6 +17,7 @@ export class CallsController {
     async getToken(@Body() dto: GenerateTokenDto) {
         return this.chatClient.send('generate_video_token', {
             roomName: dto.roomName || 'default-room',
+            userId: dto.userId,
             username: dto.username || 'Guest',
         });
     }

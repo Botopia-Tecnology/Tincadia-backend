@@ -101,8 +101,8 @@ export class ChatController {
     }
 
     @MessagePattern('generate_video_token')
-    generateVideoToken(@Payload() data: { roomName: string; username: string }) {
-        return this.chatService.generateVideoToken(data.roomName, data.username);
+    generateVideoToken(@Payload() data: { roomName: string; username: string; userId: string }) {
+        return this.chatService.generateVideoToken(data.roomName, data.username, data.userId);
     }
 
     @MessagePattern('invite_interpreters')
