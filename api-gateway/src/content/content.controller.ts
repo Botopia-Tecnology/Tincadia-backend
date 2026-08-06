@@ -157,10 +157,12 @@ export class ContentController {
     async uploadChatMedia(
         @UploadedFile() file: Express.Multer.File,
         @Body('type') type: 'image' | 'video' | 'raw',
+        @Body('fileName') fileName?: string,
     ) {
         return this.client.send('uploadChatMedia', {
             buffer: Array.from(file.buffer),
-            fileName: file.originalname,
+            // Preferir nombre original enviado por la app (con extensión)
+            fileName: fileName || file.originalname,
             type: type || 'image',
         });
     }

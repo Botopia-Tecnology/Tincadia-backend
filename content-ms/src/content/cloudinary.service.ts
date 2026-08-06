@@ -88,12 +88,22 @@ export class CloudinaryService {
     resourceType: 'image' | 'video' | 'raw' = 'image',
   ): Promise<UploadApiResponse> {
     return new Promise((resolve, reject) => {
+      // Raw (documentos/audio): Cloudinary necesita la extensión en public_id
+      // para servir Content-Type correcto y que el SO abra un visor.
+      const safeName = (fileName || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const extMatch = safeName.match(/\.([a-zA-Z0-9]+)$/);
+      const baseName = safeName.replace(/\.[^/.]+$/, '') || 'file';
+      const publicId =
+        resourceType === 'raw' && extMatch
+          ? `${Date.now()}_${baseName}.${extMatch[1]}`
+          : `${Date.now()}_${baseName}`;
+
       cloudinary.uploader
         .upload_stream(
           {
             resource_type: resourceType,
             folder: folder,
-            public_id: `${Date.now()}_${fileName.replace(/\.[^/.]+$/, '')}`,
+            public_id: publicId,
             type: 'authenticated', // Make it private!
             access_mode: 'authenticated',
           },
