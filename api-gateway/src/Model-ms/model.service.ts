@@ -435,6 +435,41 @@ if __name__ == "__main__":
         }
     }
 
+    async audioToText(file?: Express.Multer.File): Promise<any> {
+        if (!file) {
+            throw new BadRequestException('Por favor sube un archivo de audio');
+        }
+
+        try {
+            await this.ensureServiceIsRunning();
+
+            const formData = new FormData();
+            const blob = new Blob([file.buffer as any], { type: file.mimetype || 'audio/m4a' });
+            formData.append('file', blob, file.originalname || 'audio.m4a');
+
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Enviando audio a ${this.pythonServiceUrl}/transcribe/audio...`);
+            }
+
+            const response = await fetch(`${this.pythonServiceUrl}/transcribe/audio`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Microservice/transcribe/audio responded with ${response.status}: ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            if (this.logsEnabled) {
+                console.error('[Gateway] Audio-to-text Error:', error);
+            }
+            throw new BadRequestException(`Error transcribiendo audio: ${error.message || error}`);
+        }
+    }
+
     async startTranscription(roomName: string) {
         try {
             await this.ensureServiceIsRunning();

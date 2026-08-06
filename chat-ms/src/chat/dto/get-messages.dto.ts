@@ -16,4 +16,8 @@ export class GetMessagesDto {
     @IsDateString()
     @IsOptional()
     after?: string;
+
+    @IsString()
+    @IsOptional()
+    userId?: string;
 }

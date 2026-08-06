@@ -69,8 +69,20 @@ export class ChatController {
         @Param('conversationId') conversationId: string,
         @Query('limit') limit?: number,
         @Query('offset') offset?: number,
+        @Query('userId') userId?: string,
+        @Query('after') after?: string,
     ) {
-        return this.client.send('get_messages', { conversationId, limit, offset });
+        return this.client.send('get_messages', { conversationId, limit, offset, userId, after });
+    }
+
+    @Delete('conversations/:conversationId')
+    @ApiOperation({ summary: 'Eliminar conversación para el usuario (estilo Instagram)' })
+    @ApiResponse({ status: 200, description: 'Conversación eliminada para el usuario' })
+    deleteConversation(
+        @Param('conversationId') conversationId: string,
+        @Query('userId') userId: string,
+    ) {
+        return this.client.send('delete_conversation', { conversationId, userId });
     }
 
     @Post('messages/read')

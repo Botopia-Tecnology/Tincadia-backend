@@ -238,50 +238,13 @@ export class ContactService {
     }
 
     /**
-     * Delete a contact and cascade delete conversations and messages
+     * Delete a contact from the owner's address book
      */
     async deleteContact(data: DeleteContactDto) {
         try {
             const supabase = this.supabaseService.getAdminClient();
 
-            // 1. Get the contact to find the contact_user_id
-            const { data: contact, error: fetchError } = await supabase
-                .from('contacts')
-                .select('contact_user_id')
-                .eq('id', data.contactId)
-                .eq('owner_id', data.ownerId)
-                .single();
-
-            if (fetchError || !contact) {
-                throw new NotFoundException('Contacto no encontrado');
-            }
-
-            const contactUserId = contact.contact_user_id;
-
-            // 2. Find conversation between these two users
-            // We check both combinations: (user1=me, user2=them) OR (user1=them, user2=me)
-            const { data: conversations, error: convError } = await supabase
-                .from('conversations')
-                .select('id')
-                .or(`and(user1_id.eq.${data.ownerId},user2_id.eq.${contactUserId}),and(user1_id.eq.${contactUserId},user2_id.eq.${data.ownerId})`);
-
-            if (conversations && conversations.length > 0) {
-                const conversationIds = conversations.map(c => c.id);
-
-                // 3. Delete messages
-                await supabase
-                    .from('messages')
-                    .delete()
-                    .in('conversation_id', conversationIds);
-
-                // 4. Delete conversations
-                await supabase
-                    .from('conversations')
-                    .delete()
-                    .in('id', conversationIds);
-            }
-
-            // 5. Delete the contact
+            // Delete the contact entry (does NOT delete conversations or messages)
             const { error } = await supabase
                 .from('contacts')
                 .delete()
@@ -289,6 +252,7 @@ export class ContactService {
                 .eq('owner_id', data.ownerId);
 
             if (error) {
+                this.logger.error(`Error deleting contact: ${error.message}`);
                 throw new BadRequestException('Error al eliminar contacto');
             }
 

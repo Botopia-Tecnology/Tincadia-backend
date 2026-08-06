@@ -186,6 +186,65 @@ class VoskAgent:
         finally:
             self.stop_transcription(identity)
 
+def transcribe_audio_file(input_path: str) -> str:
+    """
+    Transcribe a local audio file (m4a/mp3/wav/ogg/…) with Vosk.
+    Converts to 16 kHz mono WAV via ffmpeg, then runs KaldiRecognizer.
+    """
+    import subprocess
+    import tempfile
+    import wave
+
+    vosk_model = get_model()
+    if vosk_model is None:
+        raise RuntimeError("Modelo Vosk no cargado")
+
+    wav_path = None
+    try:
+        fd, wav_path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+
+        cmd = [
+            "ffmpeg", "-y", "-i", input_path,
+            "-ar", "16000", "-ac", "1", "-f", "wav", wav_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            raise RuntimeError(f"ffmpeg falló al convertir audio: {err[-500:]}")
+
+        rec = KaldiRecognizer(vosk_model, 16000)
+        rec.SetWords(True)
+
+        parts = []
+        with wave.open(wav_path, "rb") as wf:
+            if wf.getnchannels() != 1 or wf.getsampwidth() != 2 or wf.getframerate() != 16000:
+                raise RuntimeError("El WAV convertido no es 16kHz mono PCM")
+
+            while True:
+                data = wf.readframes(4000)
+                if len(data) == 0:
+                    break
+                if rec.AcceptWaveform(data):
+                    payload = json.loads(rec.Result())
+                    text = (payload.get("text") or "").strip()
+                    if text:
+                        parts.append(text)
+
+            final_payload = json.loads(rec.FinalResult())
+            final_text = (final_payload.get("text") or "").strip()
+            if final_text:
+                parts.append(final_text)
+
+        return " ".join(parts).strip()
+    finally:
+        if wav_path and os.path.exists(wav_path):
+            try:
+                os.remove(wav_path)
+            except OSError:
+                pass
+
+
 # For manual testing
 async def main():
     room = os.getenv("ROOM_NAME")

@@ -22,7 +22,7 @@ from lsc_engine_v2 import LSCEngineV2
 USE_V2_ENGINE = os.getenv("USE_V2_ENGINE", "false").lower() == "true"
 from gtts import gTTS # Fixed capitalization
 import numpy as np
-from transcription_agent import VoskAgent
+from transcription_agent import VoskAgent, get_model, transcribe_audio_file
 
 app = FastAPI()
 
@@ -305,6 +305,47 @@ async def stop_transcription(request: TranscribeRequest):
         del active_agents[room_name]
         return {"success": True, "message": "Agent stopped"}
     return {"success": False, "message": "Agent not found"}
+
+@app.post("/transcribe/audio")
+async def transcribe_uploaded_audio(file: UploadFile = File(...)):
+    """Transcribe a voice note / audio file with local Vosk (offline)."""
+    log("\n[DEBUG] --- /transcribe/audio Request ---")
+
+    if get_model() is None:
+        raise HTTPException(status_code=503, detail="Modelo Vosk no disponible en el servidor")
+
+    suffix = os.path.splitext(file.filename or "")[1] or ".m4a"
+    audio_path = None
+    try:
+        fd, audio_path = tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+
+        with open(audio_path, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 256)
+                if not chunk:
+                    break
+                out.write(chunk)
+
+        text = await asyncio.to_thread(transcribe_audio_file, audio_path)
+        log(f"[DEBUG] Transcription result: '{text}'")
+
+        return {
+            "success": True,
+            "text": text or "",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        if LOGS_ENABLED:
+            traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error transcribiendo audio: {str(e)}")
+    finally:
+        if audio_path and os.path.exists(audio_path):
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
 
 # ==================== Socket.IO para Streaming ====================
 

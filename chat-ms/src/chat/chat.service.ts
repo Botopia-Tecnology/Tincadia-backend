@@ -210,39 +210,61 @@ export class ChatService {
                 let allParticipantIds: string[] = []; // Track ALL participants for interpreter check
                 let groupTitle = null;
 
-                if (conversation.type === 'group') {
-                    groupTitle = conversation.title;
-                    const { data: participants } = await supabase
-                        .from('conversation_participants')
-                        .select('user_id')
-                        .eq('conversation_id', conversation.id);
+                const { data: participants } = await supabase
+                    .from('conversation_participants')
+                    .select('user_id')
+                    .eq('conversation_id', conversation.id);
 
-                    if (participants) {
-                        allParticipantIds = participants.map(p => p.user_id);
-                        recipientIds = allParticipantIds.filter(id => id !== data.senderId);
-                    }
+                const participantIds = (participants || [])
+                    .map(p => p.user_id)
+                    .filter(Boolean) as string[];
+
+                // Algunos grupos legacy pueden no tener type='group' pero sí filas en
+                // conversation_participants: tratarlos igual para no notificar solo a uno.
+                const isGroup =
+                    String(conversation.type || '').toLowerCase() === 'group' ||
+                    participantIds.length >= 2;
+
+                if (isGroup) {
+                    groupTitle = conversation.title;
+                    allParticipantIds = participantIds.length > 0
+                        ? participantIds
+                        : [conversation.user1_id, conversation.user2_id].filter(Boolean);
+                    const senderKey = String(data.senderId || '').toLowerCase();
+                    recipientIds = allParticipantIds.filter(
+                        id => String(id).toLowerCase() !== senderKey,
+                    );
                 } else {
                     // Direct chat
-                    allParticipantIds = [conversation.user1_id, conversation.user2_id];
-                    recipientIds = [conversation.user1_id === data.senderId ? conversation.user2_id : conversation.user1_id];
+                    allParticipantIds = [conversation.user1_id, conversation.user2_id].filter(Boolean);
+                    recipientIds = [
+                        conversation.user1_id === data.senderId
+                            ? conversation.user2_id
+                            : conversation.user1_id,
+                    ].filter(Boolean);
+                }
+
+                if (data.type === 'call') {
+                    this.logger.log(
+                        `[CALL_DEBUG] Notifying call in ${isGroup ? 'group' : 'direct'} ${data.conversationId}: ` +
+                        `${recipientIds.length} recipients (participants=${allParticipantIds.length})`,
+                    );
                 }
 
                 // --- AUTO-FREE INTERPRETERS ON CALL END ---
-                if (data.type === 'call_ended') {
+                if (data.type === 'call_ended' && allParticipantIds.length > 0) {
                     // We don't need to await this critically, but we want to log errors.
                     // Using a separate async operation or just awaiting it here safely.
-                    const { error: updateError, count } = await supabase
+                    const { error: updateError } = await supabase
                         .from('profiles')
                         .update({ is_busy: false })
                         .in('id', allParticipantIds)
-                        .in('role', ['interpreter', 'Interpreter'])
+                        .eq('role', 'interpreter')
                         .eq('is_busy', true); // Only update if currently busy
 
                     if (updateError) {
                         this.logger.error(`Error freeing interpreters: ${updateError.message}`);
                     } else {
-                        // Optional: Log success if count > 0
-                        // (count is null unless count option is used, but update usually returns it or data)
                         this.logger.log(`Call ended: Released interpreters checks completed.`);
                     }
                 }
@@ -260,130 +282,174 @@ export class ChatService {
                     : 'Alguien';
 
                 // Fetch push tokens for all recipients
-                const { data: recipientsProfiles } = await supabase
-                    .from('profiles')
-                    .select('id, push_token, voip_token, fcm_token')
-                    .in('id', recipientIds);
+                const { data: recipientsProfiles } = recipientIds.length > 0
+                    ? await supabase
+                        .from('profiles')
+                        .select('id, push_token, voip_token, fcm_token')
+                        .in('id', recipientIds)
+                    : { data: [] as Array<{ id: string; push_token?: string; voip_token?: string; fcm_token?: string }> };
 
                 // Send Notifications and Broadcasts (sin push para mensajes de sistema del grupo)
                 const skipPushForSystem = data.metadata?.isSystem === true;
-                const isGroup = conversation.type === 'group';
+                const isCall = data.type === 'call';
+                // Para grupos, un call_rejected no debe finalizar la llamada para el resto (ni matar sus interfaces nativas)
+                const isCallEnded =
+                    data.type === 'call_ended' ||
+                    String(data.type) === 'call_missed' ||
+                    (!isGroup && String(data.type) === 'call_rejected');
+                const callSessionId = data.metadata?.callSessionId || data.metadata?.call_session_id;
+                const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
+                const payload = {
+                    conversationId: data.conversationId,
+                    type: (isCall || isCallEnded) ? data.type : 'new_message',
+                    senderId: data.senderId,
+                    senderName: senderName,
+                    roomName: (isCall || isCallEnded) ? data.metadata?.roomName : undefined,
+                    callSessionId: (isCall || isCallEnded) ? callSessionId : undefined,
+                    isGroup: isGroup ? 'true' : 'false',
+                };
 
-                for (const recipient of recipientsProfiles || []) {
-                    const hasAnyToken = recipient.push_token || recipient.voip_token || recipient.fcm_token;
-                    
-                    if (hasAnyToken && !skipPushForSystem) {
-                        const isCall = data.type === 'call';
-                        // Para grupos, un call_rejected no debe finalizar la llamada para el resto (ni matar sus interfaces nativas)
-                        const isCallEnded = data.type === 'call_ended' || String(data.type) === 'call_missed' || (!isGroup && String(data.type) === 'call_rejected');
-                        
-                        if (isCallEnded) {
-                            this.logger.log(`[CALL_DEBUG] 🛑 Processed ${data.type} from sender: ${data.senderId} for conversation: ${data.conversationId}`);
-                        }
-                        
-                        const notifTitle = groupTitle ? `${groupTitle} (${senderName})` : senderName;
-
-                        const callSessionId = data.metadata?.callSessionId || data.metadata?.call_session_id;
-                        const payload = {
-                            conversationId: data.conversationId,
-                            type: (isCall || isCallEnded) ? data.type : 'new_message',
-                            senderId: data.senderId,
-                            senderName: senderName,
-                            roomName: (isCall || isCallEnded) ? data.metadata?.roomName : undefined,
-                            callSessionId: (isCall || isCallEnded) ? callSessionId : undefined,
-                            isGroup: isGroup ? 'true' : 'false'
-                        };
-
-                        if ((isCall || isCallEnded) && (recipient.voip_token || recipient.fcm_token)) {
-                            // If it's a call event and they have native call tokens
-                            if (recipient.voip_token) {
-                                await this.notificationsService.sendVoipPushNotification(recipient.voip_token, payload).catch(e => this.logger.error(`VoIP Push Error: ${e.message}`));
-                            }
-                            if (recipient.fcm_token) {
-                                await this.notificationsService.sendFcmDataNotification(recipient.fcm_token, payload).catch(e => this.logger.error(`FCM Push Error: ${e.message}`));
-                            }
-                        } else if (recipient.push_token) {
-                            // Fallback to Expo Push Notification
-                            await this.notificationsService.sendPushNotification(
-                                recipient.push_token,
-                                isCall ? `📞 Llamada de ${senderName}` : (notifTitle || 'Nuevo Mensaje'),
-                                isCall
-                                    ? 'Toca para contestar...'
-                                    : ((data.type === 'text' || isCallEnded) ? data.content : (data.type === 'image' ? '📷 Foto' : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
-                                payload,
-                                // Options — both call and call_ended use high-priority channel
-                                (isCall || isCallEnded || String(data.type) === 'call_rejected') ? {
-                                    channelId: 'incoming_calls',
-                                    priority: 'high',
-                                    sound: isCall ? 'default' : undefined
-                                } : undefined
-                            );
-                        }
-                    }
-
-                    // 🚀 BROADCAST TO RECIPIENT'S USER CHANNEL
-                    const recipientChannel = supabase.channel(`user:${recipient.id}`);
-                    await recipientChannel.send({
-                        type: 'broadcast',
-                        event: 'new_message',
-                        payload: {
-                            id: message.id,
-                            conversationId: data.conversationId,
-                            senderId: data.senderId,
-                            content: (data.type === 'text' || data.type === 'call' || data.type === 'call_ended' || data.type === 'call_rejected' || data.type === 'call_missed') 
-                                ? data.content 
-                                : (data.type === 'image' ? '📷 Foto' : '🎤 Audio'),
-                            type: data.type,
-                            createdAt: message.created_at,
-                            isMine: false,
-                            isGroup: isGroup,
-                            groupTitle: groupTitle,
-                            metadata: data.metadata || undefined,
-                        }
-                    });
-
-                    // For call_ended/call_rejected/call_missed, send an additional broadcast so the
-                    // global notification listener can dismiss the incoming-call modal
-                    // (But don't do it for call_rejected in groups, as the call continues for others)
-                    const shouldBroadcastEnd = data.type === 'call_ended' || String(data.type) === 'call_missed' || (!isGroup && String(data.type) === 'call_rejected');
-                    if (shouldBroadcastEnd) {
-                        await recipientChannel.send({
-                            type: 'broadcast',
-                            event: 'call_ended',
-                            payload: {
-                                id: message.id,
-                                conversationId: data.conversationId,
-                                senderId: data.senderId,
-                                content: data.content,
-                                type: data.type,
-                                createdAt: message.created_at,
-                                roomName: data.metadata?.roomName,
-                                callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
-                                metadata: data.metadata || undefined,
-                            }
-                        });
-                    }
-
-                    if (data.type === 'call') {
-                        await recipientChannel.send({
-                            type: 'broadcast',
-                            event: 'incoming_call',
-                            payload: {
-                                conversationId: data.conversationId,
-                                senderId: data.senderId,
-                                senderName: senderName,
-                                roomName: data.metadata?.roomName,
-                                callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
-                                isGroup: conversation.type === 'group'
-                            }
-                        });
-                    }
-
-                    // Delay channel removal to ensure WebSocket flushes the message
-                    setTimeout(() => {
-                        supabase.removeChannel(recipientChannel);
-                    }, 2000);
+                if (isCallEnded) {
+                    this.logger.log(`[CALL_DEBUG] 🛑 Processed ${data.type} from sender: ${data.senderId} for conversation: ${data.conversationId}`);
                 }
+
+                // 1) Pushes nativos/Expo a TODOS los destinatarios en paralelo.
+                // Antes iban en el mismo loop que los broadcasts: si un channel.send
+                // fallaba, el resto del grupo nunca recibía FCM/VoIP.
+                if (!skipPushForSystem) {
+                    const pushResults = await Promise.allSettled(
+                        (recipientsProfiles || []).map(async (recipient) => {
+                            const hasNative = Boolean(recipient.voip_token || recipient.fcm_token);
+                            const hasExpo = Boolean(recipient.push_token);
+
+                            if (!hasNative && !hasExpo) {
+                                this.logger.warn(`[CALL_DEBUG] Recipient ${recipient.id} has no push tokens`);
+                                return;
+                            }
+
+                            if ((isCall || isCallEnded) && hasNative) {
+                                if (recipient.voip_token) {
+                                    await this.notificationsService.sendVoipPushNotification(
+                                        recipient.voip_token,
+                                        payload,
+                                    );
+                                }
+                                if (recipient.fcm_token) {
+                                    await this.notificationsService.sendFcmDataNotification(
+                                        recipient.fcm_token,
+                                        payload,
+                                    );
+                                }
+                                this.logger.log(
+                                    `[CALL_DEBUG] Native push sent to ${recipient.id} ` +
+                                    `(voip=${Boolean(recipient.voip_token)}, fcm=${Boolean(recipient.fcm_token)})`,
+                                );
+                                return;
+                            }
+
+                            if (hasExpo) {
+                                await this.notificationsService.sendPushNotification(
+                                    recipient.push_token,
+                                    isCall ? `📞 Llamada de ${senderName}` : (notifTitle || 'Nuevo Mensaje'),
+                                    isCall
+                                        ? 'Toca para contestar...'
+                                        : ((data.type === 'text' || isCallEnded)
+                                            ? data.content
+                                            : (data.type === 'image'
+                                                ? '📷 Foto'
+                                                : (data.type === 'audio' ? '🎤 Audio' : '📎 Archivo'))),
+                                    payload,
+                                    (isCall || isCallEnded || String(data.type) === 'call_rejected') ? {
+                                        channelId: 'incoming_calls',
+                                        priority: 'high',
+                                        sound: isCall ? 'default' : undefined,
+                                    } : undefined,
+                                );
+                            }
+                        }),
+                    );
+
+                    const failedPushes = pushResults.filter(r => r.status === 'rejected');
+                    if (failedPushes.length > 0) {
+                        this.logger.error(
+                            `[CALL_DEBUG] ${failedPushes.length}/${pushResults.length} push sends failed for conversation ${data.conversationId}`,
+                        );
+                        failedPushes.forEach((result) => {
+                            if (result.status === 'rejected') {
+                                this.logger.error(`[CALL_DEBUG] Push failure: ${result.reason?.message || result.reason}`);
+                            }
+                        });
+                    }
+                }
+
+                // 2) Broadcasts realtime por destinatario (aislados: un fallo no corta a los demás)
+                await Promise.allSettled(
+                    (recipientsProfiles || []).map(async (recipient) => {
+                        const recipientChannel = supabase.channel(`user:${recipient.id}`);
+                        try {
+                            await recipientChannel.send({
+                                type: 'broadcast',
+                                event: 'new_message',
+                                payload: {
+                                    id: message.id,
+                                    conversationId: data.conversationId,
+                                    senderId: data.senderId,
+                                    content: (data.type === 'text' || data.type === 'call' || data.type === 'call_ended' || data.type === 'call_rejected' || data.type === 'call_missed')
+                                        ? data.content
+                                        : (data.type === 'image' ? '📷 Foto' : '🎤 Audio'),
+                                    type: data.type,
+                                    createdAt: message.created_at,
+                                    isMine: false,
+                                    isGroup: isGroup,
+                                    groupTitle: groupTitle,
+                                    metadata: data.metadata || undefined,
+                                },
+                            });
+
+                            const shouldBroadcastEnd =
+                                data.type === 'call_ended' ||
+                                String(data.type) === 'call_missed' ||
+                                (!isGroup && String(data.type) === 'call_rejected');
+
+                            if (shouldBroadcastEnd) {
+                                await recipientChannel.send({
+                                    type: 'broadcast',
+                                    event: 'call_ended',
+                                    payload: {
+                                        id: message.id,
+                                        conversationId: data.conversationId,
+                                        senderId: data.senderId,
+                                        content: data.content,
+                                        type: data.type,
+                                        createdAt: message.created_at,
+                                        roomName: data.metadata?.roomName,
+                                        callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
+                                        metadata: data.metadata || undefined,
+                                    },
+                                });
+                            }
+
+                            if (data.type === 'call') {
+                                await recipientChannel.send({
+                                    type: 'broadcast',
+                                    event: 'incoming_call',
+                                    payload: {
+                                        conversationId: data.conversationId,
+                                        senderId: data.senderId,
+                                        senderName: senderName,
+                                        roomName: data.metadata?.roomName,
+                                        callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
+                                        isGroup,
+                                    },
+                                });
+                            }
+                        } finally {
+                            setTimeout(() => {
+                                supabase.removeChannel(recipientChannel);
+                            }, 2000);
+                        }
+                    }),
+                );
             }
 
             // Return decrypted message
@@ -424,8 +490,28 @@ export class ChatService {
                 throw new BadRequestException('Error al obtener mensajes');
             }
 
+            // Check if current user deleted this conversation previously
+            let rawMessages = messages || [];
+            if (data.userId) {
+                try {
+                    const { data: delRecord } = await supabase
+                        .from('conversation_deletions')
+                        .select('deleted_at')
+                        .eq('conversation_id', data.conversationId)
+                        .eq('user_id', data.userId)
+                        .maybeSingle();
+
+                    if (delRecord?.deleted_at) {
+                        const delTime = new Date(delRecord.deleted_at).getTime();
+                        rawMessages = rawMessages.filter(msg => new Date(msg.created_at).getTime() > delTime);
+                    }
+                } catch (e) {
+                    // Ignore if table missing
+                }
+            }
+
             // Process messages: Decrypt text AND sign media URLs
-            const processedMessages = await Promise.all(messages?.map(async (msg) => {
+            const processedMessages = await Promise.all(rawMessages.map(async (msg) => {
                 try {
                     // 1. Decrypt Text
                     let content = msg.content;
@@ -440,12 +526,23 @@ export class ChatService {
                         }
                     }
 
-                    // 2. Sign Media URLs (Image/Video/Audio)
-                    if (['image', 'video', 'audio'].includes(msg.type) && msg.metadata?.publicId) {
+                    // 2. Sign Media URLs (Image/Video/Audio/Document/File)
+                    if (['image', 'video', 'audio', 'document', 'file'].includes(msg.type) && msg.metadata?.publicId) {
                         try {
+                            let resourceType: 'image' | 'video' | 'raw' = 'raw';
+                            if (msg.type === 'image') resourceType = 'image';
+                            else if (msg.type === 'video') resourceType = 'video';
+                            else if (msg.type === 'audio' || msg.type === 'document' || msg.type === 'file') resourceType = 'raw';
+
+                            // Check publicId extension override if image sent as document/file
+                            const pId = String(msg.metadata.publicId).toLowerCase();
+                            if (pId.endsWith('.jpg') || pId.endsWith('.jpeg') || pId.endsWith('.png') || pId.endsWith('.gif') || pId.endsWith('.webp')) {
+                                resourceType = 'image';
+                            }
+
                             const response = await this.contentClient.send('generateSignedUrl', {
                                 publicId: msg.metadata.publicId,
-                                resourceType: msg.type === 'audio' ? 'video' : msg.type
+                                resourceType
                             }).toPromise();
 
                             if (response?.url) {
@@ -535,13 +632,42 @@ export class ChatService {
                 .map(conv => conv.user1_id === data.userId ? conv.user2_id : conv.user1_id)
                 .filter(Boolean); // Filter nulls just in case
 
-            // Fetch profiles
+            // Fetch profiles & auth user metadata for avatar_url resolution
             const { data: profiles } = await supabase
                 .from('profiles')
                 .select('id, first_name, last_name, phone, avatar_url')
                 .in('id', directChatUserIds);
 
-            const profileMap = new Map(profiles?.map((p) => [p.id, p]) || []);
+            interface UserProfileMapEntry {
+                id: string;
+                first_name?: string | null;
+                last_name?: string | null;
+                phone?: string | null;
+                avatar_url?: string | null;
+            }
+
+            const profileMap = new Map<string, UserProfileMapEntry>();
+            await Promise.all(directChatUserIds.map(async (id) => {
+                const profile = profiles?.find(p => p.id === id);
+                let avatarUrl = profile?.avatar_url || null;
+
+                if (!avatarUrl) {
+                    try {
+                        const { data: authUser } = await supabase.auth.admin.getUserById(id);
+                        if (authUser?.user?.user_metadata?.avatar_url) {
+                            avatarUrl = authUser.user.user_metadata.avatar_url;
+                        }
+                    } catch (e) {
+                        // ignore admin fetch error
+                    }
+                }
+
+                if (profile) {
+                    profileMap.set(id, { ...profile, avatar_url: avatarUrl });
+                } else {
+                    profileMap.set(id, { id, first_name: '', last_name: '', phone: '', avatar_url: avatarUrl });
+                }
+            }));
 
             // 4b. Fetch CONTACTS to resolve aliases (overrides/augments profile names)
             const { data: contacts } = await supabase
@@ -590,19 +716,30 @@ export class ChatService {
                         content = '🎤 Audio';
                     } else if (msg.type === 'video') {
                         content = '🎥 Video';
+                    } else if (msg.type === 'document' || msg.type === 'file') {
+                        content = '📄 Documento';
                     }
 
                     lastMessageMap.set(msg.conversation_id, { ...msg, content });
                 }
             }
 
-            // Filter out conversations that have no messages
-            // This prevents User B from seeing a conversation until User A sends a message
-            const conversationsWithMessages = allConversations.filter(conv =>
-                lastMessageMap.has(conv.id)
-            );
+            // Fetch per-user conversation deletions
+            let deletionMap = new Map<string, number>();
+            try {
+                const { data: userDeletions } = await supabase
+                    .from('conversation_deletions')
+                    .select('conversation_id, deleted_at')
+                    .eq('user_id', data.userId);
 
-            this.logger.log(`📋 Filtered to ${conversationsWithMessages.length} conversations with messages`);
+                if (userDeletions) {
+                    deletionMap = new Map(userDeletions.map(d => [d.conversation_id, new Date(d.deleted_at).getTime()]));
+                }
+            } catch (e) {
+                // Table might not exist yet, ignore
+            }
+
+            this.logger.log(`📋 Total conversations for user: ${allConversations.length}`);
 
             // 4c. Fetch Unread Counts correctly handling message_reads for groups
             // We need messages that are NOT from the current user AND (read_at is null for direct OR no entry in message_reads for current user)
@@ -631,7 +768,7 @@ export class ChatService {
             }
 
             // 5. Build Final Result
-            const conversationsWithOther = conversationsWithMessages.map(conv => {
+            const conversationsWithOther = allConversations.map(conv => {
                 const isGroup = conv.type === 'group';
                 let otherUser = null;
 
@@ -651,7 +788,7 @@ export class ChatService {
                             // Override profile name logic below by patching otherUser or just handling it in assignment
                             if (!otherUser) {
                                 // If they don't have a profile but they are in contacts
-                                otherUser = { first_name: contactName, last_name: '', avatar_url: null, id: otherId } as any;
+                                otherUser = { first_name: contactName, last_name: '', avatar_url: profileMap.get(otherId)?.avatar_url || null, id: otherId } as any;
                             } else {
                                 // They have a profile, but we prefer contact name
                                 otherUser = { ...otherUser, first_name: contactName, last_name: '' };
@@ -660,7 +797,14 @@ export class ChatService {
                     }
                 }
 
-                const lastMsg = lastMessageMap.get(conv.id);
+                let lastMsg = lastMessageMap.get(conv.id);
+                const delTime = deletionMap.get(conv.id);
+                if (delTime && lastMsg && lastMsg.created_at) {
+                    const msgTime = new Date(lastMsg.created_at).getTime();
+                    if (msgTime <= delTime) {
+                        lastMsg = null;
+                    }
+                }
 
                 return {
                     ...conv,
@@ -689,6 +833,48 @@ export class ChatService {
             this.logger.error(`Error getting conversations: ${error.message}`);
             if (error instanceof BadRequestException) throw error;
             throw new BadRequestException('Error al obtener conversaciones');
+        }
+    }
+
+    /**
+     * Delete a conversation for a specific user (Instagram style)
+     */
+    async deleteConversation(data: { conversationId: string; userId: string }) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+            this.logger.log(`🗑️ User ${data.userId} deleting conversation ${data.conversationId}`);
+
+            const now = new Date().toISOString();
+
+            // Try to upsert into conversation_deletions table
+            try {
+                await supabase
+                    .from('conversation_deletions')
+                    .upsert({
+                        conversation_id: data.conversationId,
+                        user_id: data.userId,
+                        deleted_at: now,
+                    }, { onConflict: 'conversation_id, user_id' });
+            } catch (tableErr) {
+                this.logger.warn(`Failed to insert into conversation_deletions: ${tableErr}`);
+            }
+
+            // Broadcast cleared event to user's personal channel
+            const userChannel = supabase.channel(`user:${data.userId}`);
+            await userChannel.send({
+                type: 'broadcast',
+                event: 'conversation_cleared',
+                payload: { conversationId: data.conversationId }
+            });
+            setTimeout(() => {
+                supabase.removeChannel(userChannel);
+            }, 2000);
+
+            return { success: true };
+        } catch (error) {
+            this.logger.error(`deleteConversation error: ${error.message}`);
+            if (error instanceof BadRequestException) throw error;
+            throw new BadRequestException('Error al eliminar conversación');
         }
     }
 
@@ -874,6 +1060,7 @@ export class ChatService {
             throw new BadRequestException('Error al eliminar mensaje');
         }
     }
+
     private roomServiceClient: RoomServiceClient | null = null;
 
     private getRoomServiceClient(): RoomServiceClient | null {
@@ -889,13 +1076,13 @@ export class ChatService {
     }
 
     /**
-     * La app identifica a los int?rpretes por el prefijo de su identity.
-     * Mantenemos compatibilidad con el esquema legado ("Int?rprete: <nombre>"),
+     * La app identifica a los intérpretes por el prefijo de su identity.
+     * Mantenemos compatibilidad con el esquema legado ("Intérprete: <nombre>"),
      * el prefijo sin tilde y el nuevo prefijo por rol ("interpreter:<userId>").
      */
     private isInterpreterIdentity(identity: string | undefined | null): boolean {
         const normalized = (identity || '').trim().toLowerCase();
-        return normalized.startsWith('int?rprete')
+        return normalized.startsWith('intérprete')
             || normalized.startsWith('interprete')
             || normalized.startsWith('interpreter:');
     }
@@ -905,9 +1092,9 @@ export class ChatService {
     }
 
     /**
-     * Verifica contra LiveKit si la sala ya tiene un int?rprete conectado.
-     * Ante cualquier error (sala inexistente, LiveKit ca?do) responde false
-     * para no bloquear llamadas leg?timas.
+     * Verifica contra LiveKit si la sala ya tiene un intérprete conectado.
+     * Ante cualquier error (sala inexistente, LiveKit caído) responde false
+     * para no bloquear llamadas legítimas.
      */
     private async roomHasInterpreter(roomName: string): Promise<boolean> {
         try {
@@ -950,19 +1137,26 @@ export class ChatService {
 
             const isInterpreter = this.isInterpreterRole(profile.role);
 
-            // Regla de negocio: m?ximo un int?rprete por llamada. Se valida al
-            // emitir el token porque es el ?nico punto por el que pasa todo
-            // camino de entrada (modal, tap en notificaci?n, deep link).
+            // Regla de negocio: máximo un intérprete por llamada. Se valida al
+            // emitir el token porque es el único punto por el que pasa todo
+            // camino de entrada (modal, tap en notificación, deep link).
             if (isInterpreter && await this.roomHasInterpreter(roomName)) {
                 this.logger.log(`Interpreter token rejected for room ${roomName}: another interpreter is already connected`);
                 return {
                     error: 'interpreter_present',
-                    message: 'Esta llamada ya se encuentra atendida por otro int?rprete.',
+                    message: 'Esta llamada ya se encuentra atendida por otro intérprete.',
                 };
             }
 
+            // Identity visible en la llamada. Para intérpretes usamos
+            // "Intérprete: <nombre>" (la app ya lo envía así) para que se
+            // muestre bien y roomHasInterpreter lo detecte por prefijo.
+            const interpreterIdentity = this.isInterpreterIdentity(username)
+                ? username
+                : `Intérprete: ${username}`;
+
             const at = new AccessToken(apiKey, apiSecret, {
-                identity: isInterpreter ? `interpreter:${userId}` : username,
+                identity: isInterpreter ? interpreterIdentity : username,
                 ttl: '24h',
             });
 
@@ -976,17 +1170,17 @@ export class ChatService {
 
             const token = await at.toJwt();
 
-            // ?? TRIGGER TRANSCRIPTION AGENT
+            // 🚀 TRIGGER TRANSCRIPTION AGENT
             try {
                 const modelMsUrl = (process.env.MODEL_MS_URL || '').trim();
 
                 if (!modelMsUrl) {
-                    this.logger.error(`? [Transcription Agent] ERROR: Variable MODEL_MS_URL no definida.`);
+                    this.logger.error(`❌ [Transcription Agent] ERROR: Variable MODEL_MS_URL no definida.`);
                     return;
                 }
 
                 const triggerAgent = async (url: string, isFallback = false) => {
-                    this.logger.log(`?? [Transcription Agent] Triggering (${isFallback ? 'Fallback' : 'Primary'}) at: ${url}/transcribe`);
+                    this.logger.log(`📡 [Transcription Agent] Triggering (${isFallback ? 'Fallback' : 'Primary'}) at: ${url}/transcribe`);
 
                     try {
                         const res = await fetch(`${url}/transcribe`, {
@@ -997,15 +1191,15 @@ export class ChatService {
                         });
 
                         if (res.ok) {
-                            this.logger.log(`? [Transcription Agent] Trigger exitoso en ${isFallback ? 'P?blica' : 'Privada'}`);
+                            this.logger.log(`✅ [Transcription Agent] Trigger exitoso en ${isFallback ? 'Pública' : 'Privada'}`);
                             return true;
                         } else {
                             const errorBody = await res.text();
-                            this.logger.warn(`?? [Transcription Agent] El modelo respondi? error (${res.status}): ${errorBody}`);
+                            this.logger.warn(`⚠️ [Transcription Agent] El modelo respondió error (${res.status}): ${errorBody}`);
                             return false;
                         }
                     } catch (e) {
-                        this.logger.error(`? [Transcription Agent] Error en ${isFallback ? 'P?blica' : 'Privada'}: ${e.message}`);
+                        this.logger.error(`❌ [Transcription Agent] Error en ${isFallback ? 'Pública' : 'Privada'}: ${e.message}`);
                         return false;
                     }
                 };
@@ -1013,15 +1207,15 @@ export class ChatService {
                 // Intento 1: URL configurada (Privada)
                 const success = await triggerAgent(modelMsUrl);
 
-                // Intento 2: Fallback a URL P?blica si la primera fall? y no es ya la p?blica
+                // Intento 2: Fallback a URL Pública si la primera falló y no es ya la pública
                 if (!success && modelMsUrl.includes('.internal')) {
                     const publicUrl = modelMsUrl.replace('.railway.internal', '.up.railway.app').replace(':8000', '');
-                    this.logger.log(`?? [Transcription Agent] Reintentando v?a URL P?blica: ${publicUrl}`);
+                    this.logger.log(`🔄 [Transcription Agent] Reintentando vía URL Pública: ${publicUrl}`);
                     await triggerAgent(publicUrl, true);
                 }
 
             } catch (err) {
-                this.logger.warn(`?? Error inesperado lanzando transcripci?n: ${err.message}`);
+                this.logger.warn(`⚠️ Error inesperado lanzando transcripción: ${err.message}`);
             }
 
             const livekitUrl = process.env.LIVEKIT_URL;
@@ -1177,7 +1371,7 @@ export class ChatService {
                 const { data: others } = await supabase
                     .from('profiles')
                     .select('id, push_token')
-                    .in('role', ['interpreter', 'Interpreter'])
+                    .eq('role', 'interpreter')
                     .neq('id', userId);
 
                 if (others?.length) {

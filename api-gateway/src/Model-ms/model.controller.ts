@@ -68,4 +68,15 @@ export class ModelController {
     ) {
         return this.modelService.stopTranscription(dto.room_name);
     }
+
+    @Post('audio-to-text')
+    @ApiConsumes('multipart/form-data')
+    @ApiOperation({ summary: 'Transcribir nota de voz / audio con Vosk local' })
+    @ApiResponse({ status: 200, description: 'Transcripción exitosa' })
+    @UseInterceptors(FileInterceptor('file'))
+    async audioToText(
+        @UploadedFile() file: Express.Multer.File
+    ) {
+        return this.modelService.audioToText(file);
+    }
 }

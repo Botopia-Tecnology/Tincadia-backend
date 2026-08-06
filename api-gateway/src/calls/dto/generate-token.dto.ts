@@ -12,7 +12,7 @@ export class GenerateTokenDto {
     @IsNotEmpty()
     userId: string;
 
-    @ApiPropertyOptional({ example: 'Juan P?rez', description: 'Nombre que se mostrar? en la llamada', default: 'Guest' })
+    @ApiPropertyOptional({ example: 'Juan Pérez', description: 'Nombre que se mostrará en la llamada', default: 'Guest' })
     @IsString()
     @IsOptional()
     username?: string;

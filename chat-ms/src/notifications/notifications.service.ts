@@ -218,6 +218,10 @@ export class NotificationsService {
                 senderName: String(payload.senderName || ''),
                 roomName: String(payload.roomName || ''),
                 callSessionId: String(payload.callSessionId || payload.call_session_id || ''),
+                callUUID: String(
+                    payload.callUUID ||
+                    this.stableCallUUID(payload.callSessionId || payload.call_session_id || payload.conversationId)
+                ),
                 isGroup: String(payload.isGroup || 'false')
             },
             android: {

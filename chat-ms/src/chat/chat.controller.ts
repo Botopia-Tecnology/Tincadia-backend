@@ -51,6 +51,11 @@ export class ChatController {
         return this.chatService.getConversations(data);
     }
 
+    @MessagePattern('delete_conversation')
+    deleteConversation(@Payload() data: { conversationId: string; userId: string }) {
+        return this.chatService.deleteConversation(data);
+    }
+
     @MessagePattern('mark_as_read')
     markAsRead(@Payload() data: { conversationId: string; userId: string }) {
         return this.chatService.markAsRead(data.conversationId, data.userId);
