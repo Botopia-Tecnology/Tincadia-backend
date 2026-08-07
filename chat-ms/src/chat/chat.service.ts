@@ -1320,18 +1320,38 @@ export class ChatService {
                 }
 
                 const channel = supabase.channel(`user:${interpreter.id}`);
-                await channel.send({
-                    type: 'broadcast',
-                    event: 'call_invite',
-                    payload: {
-                        inviteId: invite.id,
-                        roomName: data.roomName,
-                        senderId: data.userId,
-                        senderName: data.username,
-                    }
-                });
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                await supabase.removeChannel(channel);
+                try {
+                    await new Promise<void>((resolve, reject) => {
+                        const timeout = setTimeout(() => reject(new Error('Realtime subscribe timeout')), 5000);
+                        channel.subscribe((status) => {
+                            if (status === 'SUBSCRIBED') {
+                                clearTimeout(timeout);
+                                resolve();
+                            }
+                            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                                clearTimeout(timeout);
+                                reject(new Error(`Realtime subscribe failed: ${status}`));
+                            }
+                        });
+                    });
+
+                    await channel.send({
+                        type: 'broadcast',
+                        event: 'call_invite',
+                        payload: {
+                            inviteId: invite.id,
+                            roomName: data.roomName,
+                            senderId: data.userId,
+                            senderName: data.username,
+                        }
+                    });
+                } catch (broadcastErr) {
+                    this.logger.warn(
+                        `Interpreter call_invite broadcast failed for ${interpreter.id}: ${(broadcastErr as Error)?.message || broadcastErr}`,
+                    );
+                } finally {
+                    await supabase.removeChannel(channel);
+                }
             });
 
             await Promise.all(notifications);
