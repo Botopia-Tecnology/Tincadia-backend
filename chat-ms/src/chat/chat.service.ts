@@ -1365,8 +1365,6 @@ export class ChatService {
                     .in('id', invalidTokens);
             }
 
-            await Promise.all(notifications);
-
             return { success: true, count: interpreters.length };
 
         } catch (error) {
@@ -1398,15 +1396,35 @@ export class ChatService {
                     for (const other of others) {
                         // 1. Broadcast en tiempo real (funciona si la app está en foreground/background activo)
                         const ch = supabase.channel(`user:${other.id}`);
-                        await ch.send({
-                            type: 'broadcast',
-                            event: 'call_invite_taken',
-                            payload: { acceptedBy: userId },
-                        });
-                        await new Promise(resolve => setTimeout(resolve, 2000));
-                        await supabase.removeChannel(ch);
+                        try {
+                            await new Promise<void>((resolve, reject) => {
+                                const timeout = setTimeout(() => reject(new Error('Realtime subscribe timeout')), 5000);
+                                ch.subscribe((status) => {
+                                    if (status === 'SUBSCRIBED') {
+                                        clearTimeout(timeout);
+                                        resolve();
+                                    }
+                                    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                                        clearTimeout(timeout);
+                                        reject(new Error(`Realtime subscribe failed: ${status}`));
+                                    }
+                                });
+                            });
 
-                        // 2. Silent push (funciona aunque el celular esté bloqueado o la app cerrada)
+                            await ch.send({
+                                type: 'broadcast',
+                                event: 'call_invite_taken',
+                                payload: { acceptedBy: userId },
+                            });
+                        } catch (broadcastErr) {
+                            this.logger.warn(
+                                `call_invite_taken broadcast failed for ${other.id}: ${(broadcastErr as Error)?.message || broadcastErr}`,
+                            );
+                        } finally {
+                            await supabase.removeChannel(ch);
+                        }
+
+                        // 2. Silent Expo push (funciona aunque el celular esté bloqueado o la app cerrada)
                         // sound: null → no suena, title: '' → no se muestra en el drawer
                         // data._action: 'dismiss_invite' → el app lo procesa y limpia la notificación
                         if (other.push_token && Expo.isExpoPushToken(other.push_token)) {

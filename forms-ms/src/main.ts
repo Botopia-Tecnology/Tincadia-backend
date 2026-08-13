@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import './config/debug.config';
 import { AppModule } from './app.module';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { ValidationPipe, Logger } from '@nestjs/common';
