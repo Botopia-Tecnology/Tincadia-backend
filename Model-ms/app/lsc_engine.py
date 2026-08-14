@@ -5,9 +5,10 @@ import traceback
 import numpy as np
 import tensorflow as tf
 
-# Configuración de archivos - ModeloV3001
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "ModeloV3001-EXPORT")
+# Configuración de archivos - Modelo_Full (160 señas, entrenado con Min-Max)
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "Modelo_Full-EXPORT")
 MODEL_PATH = os.path.join(MODEL_DIR, "weights.hdf5")
+WEIGHTS_NPZ = os.path.join(MODEL_DIR, "weights.npz")
 CONFIG_PATH = os.path.join(MODEL_DIR, "model_config.json")
 LABELS_PATH = os.path.join(MODEL_DIR, "model_config.json")  # Las etiquetas están en el config
 
@@ -34,8 +35,8 @@ class LSCEngine:
     def _load_resources(cls):
         """Carga el modelo y etiquetas si no están en memoria."""
         if cls._model is None:
-            # Check file existence explicitly
-            m_exists = os.path.exists(MODEL_PATH)
+            # Check file existence explicitly (npz version-safe o hdf5 legacy)
+            m_exists = os.path.exists(WEIGHTS_NPZ) or os.path.exists(MODEL_PATH)
             c_exists = os.path.exists(CONFIG_PATH)
             
             if m_exists and c_exists:
@@ -65,8 +66,16 @@ class LSCEngine:
                         config["model_info"]["num_classes"]
                     )
                     
-                    # Cargar pesos
-                    cls._model.load_weights(MODEL_PATH)
+                    # Cargar pesos: preferir weights.npz (agnóstico a la versión de
+                    # Keras/TF; el modelo se entrenó en Keras 3 y aquí corre Keras 2),
+                    # con fallback a weights.hdf5 para modelos legacy.
+                    if os.path.exists(WEIGHTS_NPZ):
+                        data = np.load(WEIGHTS_NPZ, allow_pickle=True)
+                        arrays = [data[k] for k in sorted(data.files, key=lambda s: int(s.split("_")[1]))]
+                        cls._model.set_weights(arrays)
+                        log(f"✅ Pesos cargados desde weights.npz ({len(arrays)} tensores, version-safe)")
+                    else:
+                        cls._model.load_weights(MODEL_PATH)
                     
                     # Crear predictor exacto COMPARTIENDO el modelo ya cargado
                     from exacto_predictor_colnumword import ExactoPredictorCOLNUMWORD
