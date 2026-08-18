@@ -21,8 +21,11 @@ WORKDIR /app
 COPY requirements_lsc.txt .
 
 # Instalar dependencias de Python
-# Instalamos la versión CPU de Torch para ahorrar espacio
-RUN pip install --no-cache-dir torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+# Instalamos la versión CPU de Torch para ahorrar espacio.
+# Usamos --extra-index-url (no --index-url) para que pip pueda resolver las
+# dependencias de build (typing-extensions, flit_core) desde PyPI; con
+# --index-url quedaba restringido al índice de PyTorch y el build fallaba.
+RUN pip install --no-cache-dir torch==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Instalar el resto de las dependencias
 RUN pip install --no-cache-dir -r requirements_lsc.txt

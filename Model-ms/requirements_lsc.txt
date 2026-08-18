@@ -5,7 +5,9 @@ gTTS==2.3.2
 vosk==0.3.45
 
 # NLP & Transcription
-torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+# torch (CPU) se instala en el Dockerfile con --extra-index-url del índice de PyTorch.
+# Aquí solo se declara la versión; el --index-url inline rompía la resolución del resto.
+torch==2.1.0
 transformers==4.35.0
 livekit-api
 livekit
