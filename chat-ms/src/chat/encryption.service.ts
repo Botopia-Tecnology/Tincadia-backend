@@ -34,6 +34,24 @@ export class EncryptionService {
     }
 
     /**
+     * Encrypts an optional field without double-encrypting legacy/migrated data.
+     */
+    encryptIfNeeded(value: string | null | undefined): string | null {
+        if (value === null || value === undefined) return null;
+
+        if (this.isEncrypted(value)) {
+            try {
+                this.decrypt(value);
+                return value;
+            } catch {
+                // A plaintext value may contain two colons. Encrypt it normally.
+            }
+        }
+
+        return this.encrypt(value);
+    }
+
+    /**
      * Decrypts a string in format: iv:ciphertext:authTag
      * Returns the original plaintext.
      */
@@ -55,6 +73,20 @@ export class EncryptionService {
         decrypted += decipher.final('utf8');
 
         return decrypted;
+    }
+
+    /**
+     * Decrypts encrypted values and keeps legacy plaintext values readable.
+     */
+    decryptOrOriginal(value: string | null | undefined): string | null {
+        if (value === null || value === undefined) return null;
+        if (!this.isEncrypted(value)) return value;
+
+        try {
+            return this.decrypt(value);
+        } catch {
+            return value;
+        }
     }
 
     /**

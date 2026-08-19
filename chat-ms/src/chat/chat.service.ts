@@ -39,6 +39,81 @@ export class ChatService {
         @Inject('CONTENT_SERVICE') private readonly contentClient: ClientProxy,
     ) { }
 
+    private getReplyField(
+        metadata: Record<string, any> | null | undefined,
+        camelCaseKey: string,
+        snakeCaseKey: string,
+    ): string | null {
+        const value = metadata?.[camelCaseKey] ?? metadata?.[snakeCaseKey];
+        return value === null || value === undefined ? null : String(value);
+    }
+
+    private sanitizeMessageMetadata(metadata: Record<string, any> | null | undefined): Record<string, any> {
+        if (!metadata) return {};
+
+        const {
+            replyToContent: _replyToContent,
+            replyToSender: _replyToSender,
+            reply_to_content: _replyToContentSnake,
+            reply_to_sender: _replyToSenderSnake,
+            ...safeMetadata
+        } = metadata;
+
+        return safeMetadata;
+    }
+
+    private getDecryptedReplyFields(message: Record<string, any>) {
+        const metadata = (message.metadata && typeof message.metadata === 'object')
+            ? message.metadata as Record<string, any>
+            : undefined;
+        const rawContent = message.reply_to_content
+            ?? this.getReplyField(metadata, 'replyToContent', 'reply_to_content');
+        const rawSender = message.reply_to_sender
+            ?? this.getReplyField(metadata, 'replyToSender', 'reply_to_sender');
+
+        return {
+            content: this.encryptionService.decryptOrOriginal(rawContent),
+            sender: this.encryptionService.decryptOrOriginal(rawSender),
+            hasLegacyMetadata: [
+                'replyToContent',
+                'replyToSender',
+                'reply_to_content',
+                'reply_to_sender',
+            ].some((key) => Object.prototype.hasOwnProperty.call(metadata || {}, key)),
+        };
+    }
+
+    private async migrateReplyFieldsIfNeeded(
+        supabase: ReturnType<SupabaseService['getAdminClient']>,
+        message: Record<string, any>,
+        replyContent: string | null,
+        replySender: string | null,
+        hasLegacyMetadata: boolean,
+    ): Promise<void> {
+        const encryptedContent = this.encryptionService.encryptIfNeeded(replyContent);
+        const encryptedSender = this.encryptionService.encryptIfNeeded(replySender);
+        const metadata = this.sanitizeMessageMetadata(message.metadata);
+        const contentNeedsUpdate = replyContent !== null
+            && encryptedContent !== message.reply_to_content;
+        const senderNeedsUpdate = replySender !== null
+            && encryptedSender !== message.reply_to_sender;
+
+        if (!contentNeedsUpdate && !senderNeedsUpdate && !hasLegacyMetadata) return;
+
+        const { error } = await supabase
+            .from('messages')
+            .update({
+                reply_to_content: encryptedContent,
+                reply_to_sender: encryptedSender,
+                metadata,
+            })
+            .eq('id', message.id);
+
+        if (error) {
+            this.logger.warn(`Failed to migrate reply fields for message ${message.id}: ${error.message}`);
+        }
+    }
+
     /**
      * Iniciar nueva conversación
      */
@@ -164,6 +239,9 @@ export class ChatService {
     async sendMessage(data: SendMessageDto) {
         try {
             const supabase = this.supabaseService.getAdminClient();
+            const replyToContent = this.getReplyField(data.metadata, 'replyToContent', 'reply_to_content');
+            const replyToSender = this.getReplyField(data.metadata, 'replyToSender', 'reply_to_sender');
+            const sanitizedMetadata = this.sanitizeMessageMetadata(data.metadata);
 
             // Encrypt content (text/media placeholders)
             const encryptedContent = this.encryptionService.encrypt(data.content);
@@ -175,11 +253,11 @@ export class ChatService {
                     sender_id: data.senderId,
                     content: encryptedContent,
                     type: data.type || 'text',
-                    metadata: data.metadata || {},
+                    metadata: sanitizedMetadata,
                     // Store replyTo in dedicated columns for proper querying
                     reply_to_id: data.metadata?.replyToId || null,
-                    reply_to_content: data.metadata?.replyToContent || null,
-                    reply_to_sender: data.metadata?.replyToSender || null,
+                    reply_to_content: this.encryptionService.encryptIfNeeded(replyToContent),
+                    reply_to_sender: this.encryptionService.encryptIfNeeded(replyToSender),
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 })
@@ -402,7 +480,10 @@ export class ChatService {
                                     isMine: false,
                                     isGroup: isGroup,
                                     groupTitle: groupTitle,
-                                    metadata: data.metadata || undefined,
+                                    replyToId: message.reply_to_id || null,
+                                    replyToContent,
+                                    replyToSender,
+                                    metadata: sanitizedMetadata,
                                 },
                             });
 
@@ -424,7 +505,7 @@ export class ChatService {
                                         createdAt: message.created_at,
                                         roomName: data.metadata?.roomName,
                                         callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
-                                        metadata: data.metadata || undefined,
+                                        metadata: sanitizedMetadata,
                                     },
                                 });
                             }
@@ -457,6 +538,11 @@ export class ChatService {
                 message: {
                     ...message,
                     content: data.content, // Return original content (decrypted)
+                    reply_to_content: replyToContent,
+                    reply_to_sender: replyToSender,
+                    replyToContent,
+                    replyToSender,
+                    metadata: sanitizedMetadata,
                 },
             };
         } catch (error) {
@@ -513,6 +599,17 @@ export class ChatService {
             // Process messages: Decrypt text AND sign media URLs
             const processedMessages = await Promise.all(rawMessages.map(async (msg) => {
                 try {
+                    const replyFields = this.getDecryptedReplyFields(msg);
+
+                    // Encrypt legacy plaintext reply fields the next time the message is read.
+                    await this.migrateReplyFieldsIfNeeded(
+                        supabase,
+                        msg,
+                        replyFields.content,
+                        replyFields.sender,
+                        replyFields.hasLegacyMetadata,
+                    );
+
                     // 1. Decrypt Text
                     let content = msg.content;
                     if (msg.type === 'text' && this.encryptionService.isEncrypted(msg.content)) {
@@ -556,10 +653,13 @@ export class ChatService {
                     return {
                         ...msg,
                         content: content,
+                        reply_to_content: replyFields.content,
+                        reply_to_sender: replyFields.sender,
+                        metadata: this.sanitizeMessageMetadata(msg.metadata),
                         // Read replyTo from dedicated columns (preferred) or fallback to metadata
                         replyToId: msg.reply_to_id || msg.metadata?.replyToId || null,
-                        replyToContent: msg.reply_to_content || msg.metadata?.replyToContent || null,
-                        replyToSender: msg.reply_to_sender || msg.metadata?.replyToSender || null,
+                        replyToContent: replyFields.content,
+                        replyToSender: replyFields.sender,
                     };
                 } catch (e) {
                     this.logger.warn(`Failed to process message ${msg.id}`);
