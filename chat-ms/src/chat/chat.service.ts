@@ -345,6 +345,21 @@ export class ChatService {
                     } else {
                         this.logger.log(`Call ended: Released interpreters checks completed.`);
                     }
+
+                    const endedRoomName = data.metadata?.roomName;
+                    if (endedRoomName) {
+                        const { error: inviteCleanupError } = await supabase
+                            .from('interpreter_invites')
+                            .delete()
+                            .eq('room_name', endedRoomName)
+                            .in('status', ['pending', 'accepted']);
+
+                        if (inviteCleanupError) {
+                            this.logger.warn(
+                                `Error cleaning interpreter invites for room ${endedRoomName}: ${inviteCleanupError.message}`,
+                            );
+                        }
+                    }
                 }
                 // ------------------------------------------
 
@@ -1344,6 +1359,21 @@ export class ChatService {
                 return { success: false, message: 'Esta llamada ya cuenta con un intérprete.' };
             }
 
+            // La sala se reutiliza entre llamadas de la misma conversación. Si
+            // LiveKit ya no muestra un intérprete, las invitaciones aceptadas
+            // pertenecen a una llamada anterior y no deben bloquear esta.
+            const { error: staleInviteCleanupError } = await supabase
+                .from('interpreter_invites')
+                .delete()
+                .eq('room_name', data.roomName)
+                .in('status', ['pending', 'accepted']);
+
+            if (staleInviteCleanupError) {
+                this.logger.warn(
+                    `Error cleaning stale interpreter invites for room ${data.roomName}: ${staleInviteCleanupError.message}`,
+                );
+            }
+
             // 1. Persist the invite to handle concurrency
             const { data: invite, error: inviteError } = await supabase
                 .from('interpreter_invites')
@@ -1562,7 +1592,7 @@ export class ChatService {
                 .from('interpreter_invites')
                 .select('room_name')
                 .eq('id', data.inviteId)
-                .single();
+                .maybeSingle();
 
             if (inviteRow?.room_name && await this.roomHasInterpreter(inviteRow.room_name)) {
                 this.logger.log(`Claim rejected for invite ${data.inviteId}: room ${inviteRow.room_name} already has an interpreter`);
@@ -1583,7 +1613,7 @@ export class ChatService {
                 .eq('id', data.inviteId)
                 .eq('status', 'pending')
                 .select()
-                .single();
+                .maybeSingle();
 
             if (error || !updated) {
                 this.logger.warn(`Claim failed for invite ${data.inviteId} by user ${data.userId}: ${error?.message || 'Already taken'}`);
