@@ -1,28 +1,40 @@
-import { IsString, IsOptional, IsNumber, IsPositive } from 'class-validator';
+import {
+    IsEmail,
+    IsNotEmpty,
+    IsString,
+    IsOptional,
+    IsNumber,
+    IsPositive,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
 export class ChargeCardDto {
+    @ApiProperty({ example: 'TINC-20260818-ABC123', description: 'Referencia del pago creada por /payments/initiate' })
+    @IsString()
+    @IsNotEmpty()
+    reference: string;
+
     @ApiProperty({ example: 'tok_test_12345', description: 'Token de la tarjeta de crédito generado por Wompi' })
     @IsString()
+    @IsNotEmpty()
     cardToken: string;
 
-    @ApiProperty({ example: 'uuid-user-123', description: 'ID del usuario que realiza el pago' })
+    @ApiProperty({ example: 'acceptance-token', description: 'Token de aceptación de términos devuelto por Wompi' })
     @IsString()
-    userId: string;
+    @IsNotEmpty()
+    acceptanceToken: string;
 
-    @ApiProperty({ example: 'uuid-plan-456', description: 'ID del plan a activar' })
-    @IsString()
-    planId: string;
+    @ApiProperty({ example: 'usuario@email.com', description: 'Correo electrónico usado para crear el pago en Wompi' })
+    @IsEmail()
+    @IsNotEmpty()
+    email: string;
 
-    @ApiProperty({ example: 'mensual', enum: ['mensual', 'anual'], description: 'Ciclo de facturación' })
-    @IsString()
-    billingCycle: 'mensual' | 'anual';
-
-    @ApiPropertyOptional({ example: 'usuario@email.com', description: 'Correo electrónico del cliente' })
-    @IsString()
+    @ApiPropertyOptional({ example: 1, description: 'Número de cuotas' })
+    @IsNumber()
     @IsOptional()
-    customerEmail?: string;
+    @Type(() => Number)
+    installments?: number;
 }
 
 export class UpdatePaymentDto {
