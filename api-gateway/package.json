@@ -9,6 +9,13 @@
     "node": "22.x",
     "npm": "10.x"
   },
+  "comments": {
+    "overrides": "Parches de vulnerabilidades criticas en dependencias transitivas de desarrollo (ts-jest -> handlebars, @swc/cli -> @xhmikosr/decompress). Revisar si se pueden quitar cuando esos paquetes actualicen sus propias dependencias."
+  },
+  "overrides": {
+    "handlebars": "^4.7.9",
+    "@xhmikosr/decompress": "^11.1.4"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -24,7 +31,6 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
     "@googlemaps/google-maps-services-js": "^3.4.2",
     "@keyv/redis": "^2.8.5",
     "@nestjs/cache-manager": "^3.0.1",
