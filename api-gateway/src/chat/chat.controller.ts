@@ -3,8 +3,7 @@ import { Response } from 'express';
 import { map } from 'rxjs/operators';
 import { ClientProxy } from '@nestjs/microservices';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { CorrectionStreamService } from './correction-stream.service';
 import { StartConversationDto } from './dto/start-conversation.dto';
 import { CreateGroupDto } from './dto/create-group.dto';
 import { SendChatMessageDto } from './dto/send-message.dto';
@@ -17,19 +16,10 @@ import { InviteInterpretersDto, SetInterpreterStatusDto, ClaimInterpreterInviteD
 @ApiBearerAuth()
 @Controller('chat')
 export class ChatController {
-    private genAI: GoogleGenerativeAI | null = null;
-    private model: any = null;
-
     constructor(
         @Inject('CHAT_SERVICE') private readonly client: ClientProxy,
-        private readonly configService: ConfigService,
-    ) {
-        const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-        if (apiKey) {
-            this.genAI = new GoogleGenerativeAI(apiKey);
-            this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-        }
-    }
+        private readonly correctionStreamService: CorrectionStreamService,
+    ) { }
 
     @Post('conversations')
     @HttpCode(HttpStatus.CREATED)
@@ -239,41 +229,22 @@ export class ChatController {
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Accel-Buffering', 'no');
 
-        if (!this.model) {
-            res.write(`data: ${JSON.stringify({ error: 'Gemini API not configured' })}\n\n`);
+        if (!this.correctionStreamService.isConfigured) {
+            res.write(`data: ${JSON.stringify({ error: 'AI correction not configured' })}\n\n`);
             res.write('data: [DONE]\n\n');
             res.end();
             return;
         }
 
         try {
-            const prompt = `Eres un intérprete experto capaz de dar coherencia a mensajes escritos en español por personas cuya lengua nativa es la Lengua de Señas. 
-Tu tarea es transformar el texto original en una frase fluida y natural, pero manteniendo una fidelidad ESTRICTA al significado original.
-
-INSTRUCCIÓN DE EQUILIBRIO:
-1. COHERENCIA: Si faltan conectores o el orden es caótico, arréglalo para que sea legible.
-2. FIDELIDAD: No añadas ideas, adjetivos o acciones que no estén presentes en el mensaje original. Tu interpretación debe limitarse a lo que el usuario realmente quiso expresar, sin inventar contexto extra.
-
-Instrucciones:
-- Devuelve exclusivamente el texto corregido.
-- Si el mensaje es incomprensible, intenta la reconstrucción más simple y directa posible.
-- Mantén el tono y la intención del usuario original.
-
-Texto original: "${text}"`;
-
-            const result = await this.model.generateContentStream(prompt);
-
-            for await (const chunk of result.stream) {
-                const chunkText = chunk.text();
-                if (chunkText) {
-                    res.write(`data: ${JSON.stringify({ chunk: chunkText })}\n\n`);
-                }
+            for await (const chunk of this.correctionStreamService.streamCorrection(text)) {
+                res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
             }
 
             res.write('data: [DONE]\n\n');
             res.end();
         } catch (error) {
-            console.error('❌ Gemini Streaming Error:', error);
+            console.error('❌ AI Streaming Error:', error);
             res.write(`data: ${JSON.stringify({ error: 'Error generating correction' })}\n\n`);
             res.write('data: [DONE]\n\n');
             res.end();

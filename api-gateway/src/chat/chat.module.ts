@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { ChatController } from './chat.controller';
+import { CorrectionStreamService } from './correction-stream.service';
 
 @Module({
     imports: [
@@ -16,5 +17,6 @@ import { ChatController } from './chat.controller';
         ]),
     ],
     controllers: [ChatController],
+    providers: [CorrectionStreamService],
 })
 export class ChatModule { }
