@@ -176,6 +176,10 @@ export class NotificationsService {
 
         notification.payload = {
             callUUID: this.stableCallUUID(payload.callSessionId || payload.call_session_id), // Stable UUID per call session for CallKit
+            // Lets the client discard a push that APNs held/retried past the ring
+            // window. FCM exposes sentTime natively; PushKit has no equivalent, so
+            // the timestamp has to travel inside the payload.
+            sentAt: Date.now(),
             ...payload
         };
 
