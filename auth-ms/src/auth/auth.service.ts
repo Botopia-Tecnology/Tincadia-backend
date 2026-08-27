@@ -523,31 +523,93 @@ export class AuthService {
     }
   }
 
+  /**
+   * Refleja en `profiles.push_token` el token mas reciente del usuario en
+   * `device_push_tokens`. Los servicios de envio (chat-ms, communication-ms)
+   * siguen leyendo la columna, asi que la tabla es la fuente de verdad y la
+   * columna queda como cache de lectura.
+   */
+  private async syncProfilePushToken(
+    supabase: ReturnType<SupabaseService['getAdminClient']>,
+    userId: string,
+  ): Promise<void> {
+    const { data: latest } = await supabase
+      .from('device_push_tokens')
+      .select('token')
+      .eq('user_id', userId)
+      .eq('kind', 'expo')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ push_token: latest?.token ?? null })
+      .eq('id', userId);
+
+    if (error) {
+      this.logger.error(`Error syncing profile push token: ${error.message}`);
+      throw new Error(error.message);
+    }
+  }
+
   async updatePushToken(userId: string, pushToken: string): Promise<void> {
     try {
       const supabase = this.supabaseService.getAdminClient();
+      const token = pushToken?.trim() || '';
+
+      if (!token) {
+        // Logout: liberar solo el dispositivo de ESTA cuenta. Las demas cuentas
+        // que hayan usado el mismo telefono conservan su propia fila.
+        this.logger.log(`📱 Clearing push tokens for user ${userId}`);
+
+        await supabase
+          .from('device_push_tokens')
+          .delete()
+          .eq('user_id', userId)
+          .eq('kind', 'expo');
+
+        await this.syncProfilePushToken(supabase, userId);
+        this.logger.log('✅ Push token cleared successfully');
+        return;
+      }
 
       this.logger.log(`📱 Updating push token for user ${userId}`);
 
-      // Clear this token from any other user first to prevent cross-account
-      // notifications when switching accounts on the same device.
-      if (pushToken) {
-        await supabase
-          .from('profiles')
-          .update({ push_token: null })
-          .eq('push_token', pushToken)
-          .neq('id', userId);
+      // Un token de Expo identifica al dispositivo: si otra cuenta lo tenia,
+      // pasa a esta. La cuenta anterior solo pierde ESE dispositivo, no su
+      // registro completo (antes quedaba en NULL y sin notificaciones).
+      const { data: previous } = await supabase
+        .from('device_push_tokens')
+        .select('user_id')
+        .eq('token', token)
+        .eq('kind', 'expo')
+        .neq('user_id', userId);
+
+      const { error: upsertError } = await supabase
+        .from('device_push_tokens')
+        .upsert(
+          {
+            user_id: userId,
+            token,
+            kind: 'expo',
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'token,kind' },
+        );
+
+      if (upsertError) {
+        this.logger.error(`Error upserting push token: ${upsertError.message}`);
+        throw new Error(upsertError.message);
       }
 
-      const { error } = await supabase
-        .from('profiles')
-        .update({ push_token: pushToken || null })
-        .eq('id', userId);
-
-      if (error) {
-        this.logger.error(`Error updating push token: ${error.message}`);
-        throw new Error(error.message);
+      // Reponer la cache de las cuentas que cedieron el dispositivo: si les
+      // queda otro, lo toman; si no, quedan en NULL.
+      for (const row of previous || []) {
+        await this.syncProfilePushToken(supabase, row.user_id);
       }
+
+      await this.syncProfilePushToken(supabase, userId);
 
       this.logger.log('✅ Push token updated successfully');
     } catch (error) {

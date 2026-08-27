@@ -39,6 +39,57 @@ export class ChatService {
         @Inject('CONTENT_SERVICE') private readonly contentClient: ClientProxy,
     ) { }
 
+    /**
+     * Abre un canal de Supabase Realtime y espera a que quede SUBSCRIBED antes
+     * de emitir.
+     *
+     * Un canal sin subscribe() no tiene el WebSocket establecido: send() cae al
+     * path HTTP best-effort y, si el canal no esta listo, el evento se pierde en
+     * silencio (sin error ni excepcion). De ahi que los mensajes llegaran de
+     * forma intermitente con la app abierta.
+     *
+     * El callback recibe el canal ya listo para encadenar varios send().
+     * Un fallo se registra pero no interrumpe: el push notification sigue siendo
+     * el respaldo cuando el realtime no llega.
+     */
+    private async withRealtimeChannel(
+        channelName: string,
+        context: string,
+        emit: (channel: ReturnType<ReturnType<SupabaseService['getAdminClient']>['channel']>) => Promise<void>,
+    ): Promise<void> {
+        const supabase = this.supabaseService.getAdminClient();
+        const channel = supabase.channel(channelName);
+
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const timeout = setTimeout(
+                    () => reject(new Error('Realtime subscribe timeout')),
+                    5000,
+                );
+                channel.subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        clearTimeout(timeout);
+                        resolve();
+                    }
+                    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+                        clearTimeout(timeout);
+                        reject(new Error(`Realtime subscribe failed: ${status}`));
+                    }
+                });
+            });
+
+            await emit(channel);
+        } catch (broadcastErr) {
+            this.logger.warn(
+                `Realtime broadcast failed (${context} -> ${channelName}): ${(broadcastErr as Error)?.message || broadcastErr}`,
+            );
+        } finally {
+            // Sin setTimeout: los send() ya se resolvieron sobre un canal
+            // suscrito, asi que cerrar de inmediato no los corta.
+            await supabase.removeChannel(channel);
+        }
+    }
+
     private getReplyField(
         metadata: Record<string, any> | null | undefined,
         camelCaseKey: string,
@@ -346,20 +397,9 @@ export class ChatService {
                         this.logger.log(`Call ended: Released interpreters checks completed.`);
                     }
 
-                    const endedRoomName = data.metadata?.roomName;
-                    if (endedRoomName) {
-                        const { error: inviteCleanupError } = await supabase
-                            .from('interpreter_invites')
-                            .delete()
-                            .eq('room_name', endedRoomName)
-                            .in('status', ['pending', 'accepted']);
-
-                        if (inviteCleanupError) {
-                            this.logger.warn(
-                                `Error cleaning interpreter invites for room ${endedRoomName}: ${inviteCleanupError.message}`,
-                            );
-                        }
-                    }
+                    // La llamada terminó: se libera el candado de la sala para
+                    // que la siguiente llamada pueda convocar intérprete.
+                    await this.releaseRoomInterpreterLock(data.metadata?.roomName, 'call ended');
                 }
                 // ------------------------------------------
 
@@ -478,8 +518,7 @@ export class ChatService {
                 // 2) Broadcasts realtime por destinatario (aislados: un fallo no corta a los demás)
                 await Promise.allSettled(
                     (recipientsProfiles || []).map(async (recipient) => {
-                        const recipientChannel = supabase.channel(`user:${recipient.id}`);
-                        try {
+                        await this.withRealtimeChannel(`user:${recipient.id}`, 'new_message', async (recipientChannel) => {
                             await recipientChannel.send({
                                 type: 'broadcast',
                                 event: 'new_message',
@@ -539,11 +578,7 @@ export class ChatService {
                                     },
                                 });
                             }
-                        } finally {
-                            setTimeout(() => {
-                                supabase.removeChannel(recipientChannel);
-                            }, 2000);
-                        }
+                        });
                     }),
                 );
             }
@@ -975,15 +1010,13 @@ export class ChatService {
             }
 
             // Broadcast cleared event to user's personal channel
-            const userChannel = supabase.channel(`user:${data.userId}`);
-            await userChannel.send({
-                type: 'broadcast',
-                event: 'conversation_cleared',
-                payload: { conversationId: data.conversationId }
+            await this.withRealtimeChannel(`user:${data.userId}`, 'conversation_cleared', async (userChannel) => {
+                await userChannel.send({
+                    type: 'broadcast',
+                    event: 'conversation_cleared',
+                    payload: { conversationId: data.conversationId }
+                });
             });
-            setTimeout(() => {
-                supabase.removeChannel(userChannel);
-            }, 2000);
 
             return { success: true };
         } catch (error) {
@@ -1223,6 +1256,54 @@ export class ChatService {
     }
 
     /**
+     * Una invitación 'accepted' es el candado autoritativo de la regla "un
+     * intérprete por sala": la BD tiene un índice único parcial
+     * (uq_interpreter_invites_one_accepted_per_room) que impide una segunda.
+     * A diferencia de roomHasInterpreter, este chequeo no falla en abierto.
+     */
+    private async roomHasAcceptedInvite(roomName: string): Promise<boolean> {
+        if (!roomName) return false;
+
+        const { data, error } = await this.supabaseService
+            .getAdminClient()
+            .from('interpreter_invites')
+            .select('id')
+            .eq('room_name', roomName)
+            .eq('status', 'accepted')
+            .maybeSingle();
+
+        if (error) {
+            this.logger.warn(`Error checking accepted invite for room ${roomName}: ${error.message}`);
+            return false;
+        }
+
+        return !!data;
+    }
+
+    /**
+     * Libera el candado de una sala cuando la llamada termina de verdad.
+     * Se invoca al detectar el fin de llamada y antes de invitar de nuevo,
+     * pero sólo tras confirmar contra LiveKit que ya no hay nadie dentro.
+     */
+    private async releaseRoomInterpreterLock(roomName: string, reason: string): Promise<void> {
+        if (!roomName) return;
+
+        const { error } = await this.supabaseService
+            .getAdminClient()
+            .from('interpreter_invites')
+            .delete()
+            .eq('room_name', roomName)
+            .in('status', ['pending', 'accepted']);
+
+        if (error) {
+            this.logger.warn(`Error releasing interpreter lock for room ${roomName} (${reason}): ${error.message}`);
+            return;
+        }
+
+        this.logger.log(`Interpreter lock released for room ${roomName} (${reason})`);
+    }
+
+    /**
      * Generar Token para LiveKit Video Calls
      */
     async generateVideoToken(roomName: string, username: string, userId: string) {
@@ -1255,12 +1336,33 @@ export class ChatService {
             // Regla de negocio: máximo un intérprete por llamada. Se valida al
             // emitir el token porque es el único punto por el que pasa todo
             // camino de entrada (modal, tap en notificación, deep link).
-            if (isInterpreter && await this.roomHasInterpreter(roomName)) {
-                this.logger.log(`Interpreter token rejected for room ${roomName}: another interpreter is already connected`);
-                return {
-                    error: 'interpreter_present',
-                    message: 'Esta llamada ya se encuentra atendida por otro intérprete.',
-                };
+            if (isInterpreter) {
+                // El dueño de la invitación aceptada puede reingresar cuantas
+                // veces necesite (corte de red, salir y volver a entrar); sólo
+                // se bloquea a un intérprete distinto.
+                const { data: acceptedInvite } = await this.supabaseService
+                    .getAdminClient()
+                    .from('interpreter_invites')
+                    .select('accepted_by')
+                    .eq('room_name', roomName)
+                    .eq('status', 'accepted')
+                    .maybeSingle();
+
+                const lockedByOther = !!acceptedInvite && acceptedInvite.accepted_by !== userId;
+
+                // LiveKit sólo se consulta si la BD no resolvió ya el caso: es
+                // best-effort (ante error responde false) y no puede distinguir
+                // al titular de la sala, así que nunca debe decidir por sí solo.
+                const rejected = lockedByOther
+                    || (!acceptedInvite && await this.roomHasInterpreter(roomName));
+
+                if (rejected) {
+                    this.logger.log(`Interpreter token rejected for room ${roomName}: another interpreter is already connected`);
+                    return {
+                        error: 'interpreter_present',
+                        message: 'Esta llamada ya se encuentra atendida por otro intérprete.',
+                    };
+                }
             }
 
             // Identity visible en la llamada. Para intérpretes usamos
@@ -1359,19 +1461,28 @@ export class ChatService {
                 return { success: false, message: 'Esta llamada ya cuenta con un intérprete.' };
             }
 
-            // La sala se reutiliza entre llamadas de la misma conversación. Si
-            // LiveKit ya no muestra un intérprete, las invitaciones aceptadas
-            // pertenecen a una llamada anterior y no deben bloquear esta.
-            const { error: staleInviteCleanupError } = await supabase
-                .from('interpreter_invites')
-                .delete()
-                .eq('room_name', data.roomName)
-                .in('status', ['pending', 'accepted']);
+            // La sala se reutiliza entre llamadas de la misma conversación, así
+            // que una invitación aceptada puede pertenecer a una llamada previa.
+            // Sólo se libera cuando LiveKit confirma que la sala está vacía: si
+            // se borrara siempre, se destruiría el candado de la llamada en
+            // curso (índice único uq_interpreter_invites_one_accepted_per_room)
+            // y entraría un segundo intérprete.
+            if (await this.roomHasAcceptedInvite(data.roomName)) {
+                await this.releaseRoomInterpreterLock(data.roomName, 'stale invite, room empty in LiveKit');
+            } else {
+                // Sin invitación aceptada sólo quedan 'pending' huérfanas de
+                // convocatorias anteriores que nadie atendió.
+                const { error: stalePendingError } = await supabase
+                    .from('interpreter_invites')
+                    .delete()
+                    .eq('room_name', data.roomName)
+                    .eq('status', 'pending');
 
-            if (staleInviteCleanupError) {
-                this.logger.warn(
-                    `Error cleaning stale interpreter invites for room ${data.roomName}: ${staleInviteCleanupError.message}`,
-                );
+                if (stalePendingError) {
+                    this.logger.warn(
+                        `Error cleaning stale pending invites for room ${data.roomName}: ${stalePendingError.message}`,
+                    );
+                }
             }
 
             // 1. Persist the invite to handle concurrency
@@ -1449,22 +1560,7 @@ export class ChatService {
                     }
                 }
 
-                const channel = supabase.channel(`user:${interpreter.id}`);
-                try {
-                    await new Promise<void>((resolve, reject) => {
-                        const timeout = setTimeout(() => reject(new Error('Realtime subscribe timeout')), 5000);
-                        channel.subscribe((status) => {
-                            if (status === 'SUBSCRIBED') {
-                                clearTimeout(timeout);
-                                resolve();
-                            }
-                            if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                                clearTimeout(timeout);
-                                reject(new Error(`Realtime subscribe failed: ${status}`));
-                            }
-                        });
-                    });
-
+                await this.withRealtimeChannel(`user:${interpreter.id}`, 'call_invite', async (channel) => {
                     await channel.send({
                         type: 'broadcast',
                         event: 'call_invite',
@@ -1475,13 +1571,7 @@ export class ChatService {
                             senderName: data.username,
                         }
                     });
-                } catch (broadcastErr) {
-                    this.logger.warn(
-                        `Interpreter call_invite broadcast failed for ${interpreter.id}: ${(broadcastErr as Error)?.message || broadcastErr}`,
-                    );
-                } finally {
-                    await supabase.removeChannel(channel);
-                }
+                });
             });
 
             await Promise.all(notifications);
@@ -1525,34 +1615,13 @@ export class ChatService {
                 if (others?.length) {
                     for (const other of others) {
                         // 1. Broadcast en tiempo real (funciona si la app está en foreground/background activo)
-                        const ch = supabase.channel(`user:${other.id}`);
-                        try {
-                            await new Promise<void>((resolve, reject) => {
-                                const timeout = setTimeout(() => reject(new Error('Realtime subscribe timeout')), 5000);
-                                ch.subscribe((status) => {
-                                    if (status === 'SUBSCRIBED') {
-                                        clearTimeout(timeout);
-                                        resolve();
-                                    }
-                                    if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-                                        clearTimeout(timeout);
-                                        reject(new Error(`Realtime subscribe failed: ${status}`));
-                                    }
-                                });
-                            });
-
+                        await this.withRealtimeChannel(`user:${other.id}`, 'call_invite_taken', async (ch) => {
                             await ch.send({
                                 type: 'broadcast',
                                 event: 'call_invite_taken',
                                 payload: { acceptedBy: userId },
                             });
-                        } catch (broadcastErr) {
-                            this.logger.warn(
-                                `call_invite_taken broadcast failed for ${other.id}: ${(broadcastErr as Error)?.message || broadcastErr}`,
-                            );
-                        } finally {
-                            await supabase.removeChannel(ch);
-                        }
+                        });
 
                         // 2. Silent Expo push (funciona aunque el celular esté bloqueado o la app cerrada)
                         // sound: null → no suena, title: '' → no se muestra en el drawer
@@ -1594,7 +1663,19 @@ export class ChatService {
                 .eq('id', data.inviteId)
                 .maybeSingle();
 
-            if (inviteRow?.room_name && await this.roomHasInterpreter(inviteRow.room_name)) {
+            // Si la invitación ya no existe (llamada terminada, convocatoria
+            // reemplazada) no hay nada que reclamar. Antes se seguía adelante
+            // sin verificar la sala, porque el guard de abajo se saltaba por
+            // cortocircuito al no haber room_name.
+            if (!inviteRow?.room_name) {
+                this.logger.warn(`Claim rejected for invite ${data.inviteId}: invite no longer exists`);
+                return {
+                    success: false,
+                    message: 'Esta solicitud ya ha sido atendida por otro intérprete o ha expirado.',
+                };
+            }
+
+            if (await this.roomHasInterpreter(inviteRow.room_name)) {
                 this.logger.log(`Claim rejected for invite ${data.inviteId}: room ${inviteRow.room_name} already has an interpreter`);
                 return {
                     success: false,
@@ -1614,6 +1695,19 @@ export class ChatService {
                 .eq('status', 'pending')
                 .select()
                 .maybeSingle();
+
+            // 23505 = unique_violation: otro intérprete ganó la carrera y ya
+            // tiene una invitación 'accepted' en esta sala. El índice único
+            // parcial es el candado real de la regla, y a diferencia de la
+            // verificación contra LiveKit no falla en abierto.
+            if (error?.code === '23505') {
+                this.logger.log(`Claim rejected for invite ${data.inviteId}: room ${inviteRow.room_name} already locked by another interpreter`);
+                return {
+                    success: false,
+                    code: 'interpreter_present',
+                    message: 'Esta llamada ya se encuentra atendida por otro intérprete.',
+                };
+            }
 
             if (error || !updated) {
                 this.logger.warn(`Claim failed for invite ${data.inviteId} by user ${data.userId}: ${error?.message || 'Already taken'}`);
@@ -1906,17 +2000,17 @@ export class ChatService {
                 imageUrl: group.image_url ?? null,
             };
 
-            for (const participant of participants) {
-                const userChannel = supabase.channel(`user:${participant.user_id}`);
-                await userChannel.send({
-                    type: 'broadcast',
-                    event: 'group_updated',
-                    payload,
-                });
-                setTimeout(() => {
-                    supabase.removeChannel(userChannel);
-                }, 2000);
-            }
+            await Promise.allSettled(
+                participants.map((participant) =>
+                    this.withRealtimeChannel(`user:${participant.user_id}`, 'group_updated', async (userChannel) => {
+                        await userChannel.send({
+                            type: 'broadcast',
+                            event: 'group_updated',
+                            payload,
+                        });
+                    }),
+                ),
+            );
         } catch (e) {
             const err = e as Error;
             this.logger.warn(`Group metadata broadcast failed: ${err?.message ?? e}`);
