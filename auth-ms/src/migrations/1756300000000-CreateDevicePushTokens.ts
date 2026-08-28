@@ -27,10 +27,35 @@ export class CreateDevicePushTokens1756300000000 implements MigrationInterface {
         `);
 
         // Un token fisico pertenece a una sola cuenta a la vez: el upsert de
-        // `updatePushToken` usa este indice para reasignar el dueno.
+        // `updatePushToken` usa esto para reasignar el dueno.
+        //
+        // Tiene que ser CONSTRAINT, no solo CREATE UNIQUE INDEX: PostgREST
+        // resuelve el `onConflict` del upsert contra pg_constraint, y con un
+        // indice suelto el INSERT falla con 42P10 ("no unique or exclusion
+        // constraint matching the ON CONFLICT specification").
         await queryRunner.query(`
-            CREATE UNIQUE INDEX IF NOT EXISTS device_push_tokens_token_kind_key
-            ON device_push_tokens (token, kind)
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'device_push_tokens_token_kind_key'
+                ) THEN
+                    -- Adopta el indice si una version previa lo creo suelto.
+                    IF EXISTS (
+                        SELECT 1 FROM pg_indexes
+                        WHERE schemaname = 'public'
+                          AND indexname = 'device_push_tokens_token_kind_key'
+                    ) THEN
+                        ALTER TABLE device_push_tokens
+                            ADD CONSTRAINT device_push_tokens_token_kind_key
+                            UNIQUE USING INDEX device_push_tokens_token_kind_key;
+                    ELSE
+                        ALTER TABLE device_push_tokens
+                            ADD CONSTRAINT device_push_tokens_token_kind_key
+                            UNIQUE (token, kind);
+                    END IF;
+                END IF;
+            END $$
         `);
 
         await queryRunner.query(`

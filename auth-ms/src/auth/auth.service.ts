@@ -599,7 +599,12 @@ export class AuthService {
         );
 
       if (upsertError) {
-        this.logger.error(`Error upserting push token: ${upsertError.message}`);
+        // code/details/hint importan: 42P10 aqui significa que falta la
+        // CONSTRAINT UNIQUE (token, kind) que PostgREST necesita para onConflict.
+        this.logger.error(
+          `Error upserting push token: ${upsertError.message} ` +
+          `[code=${upsertError.code} details=${upsertError.details} hint=${upsertError.hint}]`,
+        );
         throw new Error(upsertError.message);
       }
 
@@ -613,7 +618,9 @@ export class AuthService {
 
       this.logger.log('✅ Push token updated successfully');
     } catch (error) {
-      this.logger.error(`Error updating push token: ${error.message}`);
+      // El stack completo: el mensaje generico de BadRequestException es lo
+      // unico que llegaba al gateway y ocultaba la causa real.
+      this.logger.error(`Error updating push token: ${error.message}`, error.stack);
       throw new BadRequestException('Error al actualizar token de notificaciones');
     }
   }
