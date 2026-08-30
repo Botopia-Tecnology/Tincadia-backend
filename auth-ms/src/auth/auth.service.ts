@@ -308,6 +308,24 @@ export class AuthService {
   async updateProfile(userId: string, data: UpdateProfileDto): Promise<any> {
     try {
       const supabase = this.supabaseService.getAdminClient();
+      const currentProfile = await this.profileService.findByIdOrFail(userId);
+
+      if (
+        data.documentNumber !== undefined &&
+        data.documentNumber !== currentProfile.documentNumber
+      ) {
+        const documentCheck = await this.checkDocumentExists(data.documentNumber);
+        if (documentCheck.exists) {
+          throw new ConflictException('Este número de documento ya está registrado.');
+        }
+      }
+
+      if (data.phone !== undefined) {
+        const existingPhone = await this.profileService.findByPhone(data.phone);
+        if (existingPhone && existingPhone.id !== userId) {
+          throw new ConflictException('Este número de teléfono ya está registrado.');
+        }
+      }
 
       // Update profile in local database
       const updateData: any = {};
@@ -329,6 +347,14 @@ export class AuthService {
         isProfileComplete: this.profileService.isProfileComplete(profile),
       };
     } catch (error) {
+      if (error instanceof ConflictException) {
+        throw error;
+      }
+
+      if ((error as { code?: string }).code === '23505') {
+        throw new ConflictException('Este número de teléfono ya está registrado.');
+      }
+
       this.logger.error(`Error updating profile: ${error.message}`);
       throw new BadRequestException('Error actualizando perfil.');
     }
