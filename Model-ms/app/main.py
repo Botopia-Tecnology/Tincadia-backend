@@ -307,12 +307,45 @@ async def start_transcription(request: TranscribeRequest):
 @app.post("/transcribe/stop")
 async def stop_transcription(request: TranscribeRequest):
     room_name = request.room_name
-    if room_name in active_agents:
-        agent = active_agents[room_name]
+    # Tomamos el agente sacandolo del registro de una: si el watchdog ya lo cerro
+    # solo, su callback on_closed ya hizo el pop y aca no hay nada que detener.
+    agent = active_agents.pop(room_name, None)
+    if agent is None:
+        return {"success": True, "message": "Agent not running"}
+
+    try:
         await agent.stop()
-        del active_agents[room_name]
-        return {"success": True, "message": "Agent stopped"}
-    return {"success": False, "message": "Agent not found"}
+    except Exception as e:
+        # Si stop() explota perdemos el control del agente: lo devolvemos al
+        # registro para que un stop posterior pueda reintentar, en vez de dejar
+        # un bot conectado que ya nadie puede alcanzar.
+        log(f"❌ [Auto-Transcribe] stop() fallo en {room_name}: {e}")
+        if agent.room.isconnected():
+            active_agents[room_name] = agent
+            raise HTTPException(
+                status_code=500,
+                detail=f"Agent for {room_name} could not be stopped: {e}",
+            )
+
+    # Red de seguridad real: no miramos la clave del dict (stop() la borra siempre
+    # via on_closed), miramos si el bot sigue pegado a LiveKit. Si sigue conectado,
+    # el stop no surtio efecto y hay que forzar la desconexion para no facturar.
+    if agent.room.isconnected():
+        log(f"⚠️ [Auto-Transcribe] {room_name} sigue conectado tras stop(), forzando disconnect")
+        try:
+            await agent.room.disconnect()
+        except Exception as e:
+            log(f"❌ [Auto-Transcribe] No se pudo forzar el cierre de {room_name}: {e}")
+            # Mismo criterio: sigue vivo y no lo pudimos matar, que quede
+            # accesible para reintentar en vez de convertirse en sala zombie.
+            active_agents[room_name] = agent
+            raise HTTPException(
+                status_code=500,
+                detail=f"Agent for {room_name} could not be stopped: {e}",
+            )
+
+    active_agents.pop(room_name, None)
+    return {"success": True, "message": "Agent stopped"}
 
 @app.post("/transcribe/audio")
 async def transcribe_uploaded_audio(file: UploadFile = File(...)):
