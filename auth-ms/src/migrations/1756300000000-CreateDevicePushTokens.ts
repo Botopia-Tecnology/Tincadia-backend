@@ -63,9 +63,11 @@ export class CreateDevicePushTokens1756300000000 implements MigrationInterface {
             ON device_push_tokens (user_id, kind)
         `);
 
-        // La tabla solo se toca con el service-role desde auth-ms; RLS activo y
-        // sin policies deja fuera a los clientes anon/authenticated.
-        // Condicionado para no fallar si el SQL ya se corrio a mano.
+        // RLS activo + policy solo para service_role, que es el rol con el que
+        // auth-ms opera la tabla (getAdminClient() usa SUPABASE_SERVICE_KEY).
+        // Los clientes anon/authenticated quedan sin ninguna policy, o sea sin
+        // acceso: la app nunca lee esta tabla directamente, consume la cache
+        // `profiles.push_token`.
         await queryRunner.query(`
             DO $$
             BEGIN
@@ -78,6 +80,23 @@ export class CreateDevicePushTokens1756300000000 implements MigrationInterface {
                     ALTER TABLE device_push_tokens ENABLE ROW LEVEL SECURITY;
                 END IF;
             END $$
+        `);
+
+        await queryRunner.query(`
+            DROP POLICY IF EXISTS "service_role manages device push tokens" ON device_push_tokens
+        `);
+        await queryRunner.query(`
+            CREATE POLICY "service_role manages device push tokens"
+                ON device_push_tokens FOR ALL TO service_role
+                USING (true) WITH CHECK (true)
+        `);
+
+        // Una version previa creo una policy `FOR ALL TO authenticated
+        // USING (true)`: eso dejaba a CUALQUIER usuario logueado leer, borrar y
+        // reasignarse los push tokens de todos los demas. No hace falta (auth-ms
+        // entra como service_role), asi que se elimina donde ya se aplico.
+        await queryRunner.query(`
+            DROP POLICY IF EXISTS "backend manages device push tokens" ON device_push_tokens
         `);
 
         // Backfill: conservar los tokens que hoy siguen vivos en profiles.
