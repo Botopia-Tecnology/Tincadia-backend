@@ -87,11 +87,20 @@ class LSCStreamingExactoPredictor:
         self.word_history = deque(maxlen=5)
         self.llm_scores_cache = {} # Caché para evitar procesar GPT-2 en cada cuadro
         
-        # Toggle para activar/desactivar inferencia de contexto
-        self.context_aware_enabled = os.getenv("CONTEXT_AWARE_ENABLED", "true").lower() == "true"
+        # Toggle para activar/desactivar inferencia de contexto (GPT-2).
+        # Default OFF: el boost de GPT-2 reformatea las probabilidades y suele empujar
+        # señas fuera de la vía instantánea (más lento) además de generar picos de CPU.
+        # Se puede re-activar con CONTEXT_AWARE_ENABLED=true.
+        self.context_aware_enabled = os.getenv("CONTEXT_AWARE_ENABLED", "false").lower() == "true"
         self.auto_context_enabled = self.context_aware_enabled
-        
-        log(f"✅ Predictor de streaming listo (buffer: {buffer_size}, context_aware: {self.context_aware_enabled})")
+
+        # Umbrales de latencia/estabilización (ajustables por env para iterar sin redeploy).
+        # instant_confidence: si la confianza la supera, se muestra la seña en 1 solo frame.
+        # min_votes: si no, nº de predicciones coincidentes necesarias para mostrarla.
+        self.instant_confidence = float(os.getenv("INSTANT_CONFIDENCE", "0.70"))  # antes 0.8
+        self.min_votes = int(os.getenv("MIN_VOTES", "2"))                          # antes 3 frames / ~2 votos
+
+        log(f"✅ Predictor de streaming listo (buffer: {buffer_size}, context_aware: {self.context_aware_enabled}, instant: {self.instant_confidence}, votos: {self.min_votes})")
 
     def set_context(self, context_name: Optional[str], manual: bool = True):
         """Establece el contexto actual. Si es manual, desactiva la inferencia automática temporalmente."""
@@ -349,25 +358,25 @@ class LSCStreamingExactoPredictor:
 
             final_word = None
             
-            # REGLA DE DINAMISMO 1: Si la confianza es muy alta (>0.8), ganar inmediatamente
-            if confidence >= 0.8:
+            # REGLA DE DINAMISMO 1: confianza alta → mostrar de inmediato (1 frame).
+            if confidence >= self.instant_confidence:
                 final_word = predicted_word
                 # log(f"🚀 [INSTANT-WORD] {final_word} (conf: {confidence:.2f})")
-            
-            # REGLA DE DINAMISMO 2: Votación rápida en buffer corto
-            elif len(self.prediction_buffer) >= 3:
+
+            # REGLA DE DINAMISMO 2: votación rápida (min_votes predicciones coincidentes).
+            elif len(self.prediction_buffer) >= self.min_votes:
                 valid_preds = [p for p in self.prediction_buffer if p is not None]
                 if valid_preds:
                     counts = Counter(valid_preds)
                     most_common = counts.most_common(1)[0]
-                    # Requiere 50% de coincidencia en el buffer reducido
-                    if most_common[1] >= len(self.prediction_buffer) * 0.5:
+                    # Requiere al menos min_votes predicciones coincidentes.
+                    if most_common[1] >= self.min_votes:
                         final_word = most_common[0]
-            
+
             # Recalcular status final si hay palabra
             if final_word:
                  status = 'predicting'
-                 if confidence >= 0.8:
+                 if confidence >= self.instant_confidence:
                      log(f"[FINAL-WORD] {final_word} (INSTANT - conf: {confidence:.2f})")
                  else:
                      log(f"[FINAL-WORD] {final_word} (votos: {most_common[1]}/{len(self.prediction_buffer)})")
