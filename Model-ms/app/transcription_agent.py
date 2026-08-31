@@ -42,12 +42,22 @@ def get_model():
             except: pass
     return model
 
+# Si el bot queda solo en la sala, se auto-desconecta pasados estos segundos.
+# Sin esto la sala nunca queda vacia, empty_timeout nunca dispara y LiveKit
+# sigue facturando minutos de participante indefinidamente.
+LONELY_TIMEOUT = int(os.getenv("TRANSCRIBE_LONELY_TIMEOUT", "60"))
+# Tope duro de vida del agente, como red de seguridad final.
+MAX_SESSION_SECONDS = int(os.getenv("TRANSCRIBE_MAX_SESSION_SECONDS", str(4 * 60 * 60)))
+
+
 class VoskAgent:
     def __init__(self, room_name: str):
         self.room_name = room_name
         self.room = rtc.Room()
         self.audio_streams = {} # participant_identity -> AudioStream
         self.is_running = False
+        self.on_closed = None  # callback opcional para que main.py limpie active_agents
+        self._watchdog_task = None
 
     async def start(self):
         if not LIVEKIT_URL or not LIVEKIT_API_KEY or not LIVEKIT_API_SECRET:
@@ -74,10 +84,19 @@ class VoskAgent:
                 print(f"🔇 [Bot] Desuscripto de: {participant.identity}")
                 self.stop_transcription(participant.identity)
 
+        @self.room.on("participant_disconnected")
+        def on_participant_disconnected(participant: rtc.RemoteParticipant):
+            print(f"[Bot] Salio de la sala: {participant.identity}")
+            self.stop_transcription(participant.identity)
+            if self._human_count() == 0:
+                print(f"[Bot] No quedan humanos en {self.room_name}, cerrando en {LONELY_TIMEOUT}s...")
+                asyncio.create_task(self._close_if_still_alone())
+
         @self.room.on("disconnected")
         def on_disconnected():
-            print(f"🔌 [Bot] Desconectado de la sala: {self.room_name}")
+            print(f"[Bot] Desconectado de la sala: {self.room_name}")
             self.is_running = False
+            self._notify_closed()
 
         # Connect
         print(f"📡 [Bot] Conectando a sala {self.room_name} en {LIVEKIT_URL}...")
@@ -96,13 +115,81 @@ class VoskAgent:
 
             await self.room.connect(LIVEKIT_URL, token)
             print(f"✅ [Bot] CONECTADO exitosamente a {self.room_name}")
+            # Watchdog: garantiza que el bot nunca quede colgado en la sala.
+            self._watchdog_task = asyncio.create_task(self._watchdog())
         except Exception as e:
             print(f"❌ [Bot] ERROR de conexión: {e}")
             self.is_running = False
+            self._notify_closed()
+
+    def _human_count(self) -> int:
+        """Participantes remotos que no son agentes transcriptores."""
+        return sum(
+            1 for p in self.room.remote_participants.values()
+            if not p.identity.startswith(AGENT_IDENTITY_PREFIX)
+        )
+
+    def _notify_closed(self):
+        if self.on_closed:
+            try:
+                self.on_closed(self.room_name)
+            except Exception as e:
+                print(f"⚠️ [Bot] Error en callback on_closed: {e}")
+            finally:
+                self.on_closed = None
+
+    async def _close_if_still_alone(self):
+        """Espera LONELY_TIMEOUT y cierra si nadie volvio a entrar."""
+        await asyncio.sleep(LONELY_TIMEOUT)
+        if not self.is_running:
+            return
+        if self._human_count() > 0:
+            print(f"↩️ [Bot] Alguien volvio a {self.room_name}, cancelando cierre.")
+            return
+        print(f"🧹 [Bot] Sala {self.room_name} sin humanos, desconectando para no facturar de mas.")
+        await self.stop()
+
+    async def _watchdog(self):
+        """Red de seguridad: cierra si nunca llega nadie o si se excede el tope de sesion."""
+        # Margen de gracia inicial para que el humano alcance a conectarse.
+        await asyncio.sleep(LONELY_TIMEOUT)
+        if self.is_running and self._human_count() == 0:
+            print(f"🧹 [Bot] Nadie entro a {self.room_name} tras {LONELY_TIMEOUT}s, cerrando.")
+            await self.stop()
+            return
+
+        loop = asyncio.get_event_loop()
+        started = loop.time() - LONELY_TIMEOUT
+        while self.is_running:
+            restante = MAX_SESSION_SECONDS - (loop.time() - started)
+            if restante <= 0:
+                break
+            # Nunca dormir mas alla del tope de sesion, asi el cap dispara a tiempo
+            # aunque sea mas corto que el intervalo de chequeo.
+            await asyncio.sleep(min(30, restante))
+            # Si el evento participant_disconnected no llego (caida de red, etc.)
+            # este chequeo periodico igual detecta la sala vacia.
+            if self.is_running and self._human_count() == 0:
+                print(f"🧹 [Bot] Watchdog: {self.room_name} quedo sin humanos, cerrando.")
+                await self.stop()
+                return
+
+        if self.is_running:
+            print(f"⏰ [Bot] Tope de sesion ({MAX_SESSION_SECONDS}s) alcanzado en {self.room_name}, cerrando.")
+            await self.stop()
 
     async def stop(self):
+        if not self.is_running and self._watchdog_task is None:
+            return
         self.is_running = False
-        await self.room.disconnect()
+        if self._watchdog_task:
+            self._watchdog_task.cancel()
+            self._watchdog_task = None
+        try:
+            await self.room.disconnect()
+        except Exception as e:
+            print(f"⚠️ [Bot] Error desconectando de {self.room_name}: {e}")
+        self._notify_closed()
 
     def start_transcription(self, participant: rtc.RemoteParticipant, track: rtc.Track):
         identity = participant.identity

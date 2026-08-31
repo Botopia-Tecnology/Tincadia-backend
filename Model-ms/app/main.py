@@ -286,7 +286,15 @@ async def start_transcription(request: TranscribeRequest):
         agent = VoskAgent(room_name)
         # Store it explicitly
         active_agents[room_name] = agent
-        
+
+        # Cuando el agente se cierra solo (sala vacia / watchdog), sacarlo del
+        # registro para que un futuro /transcribe pueda relanzarlo.
+        def _on_agent_closed(name: str):
+            active_agents.pop(name, None)
+            log(f"🧹 [Auto-Transcribe] Agent de {name} cerrado y removido del registro")
+
+        agent.on_closed = _on_agent_closed
+
         # Start in background
         asyncio.create_task(agent.start())
         
