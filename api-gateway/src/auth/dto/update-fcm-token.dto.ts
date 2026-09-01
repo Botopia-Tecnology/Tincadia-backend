@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import { Allow, IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
@@ -20,8 +20,10 @@ export class UpdateFcmTokenDto {
   userId: string;
 
   @ApiProperty({ description: 'Token de FCM para llamadas nativas en Android' })
+  // Cadena vacia = liberar el token de este dispositivo (logout), mismo
+  // criterio que UpdatePushTokenDto. Por eso @Allow() y no @IsNotEmpty().
   @IsString()
-  @IsNotEmpty({ message: 'El token de FCM es requerido' })
+  @Allow()
   @MaxLength(512)
   fcmToken: string;
 }

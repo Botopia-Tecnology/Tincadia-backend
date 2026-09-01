@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
+import { Allow, IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
@@ -15,8 +15,9 @@ export class UpdateVoipTokenDto {
   userId: string;
 
   @ApiProperty({ description: 'Token de PushKit para llamadas nativas en iOS' })
+  // Cadena vacia = liberar el token de este dispositivo (logout).
   @IsString()
-  @IsNotEmpty({ message: 'El token VoIP es requerido' })
+  @Allow()
   @MaxLength(512)
   voipToken: string;
 }

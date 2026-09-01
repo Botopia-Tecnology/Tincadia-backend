@@ -11,6 +11,8 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CreateInterpreterRequestDto } from './dto/create-interpreter-request.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
+import { UpdateFcmTokenDto } from './dto/update-fcm-token.dto';
+import { UpdateVoipTokenDto } from './dto/update-voip-token.dto';
 
 @Controller()
 export class AuthController {
@@ -58,13 +60,13 @@ export class AuthController {
   }
 
   @MessagePattern('update_voip_token')
-  async updateVoipToken(@Payload() data: { userId: string; voipToken: string }): Promise<{success: boolean}> {
+  async updateVoipToken(@Payload() data: UpdateVoipTokenDto): Promise<{success: boolean}> {
     await this.authService.updateVoipToken(data.userId, data.voipToken);
     return { success: true };
   }
 
   @MessagePattern('update_fcm_token')
-  async updateFcmToken(@Payload() data: { userId: string; fcmToken: string }): Promise<{success: boolean}> {
+  async updateFcmToken(@Payload() data: UpdateFcmTokenDto): Promise<{success: boolean}> {
     await this.authService.updateFcmToken(data.userId, data.fcmToken);
     return { success: true };
   }
