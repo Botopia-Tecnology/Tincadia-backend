@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Put, Delete, Inject, HttpCode, HttpStatus, Headers, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException, Res } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Put, Delete, Inject, HttpCode, HttpStatus, Headers, Logger, UnauthorizedException, UseInterceptors, UploadedFile, BadRequestException, Res } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ClientProxy } from '@nestjs/microservices';
 import { Express, Response } from 'express';
@@ -9,6 +9,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
+import { PushDiagnosticDto } from './dto/push-diagnostic.dto';
 import { UpdateVoipTokenDto } from './dto/update-voip-token.dto';
 import { UpdateFcmTokenDto } from './dto/update-fcm-token.dto';
 import { LogoutDto } from './dto/logout.dto';
@@ -19,6 +20,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nes
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     @Inject('AUTH_SERVICE') private readonly client: ClientProxy,
   ) { }
@@ -120,6 +123,54 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Token actualizado exitosamente' })
   updatePushToken(@Body() data: UpdatePushTokenDto) {
     return this.client.send('update_push_token', data);
+  }
+
+  @Post('push-diagnostic')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reportar por qué NO se pudo registrar un push token',
+    description:
+      'Diagnóstico. La app lo llama cuando el registro falla, para que quede ' +
+      'rastro en los logs del servidor: sin esto el fallo era mudo y no se ' +
+      'podía diagnosticar a un usuario remoto.',
+  })
+  @ApiResponse({ status: 200, description: 'Reporte recibido' })
+  reportPushDiagnostic(
+    @Body() dto: PushDiagnosticDto,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    // El userId es best-effort: el reporte tiene valor aunque no haya sesión
+    // (el registro puede fallar justo antes de que exista token).
+    const userId = this.extraerUserIdDelToken(authHeader);
+
+    this.logger.warn(
+      `📵 [PUSH_DIAG] Registro fallido — motivo="${dto.reason}" ` +
+      `tipo=${dto.kind ?? 'desconocido'} plataforma=${dto.platform ?? '?'} ` +
+      `version=${dto.appVersion ?? '?'} usuario=${userId ?? 'sin-sesion'}` +
+      (dto.detail ? ` detalle="${dto.detail}"` : ''),
+    );
+
+    return { received: true };
+  }
+
+  /**
+   * Lee el `sub` del JWT sin verificar la firma: solo para etiquetar el log.
+   * No se usa para autorizar nada.
+   */
+  private extraerUserIdDelToken(authHeader?: string): string | undefined {
+    if (!authHeader) return undefined;
+    try {
+      const token = authHeader.replace('Bearer ', '').trim();
+      const payload = token.split('.')[1];
+      if (!payload) return undefined;
+      const json = Buffer.from(
+        payload.replace(/-/g, '+').replace(/_/g, '/'),
+        'base64',
+      ).toString('utf-8');
+      return JSON.parse(json)?.sub;
+    } catch {
+      return undefined;
+    }
   }
 
   @Post('update-voip-token')
