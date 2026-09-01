@@ -9,6 +9,8 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { UpdatePushTokenDto } from './dto/update-push-token.dto';
+import { UpdateVoipTokenDto } from './dto/update-voip-token.dto';
+import { UpdateFcmTokenDto } from './dto/update-fcm-token.dto';
 import { LogoutDto } from './dto/logout.dto';
 import { VerifyTokenDto } from './dto/verify-token.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
@@ -126,7 +128,7 @@ export class AuthController {
     summary: 'Actualizar token VoIP (iOS)',
     description: 'Guarda el token de PushKit para llamadas nativas.'
   })
-  updateVoipToken(@Body() data: { userId: string; voipToken: string }) {
+  updateVoipToken(@Body() data: UpdateVoipTokenDto) {
     return this.client.send('update_voip_token', data);
   }
 
@@ -136,7 +138,7 @@ export class AuthController {
     summary: 'Actualizar token FCM (Android)',
     description: 'Guarda el token de FCM para llamadas nativas por Data Message.'
   })
-  updateFcmToken(@Body() data: { userId: string; fcmToken: string }) {
+  updateFcmToken(@Body() data: UpdateFcmTokenDto) {
     return this.client.send('update_fcm_token', data);
   }
 
