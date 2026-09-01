@@ -473,9 +473,15 @@ export class ChatService {
                                         payload,
                                     );
                                 }
+                                // "intentado", no "entregado": sendVoip/sendFcm capturan sus
+                                // propios errores, asi que este log se imprimia igual cuando
+                                // APNs devolvia BadDeviceToken o FCM NotRegistered. Los
+                                // booleanos solo dicen que la columna tenia texto, no que el
+                                // token siga vivo del lado del proveedor.
                                 this.logger.log(
-                                    `[CALL_DEBUG] Native push sent to ${recipient.id} ` +
-                                    `(voip=${Boolean(recipient.voip_token)}, fcm=${Boolean(recipient.fcm_token)})`,
+                                    `[CALL_DEBUG] Native push intentado para ${recipient.id} ` +
+                                    `(voip=${Boolean(recipient.voip_token)}, fcm=${Boolean(recipient.fcm_token)}) ` +
+                                    `— revisar lineas previas de NotificationsService para el resultado real`,
                                 );
                                 return;
                             }

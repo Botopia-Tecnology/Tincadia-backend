@@ -4,6 +4,7 @@ import * as apn from 'apn';
 import { initializeApp, getApps, cert, applicationDefault } from 'firebase-admin/app';
 import { getMessaging, Message } from 'firebase-admin/messaging';
 import * as crypto from 'crypto';
+import { SupabaseService } from '../supabase/supabase.service';
 
 @Injectable()
 export class NotificationsService {
@@ -12,7 +13,7 @@ export class NotificationsService {
     private apnProvider: apn.Provider | null = null;
     private fcmInitialized = false;
 
-    constructor() {
+    constructor(private readonly supabaseService: SupabaseService) {
         this.expo = new Expo();
         this.initializeApn();
         this.initializeFcm();
@@ -149,9 +150,43 @@ export class NotificationsService {
     }
 
     /**
+     * Un token utilizable: ni vacio, ni la cadena literal "NULL"/"undefined"
+     * que produce serializar un valor nulo mal manejado.
+     */
+    private isUsableToken(token?: string | null): boolean {
+        if (!token) return false;
+        const t = token.trim();
+        return t.length > 0 && !['null', 'undefined'].includes(t.toLowerCase());
+    }
+
+    /**
+     * Borra un token que el proveedor declaro invalido.
+     *
+     * Sin esto se reintenta indefinidamente contra un destino muerto: el usuario
+     * desinstalo la app, reinstalo, o el token caduco. Se limpia la columna para
+     * que el proximo envio ni lo intente.
+     */
+    private async invalidateToken(column: 'voip_token' | 'fcm_token' | 'push_token', token: string) {
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+            await supabase
+                .from('profiles')
+                .update({ [column]: null })
+                .eq(column, token);
+            this.logger.warn(`🧹 Token ${column} invalido eliminado (${token.substring(0, 10)}...)`);
+        } catch (e) {
+            this.logger.error(`No se pudo limpiar ${column}: ${e.message}`);
+        }
+    }
+
+    /**
      * Send native VoIP Push via APNs (Apple Push Notification service)
      */
     async sendVoipPushNotification(voipToken: string, payload: any) {
+        if (!this.isUsableToken(voipToken)) {
+            this.logger.warn(`🍏 VoIP push omitido: token no utilizable ("${voipToken}")`);
+            return;
+        }
         this.logger.log(`🍏 Sending VoIP Push to token: ${voipToken.substring(0, 10)}...`);
         
         if (!this.apnProvider) {
@@ -193,6 +228,14 @@ export class NotificationsService {
                     error: f.error?.message,
                 }));
                 this.logger.error(`🍏 VoIP Push failed: ${JSON.stringify(reasons)}`);
+
+                // APNs marca el token como definitivamente invalido: se descarta.
+                const fatal = reasons.some((r: any) =>
+                    ['BadDeviceToken', 'Unregistered', 'DeviceTokenNotForTopic'].includes(r.reason),
+                );
+                if (fatal) {
+                    await this.invalidateToken('voip_token', voipToken);
+                }
             } else {
                 this.logger.log(`🍏 VoIP Push sent successfully.`);
             }
@@ -205,6 +248,10 @@ export class NotificationsService {
      * Send Data-Only Message via Firebase Cloud Messaging for Android
      */
     async sendFcmDataNotification(fcmToken: string, payload: any) {
+        if (!this.isUsableToken(fcmToken)) {
+            this.logger.warn(`🤖 FCM push omitido: token no utilizable ("${fcmToken}")`);
+            return;
+        }
         this.logger.log(`🤖 Sending FCM Data Message to token: ${fcmToken.substring(0, 10)}...`);
         
         if (!this.fcmInitialized) {
@@ -239,6 +286,18 @@ export class NotificationsService {
             this.logger.log(`🤖 FCM Data Message sent successfully: ${response}`);
         } catch (error) {
             this.logger.error(`🤖 Error sending FCM Data Message: ${error.message}`);
+
+            // Firebase declara el token muerto (app desinstalada, reinstalada o
+            // token caducado): se descarta para no reintentar en cada llamada.
+            const code = error?.errorInfo?.code || error?.code || '';
+            const fatal =
+                code.includes('registration-token-not-registered') ||
+                code.includes('invalid-registration-token') ||
+                code.includes('invalid-argument') ||
+                error?.message === 'NotRegistered';
+            if (fatal) {
+                await this.invalidateToken('fcm_token', fcmToken);
+            }
         }
     }
 
