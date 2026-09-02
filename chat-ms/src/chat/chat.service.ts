@@ -502,7 +502,15 @@ export class ChatService {
                                         channelId: 'incoming_calls',
                                         priority: 'high',
                                         sound: isCall ? 'default' : undefined,
-                                    } : undefined,
+                                    } : {
+                                        // Sin channelId, Expo entrega en su canal por defecto, que no
+                                        // es el 'default' con importancia MAX que la app crea al
+                                        // registrarse. En Android 8+ la importancia es del canal, no
+                                        // del mensaje, asi que 'high' solo servia para despertar el
+                                        // equipo: la notificacion se anclaba en la barra sin emerger.
+                                        channelId: 'default',
+                                        priority: 'high',
+                                    },
                                 );
                             }
                         }),
