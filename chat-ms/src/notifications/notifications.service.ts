@@ -198,9 +198,22 @@ export class NotificationsService {
         // VoIP pushes do not require alert/sound. They wake the app up in the background.
         notification.topic = `${process.env.BUNDLE_ID || 'com.tincadia.app'}.voip`;
         notification.priority = 10;
-        // Give APNs a short retry window; expiry=0 means single delivery attempt
-        // and the push is dropped if the device is momentarily offline.
-        notification.expiry = Math.floor(Date.now() / 1000) + 30;
+
+        // El expiry se ajusta al tipo de evento.
+        //
+        // Con 30s para TODO, APNs podia retener un 'incoming_call' mientras el
+        // emisor colgaba y entregarlo despues: al receptor le sonaba una llamada
+        // entrante de una llamada que ya no existia, y se cerraba sola al llegar
+        // el 'call_ended'. En Android no pasa porque FCM usa ttl: 0.
+        //
+        // Un aviso de llamada entrante solo tiene sentido mientras el emisor
+        // sigue esperando: pasada esa ventana es ruido. Los eventos terminales,
+        // en cambio, deben entregarse aunque lleguen tarde, porque son los que
+        // limpian la UI de llamada del receptor.
+        const tipoEvento = String(payload?.type ?? '');
+        const esTerminal = ['call_ended', 'call_missed', 'call_rejected'].includes(tipoEvento);
+        const ahoraSeg = Math.floor(Date.now() / 1000);
+        notification.expiry = esTerminal ? ahoraSeg + 60 : ahoraSeg + 8;
 
         // apn@2.2.0 does not expose apns-push-type, but iOS 13+ requires it for PushKit.
         const originalHeaders = (notification as any).headers.bind(notification);
