@@ -461,7 +461,33 @@ export class ChatService {
                             }
 
                             if ((isCall || isCallEnded) && hasNative) {
-                                if (recipient.voip_token) {
+                                // A iOS solo se le manda por VoIP 'call' y el terminal que
+                                // cancela un timbre en curso; NO el 'call_ended' de una
+                                // llamada que ya se contesto y se colgo.
+                                //
+                                // PushKit obliga a iOS a pintar la pantalla de llamada por
+                                // CADA push VoIP recibido —Apple mata la app si no se reporta
+                                // a CallKit—. Por eso el 'call_ended' del final de una llamada
+                                // normal producia el banner fantasma: al colgar, el otro veia
+                                // una llamada entrante ~2s que se cerraba sola en cuanto el JS
+                                // la reconocia como terminal. Y no aportaba nada, porque en
+                                // ese momento ambos ya estaban en la pantalla de llamada y se
+                                // enteran por LiveKit y por el broadcast realtime de abajo.
+                                //
+                                // El terminal SI debe viajar por VoIP cuando cancela un timbre
+                                // (call_missed / call_rejected, o el 'call_ended' de una
+                                // llamada que nadie llego a contestar): ahi el receptor puede
+                                // tener la app cerrada —el broadcast realtime no le llega— y
+                                // sin este push le quedaria la pantalla nativa sonando sola.
+                                // El banner ya estaba en pantalla, asi que no aparece ninguno
+                                // nuevo: este push lo cierra.
+                                //
+                                // Android no se toca: FCM entrega el dato a JS sin pintar nada.
+                                const cancelaTimbre =
+                                    String(data.type) === 'call_missed' ||
+                                    String(data.type) === 'call_rejected' ||
+                                    data.metadata?.wasAnswered === false;
+                                if (recipient.voip_token && (isCall || cancelaTimbre)) {
                                     await this.notificationsService.sendVoipPushNotification(
                                         recipient.voip_token,
                                         payload,
