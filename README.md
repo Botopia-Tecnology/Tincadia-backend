@@ -1,268 +1,131 @@
-# Tincadia Backend - Microservices Architecture
+# Tincadia Backend
 
-Sistema backend con arquitectura de microservicios para Tincadia.
+Backend de Tincadia, plataforma de tecnología inclusiva que conecta a personas sordas, oyentes y organizaciones. Arquitectura de microservicios sobre NestJS.
 
-## 🏗️ Arquitectura
+## Arquitectura
+
+Un API Gateway expone HTTP al exterior y habla con los microservicios por **TCP** (transporte de NestJS Microservices). La única excepción es Model-ms, que es un servicio Python y se consume por HTTP.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    FRONTEND                              │
-└────────────────────┬────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────┐
-│                   API GATEWAY (3001)                     │
-│  - JWT Authentication                                    │
-│  - Rate Limiting                                         │
-│  - Routing & Orchestration                               │
-│  - TCP Communication                                     │
-└─────┬───────┬───────┬───────┬───────────────────────────┘
-      │       │       │       │
-      ▼       ▼       ▼       ▼
-┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────────┐
-│  AUTH   │ │ PAYMENTS│ │  FORMS  │ │ COMMUNICATION│
-│ MS(3002)│ │ MS(3003)│ │ MS(3004)│ │   MS(3005)   │
-│         │ │         │ │         │ │              │
-│ TCP     │ │ TCP     │ │ TCP     │ │ TCP          │
-└─────────┘ └─────────┘ └─────────┘ └──────────────┘
+                         Apps (móvil / web)
+                                 │  HTTP
+                                 ▼
+                    ┌────────────────────────┐
+                    │   API Gateway  :3001   │
+                    │  JWT · rate limit ·    │
+                    │  CORS · validación     │
+                    └───┬────────────────┬───┘
+                 TCP    │                │   HTTP
+      ┌─────────────────┼────────┐       ▼
+      ▼        ▼        ▼        ▼   ┌──────────┐
+  ┌───────┐┌───────┐┌───────┐┌─────┐ │ Model-ms │
+  │ auth  ││payment││ forms ││chat │ │ (Python) │
+  │ :3002 ││ :3003 ││ :3004 ││:3006│ │  IA/LSC  │
+  └───────┘└───────┘└───────┘└─────┘ └──────────┘
+  ┌────────────┐┌────────┐┌────────┐┌───────────┐
+  │communica-  ││contacts││content ││ emergency │
+  │ tion :3005 ││ :3007  ││ :3008  ││   :3009   │
+  └────────────┘└────────┘└────────┘└───────────┘
 ```
 
-## 📦 Microservicios
+Los datos viven en **Supabase** (Postgres + Auth + RLS). Las videollamadas usan **LiveKit**.
 
-### 1. API Gateway (Port: 3001) ⚠️ IMPORTANTE
-- **Propósito**: Punto de entrada único
-- **Funciones**:
-  - Autenticación JWT
-  - Rate limiting (100 req/min)
-  - Orchestration
-  - CORS y validación global
-  - Comunicación TCP con microservicios
+## Servicios
 
-### 2. Auth MS (Port: 3002)
-- **Propósito**: Servicio de autenticación y autorización
-- **Funciones**:
-  - Login de usuarios
-  - Registro de usuarios
-  - Logout
-  - Gestión de perfiles
-  - Validación de tokens JWT
+| Servicio | Puerto | Variable de entorno | Responsabilidad |
+|---|---|---|---|
+| `api-gateway` | 3001 | `PORT` | Único punto de entrada HTTP. Autenticación, rate limiting, CORS, validación y enrutamiento. |
+| `auth-ms` | 3002 | `authPort` | Registro, login, perfiles, roles y tokens de notificación push. |
+| `payments-ms` | 3003 | `paymentsPort` | Pagos y transacciones (Wompi). |
+| `forms-ms` | 3004 | `formsPort` | Formularios y validación de datos. |
+| `communication-ms` | 3005 | `communicationPort` | Mensajería y notificaciones generales. |
+| `chat-ms` | 3006 | `chatPort` | Chat, señalización de llamadas y envío de push (APNs/VoIP, FCM, Expo). |
+| `contacts-ms` | 3007 | `contactsPort` | Agenda de contactos. |
+| `content-ms` | 3008 | `contentPort` | Contenidos de la plataforma. |
+| `emergency-ms` | 3009 | `emergencyPort` | Flujo de emergencias. |
+| `Model-ms` | 8000 | `MODEL_MS_URL` | Servicio Python de IA: reconocimiento de LSC, transcripción y voz. Se consume por HTTP, no por TCP. |
 
-### 3. Payments MS (Port: 3003)
-- **Propósito**: Gestión de pagos
-- **Funciones**:
-  - Crear pagos
-  - Consultar pagos
-  - Actualizar pagos
-  - Eliminar pagos
-  - Procesamiento de transacciones
+El gateway además expone un módulo `calls` que emite los tokens de acceso a las salas de LiveKit.
 
-### 4. Forms MS (Port: 3004)
-- **Propósito**: Gestión de formularios
-- **Funciones**:
-  - Crear formularios
-  - Consultar formularios
-  - Actualizar formularios
-  - Eliminar formularios
-  - Validación de datos
+### Model-ms
 
-### 5. Communication MS (Port: 3005)
-- **Propósito**: Servicio de comunicación
-- **Funciones**:
-  - Envío de mensajes
-  - Consulta de mensajes
-  - Actualización de mensajes
-  - Eliminación de mensajes
-  - Notificaciones
+A diferencia del resto, es un servicio **Python** con su propio `Dockerfile`. Usa TensorFlow, MediaPipe, PyTorch, Vosk y gTTS para reconocimiento de lengua de señas colombiana (LSC), transcripción y síntesis de voz, y se conecta a LiveKit para trabajar sobre las llamadas en curso.
 
-## 🚀 Getting Started
+## Puesta en marcha
 
-### Prerequisites
-- Node.js 22.x
-- npm 10.x
-- PostgreSQL (opcional)
-- Redis (opcional para caching)
+### Requisitos
 
-### Installation
+- Node.js 22.x y npm 10.x
+- Python 3.x y Docker (solo para `Model-ms`)
+- Acceso a un proyecto de Supabase
+- Credenciales de LiveKit
+
+### Instalación
+
+Cada servicio tiene sus propias dependencias:
 
 ```bash
-# Install dependencies for each service
-cd api-gateway && npm install
-cd ../auth-ms && npm install
-cd ../payments-ms && npm install
-cd ../forms-ms && npm install
-cd ../communication-ms && npm install
+for s in api-gateway auth-ms payments-ms forms-ms communication-ms \
+         chat-ms contacts-ms content-ms emergency-ms; do
+  (cd "$s" && npm install)
+done
 ```
 
-### Environment Variables
+### Variables de entorno
 
-#### API Gateway (.env)
-
-```env
-PORT="3001"
-authHost="localhost"
-authPort="3002"
-paymentsHost="localhost"
-paymentsPort="3003"
-formsHost="localhost"
-formsPort="3004"
-communicationHost="localhost"
-communicationPort="3005"
-DB_HOST="localhost"
-DB_NAME="tincadia"
-DB_PASSWORD=""
-DB_PORT="5432"
-DB_USER="postgres"
-JWT_SECRET=""
-```
-
-#### Microservicios
-
-Cada microservicio debe tener su archivo `.env` con:
-
-```env
-# auth-ms/.env
-authPort="3002"
-DB_HOST="localhost"
-DB_NAME="tincadia"
-DB_PASSWORD=""
-DB_PORT="5432"
-DB_USER="postgres"
-
-# payments-ms/.env
-paymentsPort="3003"
-DB_HOST="localhost"
-DB_NAME="tincadia"
-DB_PASSWORD=""
-DB_PORT="5432"
-DB_USER="postgres"
-
-# forms-ms/.env
-formsPort="3004"
-DB_HOST="localhost"
-DB_NAME="tincadia"
-DB_PASSWORD=""
-DB_PORT="5432"
-DB_USER="postgres"
-
-# communication-ms/.env
-communicationPort="3005"
-DB_HOST="localhost"
-DB_NAME="tincadia"
-DB_PASSWORD=""
-DB_PORT="5432"
-DB_USER="postgres"
-```
-
-### Running Services
+Cada servicio lleva su propio `.env`. Parte de los `.env.example` incluidos:
 
 ```bash
-# Development (run each in separate terminal)
+cp api-gateway/.env.example api-gateway/.env
+```
+
+El gateway necesita el host y puerto de cada microservicio (`authHost`/`authPort`, `chatHost`/`chatPort`, …), `JWT_SECRET`, `CORS_ORIGIN` y la conexión a Supabase. Los microservicios necesitan su puerto propio y sus credenciales.
+
+> **Nunca subas un `.env` al repositorio.** Solo se versionan los `.env.example`, y sin valores reales.
+
+### Ejecución
+
+En desarrollo, cada servicio en su terminal:
+
+```bash
 cd api-gateway && npm run start:dev
-cd auth-ms && npm run start:dev
-cd payments-ms && npm run start:dev
-cd forms-ms && npm run start:dev
-cd communication-ms && npm run start:dev
-
-# Or use PM2 for production
-pm2 start ecosystem.config.js
+cd auth-ms     && npm run start:dev
+# …y así con el resto
 ```
 
-## 📋 API Endpoints
+El gateway no funciona solo: los microservicios que vaya a usar deben estar arriba, o las llamadas TCP fallan.
 
-### API Gateway (http://localhost:3001)
+## Notas de implementación
 
-#### Auth
-```
-POST /api/auth/login
-POST /api/auth/register
-POST /api/auth/logout
-GET  /api/auth/profile/:id
-```
+Detalles que no se deducen leyendo el código por encima y que han costado depuración:
 
-#### Payments
-```
-POST   /api/payments
-GET    /api/payments
-GET    /api/payments/:id
-PUT    /api/payments/:id
-DELETE /api/payments/:id
-```
+### La validación descarta los DTO declarados en línea
 
-#### Forms
-```
-POST   /api/forms
-GET    /api/forms
-GET    /api/forms/:id
-PUT    /api/forms/:id
-DELETE /api/forms/:id
-```
+`ValidationPipe` corre con `whitelist: true`, así que **borra toda propiedad sin decorador de validación**. Un tipo declarado en línea en el `@Body()` o el `@Payload()` se borra en tiempo de ejecución (TypeScript lo reduce a `Object`), y el handler recibe un objeto vacío.
 
-#### Communication
-```
-POST   /api/communication/send
-GET    /api/communication
-GET    /api/communication/:id
-PUT    /api/communication/:id
-DELETE /api/communication/:id
-```
+Siempre una clase DTO con sus decoradores, en su archivo. Y ojo: `auth-ms` tiene su **propio** `ValidationPipe`, así que un DTO nuevo hay que declararlo en los dos lados.
 
-## 🔌 Comunicación TCP
+### Push de llamadas en iOS
 
-Todos los microservicios se comunican mediante TCP (Transport Layer Protocol) con el API Gateway:
+PushKit obliga a iOS a **pintar la pantalla de llamada por cada push VoIP** que recibe — Apple mata la app si no se reporta a CallKit. Por eso `chat-ms` solo manda por VoIP el `call` y los terminales que cancelan un timbre en curso; un `call_ended` de una llamada ya contestada producía un banner fantasma de ~2 s en el aparato del receptor.
 
-- **Transport**: TCP
-- **Protocolo**: NestJS Microservices
-- **Host**: Configurado vía variables de entorno
-- **Port**: Cada microservicio usa su puerto asignado
+Android no tiene ese problema: FCM entrega los datos a JS sin pintar nada.
 
-## 🧪 Testing
+El `expiry` de APNs es la **ventana de reintento**, no la duración del timbre: un valor alto hace que APNs entregue tarde un aviso de llamada que ya no existe.
 
-```bash
-# Unit tests
-npm test
+### Supabase y RLS
 
-# E2E tests
-npm run test:e2e
+Las tablas tienen RLS activo. Dos cosas que confunden al depurar:
 
-# Coverage
-npm run test:cov
-```
+- Un `UPDATE` que no afecta ninguna fila **no devuelve error** en PostgREST: la respuesta es de éxito con cero filas. Un "guardado correctamente" no prueba que se haya escrito nada.
+- Solo `service_role` esquiva RLS. Si un servicio opera con la clave pública, necesita policies explícitas.
 
-## 🚢 Deployment
+Las conversaciones 1 a 1 usan las columnas `user1_id`/`user2_id`, no la tabla de participantes.
 
-Cada servicio puede ser desplegado independientemente en plataformas como Railway, Render, o AWS con las variables de entorno configuradas.
+## Despliegue
 
-## 📊 Monitoring
+Cada servicio se despliega por separado (Railway en producción) con sus variables de entorno. `Model-ms` va como imagen Docker por su cadena de dependencias de Python.
 
-- Health checks: `/api/health`
-- Logs: Structured JSON logging
-- Metrics: Prometheus compatible
+## Licencia
 
-## 🏛️ Estructura del Proyecto
-
-```
-tincadia-backend/
-├── api-gateway/          # API Gateway (Puerto 3001) ⚠️ IMPORTANTE
-│   ├── src/
-│   │   ├── auth/        # Módulo Auth (TCP)
-│   │   ├── payments/    # Módulo Payments (TCP)
-│   │   ├── forms/       # Módulo Forms (TCP)
-│   │   └── communication/ # Módulo Communication (TCP)
-│   └── package.json
-├── auth-ms/              # Auth Microservice (Puerto 3002)
-├── payments-ms/          # Payments Microservice (Puerto 3003)
-├── forms-ms/             # Forms Microservice (Puerto 3004)
-└── communication-ms/     # Communication Microservice (Puerto 3005)
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
-
-## 📄 License
-
-Private - Tincadia
+Privado — Tincadia.
