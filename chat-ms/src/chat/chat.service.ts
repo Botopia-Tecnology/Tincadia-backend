@@ -1836,6 +1836,64 @@ export class ChatService {
         }
     }
 
+    async checkAndRecordCorrectionLimit(userId: string): Promise<boolean> {
+        if (!userId) return false;
+        try {
+            const supabase = this.supabaseService.getAdminClient();
+            
+            // Fetch active subscription and its plan
+            const { data: sub } = await supabase
+                .from('subscriptions')
+                .select(`
+                    status,
+                    pricing_plans ( plan_type )
+                `)
+                .eq('user_id', userId)
+                .eq('status', 'active')
+                .single();
+                
+            let limit = 0;
+            const planObj = Array.isArray(sub?.pricing_plans) ? sub?.pricing_plans[0] : sub?.pricing_plans;
+            const planType = (planObj?.plan_type || '').toLowerCase();
+            
+            if (planType.includes('premium')) {
+                return true; // unlimited
+            } else if (planType.includes('basic') || planType.includes('básico') || planType.includes('basico')) {
+                limit = 1;
+            } else {
+                limit = 0; // free / no active subscription
+            }
+
+            if (limit === 0) return false;
+
+            const today = new Date().toISOString().split('T')[0];
+            const { data: usage } = await supabase
+                .from('user_feature_usage')
+                .select('usage_count')
+                .eq('user_id', userId)
+                .eq('feature_name', 'correction')
+                .eq('usage_date', today)
+                .single();
+
+            const currentCount = usage?.usage_count || 0;
+            if (currentCount >= limit) return false;
+
+            await supabase
+                .from('user_feature_usage')
+                .upsert({
+                    user_id: userId,
+                    feature_name: 'correction',
+                    usage_date: today,
+                    usage_count: currentCount + 1
+                }, { onConflict: 'user_id, feature_name, usage_date' });
+
+            return true;
+        } catch (error) {
+            this.logger.error('Error checking correction limit', error);
+            return false;
+        }
+    }
+
     /**
      * Eliminar un participante del grupo
      */

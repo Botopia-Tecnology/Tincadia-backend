@@ -21,8 +21,19 @@ export class ChatController {
         private readonly contactService: ContactService,
     ) { }
 
+    @MessagePattern('check_correction_limit')
+    async checkCorrectionLimit(@Payload() data: { userId: string }) {
+        return this.chatService.checkAndRecordCorrectionLimit(data.userId);
+    }
+
     @MessagePattern('correct_text')
-    correctText(@Payload() data: { text: string }) {
+    async correctText(@Payload() data: { text: string, userId?: string }) {
+        if (data.userId) {
+            const allowed = await this.chatService.checkAndRecordCorrectionLimit(data.userId);
+            if (!allowed) {
+                throw new Error('LIMIT_EXCEEDED');
+            }
+        }
         return this.correctionService.correctText(data.text);
     }
 

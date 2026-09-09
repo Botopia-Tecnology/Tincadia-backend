@@ -101,8 +101,8 @@ export class ChatController {
     @HttpCode(HttpStatus.OK)
     @ApiOperation({ summary: 'Corregir texto usando IA' })
     @ApiResponse({ status: 200, description: 'Texto corregido' })
-    correctText(@Body('text') text: string) {
-        return this.client.send('correct_text', { text }).pipe(
+    correctText(@Body('text') text: string, @Query('userId') userId: string) {
+        return this.client.send('correct_text', { text, userId }).pipe(
             map((correctedText) => ({ correctedText })),
         );
     }
@@ -222,7 +222,20 @@ export class ChatController {
     @Post('correct-text/stream')
     @ApiOperation({ summary: 'Corregir texto usando IA con streaming (SSE)' })
     @ApiResponse({ status: 200, description: 'Stream de texto corregido' })
-    async correctTextStream(@Body('text') text: string, @Res() res: Response) {
+    async correctTextStream(@Body('text') text: string, @Query('userId') userId: string, @Res() res: Response) {
+        // Check limit
+        if (userId) {
+            try {
+                const allowed = await this.client.send('check_correction_limit', { userId }).toPromise();
+                if (!allowed) {
+                    res.status(403).json({ error: 'LIMIT_EXCEEDED' });
+                    return;
+                }
+            } catch (error) {
+                console.error('Error checking limit:', error);
+            }
+        }
+
         // Set SSE headers
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
