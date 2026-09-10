@@ -1,9 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class CloudinaryService {
+  private readonly logger = new Logger(CloudinaryService.name);
+
   constructor(private configService: ConfigService) {
     // Helper to strip quotes if present (fixes Railway/production env issues)
     const clean = (val: string | undefined) =>
@@ -98,6 +100,8 @@ export class CloudinaryService {
           ? `${Date.now()}_${baseName}.${extMatch[1]}`
           : `${Date.now()}_${baseName}`;
 
+      this.logger.log(`📤 [Cloudinary] Uploading ${resourceType} to ${folder}/${publicId} (${buffer.length} bytes)`);
+
       cloudinary.uploader
         .upload_stream(
           {
@@ -108,8 +112,13 @@ export class CloudinaryService {
             access_mode: 'authenticated',
           },
           (error, result) => {
-            if (error) reject(error);
-            else resolve(result!);
+            if (error) {
+              this.logger.error(`❌ [Cloudinary] Upload stream failed for ${publicId}: ${error.message}`);
+              reject(error);
+            } else {
+              this.logger.log(`✅ [Cloudinary] Upload complete: ${result!.public_id} (${result!.bytes} bytes, format: ${result!.format})`);
+              resolve(result!);
+            }
           },
         )
         .end(buffer);

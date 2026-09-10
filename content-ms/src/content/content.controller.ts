@@ -1,10 +1,12 @@
-import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { Controller, Logger } from '@nestjs/common';
+import { MessagePattern, Payload, RpcException } from '@nestjs/microservices';
 import { ContentService } from './content.service';
 import { CloudinaryService } from './cloudinary.service';
 
 @Controller()
 export class ContentController {
+  private readonly logger = new Logger(ContentController.name);
+
   constructor(
     private readonly contentService: ContentService,
     private readonly cloudinaryService: CloudinaryService,
@@ -55,9 +57,11 @@ export class ContentController {
 
   @MessagePattern('uploadLessonVideo')
   async uploadVideo(
-    @Payload() data: { buffer: number[]; fileName: string; lessonId: string },
+    @Payload() data: { buffer: number[] | string; fileName: string; lessonId: string },
   ) {
-    const buffer = Buffer.from(data.buffer);
+    const buffer = typeof data.buffer === 'string'
+      ? Buffer.from(data.buffer, 'base64')
+      : Buffer.from(data.buffer);
 
     // Fetch hierarchy for folder structure
     const hierarchy = await this.contentService.getLessonHierarchy(
@@ -83,9 +87,11 @@ export class ContentController {
 
   @MessagePattern('uploadCourseThumbnail')
   async uploadThumbnail(
-    @Payload() data: { buffer: number[]; fileName: string; courseId: string },
+    @Payload() data: { buffer: number[] | string; fileName: string; courseId: string },
   ) {
-    const buffer = Buffer.from(data.buffer);
+    const buffer = typeof data.buffer === 'string'
+      ? Buffer.from(data.buffer, 'base64')
+      : Buffer.from(data.buffer);
 
     // Fetch hierarchy for folder structure
     const hierarchy = await this.contentService.getCourseHierarchy(
@@ -150,31 +156,51 @@ export class ContentController {
   async uploadChatMedia(
     @Payload()
     data: {
-      buffer: number[];
+      buffer: number[] | string;
       fileName: string;
       type: 'image' | 'video' | 'raw';
     },
   ) {
-    const buffer = Buffer.from(data.buffer);
+    try {
+      const buffer = typeof data.buffer === 'string'
+        ? Buffer.from(data.buffer, 'base64')
+        : Buffer.from(data.buffer);
 
-    // Define subfolder based on type
-    let folder = 'tincadia/chat-media';
-    if (data.type === 'video') folder += '/videos';
-    else if (data.type === 'raw') folder += '/audio';
-    else folder += '/images';
+      this.logger.log(
+        `📤 [ChatMedia] Processing upload: type=${data.type}, fileName=${data.fileName}, bufferSize=${buffer.length} bytes`,
+      );
 
-    const result = await this.cloudinaryService.uploadSecureFile(
-      buffer,
-      data.fileName,
-      folder,
-      data.type,
-    );
-    return {
-      public_id: result.public_id,
-      url: result.secure_url,
-      format: result.format,
-      resource_type: result.resource_type,
-    };
+      // Define subfolder based on type
+      let folder = 'tincadia/chat-media';
+      if (data.type === 'video') folder += '/videos';
+      else if (data.type === 'raw') folder += '/audio';
+      else folder += '/images';
+
+      const result = await this.cloudinaryService.uploadSecureFile(
+        buffer,
+        data.fileName,
+        folder,
+        data.type,
+      );
+      this.logger.log(
+        `✅ [ChatMedia] Upload success: public_id=${result.public_id}, format=${result.format}`,
+      );
+      return {
+        public_id: result.public_id,
+        url: result.secure_url,
+        format: result.format,
+        resource_type: result.resource_type,
+      };
+    } catch (error: any) {
+      this.logger.error(
+        `❌ [ChatMedia] Cloudinary upload failed for ${data.fileName}: ${error.message}`,
+        error.stack,
+      );
+      throw new RpcException({
+        statusCode: 500,
+        message: `Upload failed: ${error.message}`,
+      });
+    }
   }
 
   @MessagePattern('generateSignedUrl')

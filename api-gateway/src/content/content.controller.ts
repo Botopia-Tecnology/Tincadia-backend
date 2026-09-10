@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Inject, UseInterceptors, UploadedFile, Param, Query, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { lastValueFrom } from 'rxjs';
+import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
     CreateCategoryDto, UpdateCategoryDto,
@@ -14,6 +15,8 @@ import {
 @Controller('content')
 @ApiTags('Content')
 export class ContentController {
+    private readonly logger = new Logger(ContentController.name);
+
     constructor(
         @Inject('CONTENT_SERVICE') private readonly client: ClientProxy,
     ) { }
@@ -131,7 +134,7 @@ export class ContentController {
         @UploadedFile() file: Express.Multer.File,
     ) {
         return this.client.send('uploadLessonVideo', {
-            buffer: Array.from(file.buffer),
+            buffer: file.buffer.toString('base64'),
             fileName: file.originalname,
             lessonId,
         });
@@ -145,7 +148,7 @@ export class ContentController {
         @UploadedFile() file: Express.Multer.File,
     ) {
         return this.client.send('uploadCourseThumbnail', {
-            buffer: Array.from(file.buffer),
+            buffer: file.buffer.toString('base64'),
             fileName: file.originalname,
             courseId,
         });
@@ -159,20 +162,40 @@ export class ContentController {
         @Body('type') type: 'image' | 'video' | 'raw',
         @Body('fileName') fileName?: string,
     ) {
-        return this.client.send('uploadChatMedia', {
-            buffer: Array.from(file.buffer),
-            // Preferir nombre original enviado por la app (con extensión)
-            fileName: fileName || file.originalname,
-            type: type || 'image',
-        });
+        try {
+            this.logger.log(`📤 [ChatMedia] Upload request: type=${type}, fileName=${fileName || file?.originalname}, size=${file?.size} bytes`);
+            if (!file) {
+                throw new HttpException('No file provided', HttpStatus.BAD_REQUEST);
+            }
+            return await lastValueFrom(
+                this.client.send('uploadChatMedia', {
+                    buffer: file.buffer.toString('base64'),
+                    // Preferir nombre original enviado por la app (con extensión)
+                    fileName: fileName || file.originalname,
+                    type: type || 'image',
+                })
+            );
+        } catch (error: any) {
+            this.logger.error(`❌ [ChatMedia] Upload failed: ${error.message}`, error.stack);
+            throw error;
+        }
     }
+
     @Post('chat/media/url')
     @ApiOperation({ summary: 'Generate signed URL for private media' })
     async generateSignedUrl(@Body() data: { publicId: string; resourceType?: 'image' | 'video' | 'raw' }) {
-        return this.client.send('generateSignedUrl', {
-            publicId: data.publicId,
-            resourceType: data.resourceType || 'image'
-        });
+        try {
+            this.logger.log(`🔑 [ChatMedia] Signed URL request: publicId=${data.publicId}, type=${data.resourceType}`);
+            return await lastValueFrom(
+                this.client.send('generateSignedUrl', {
+                    publicId: data.publicId,
+                    resourceType: data.resourceType || 'image'
+                })
+            );
+        } catch (error: any) {
+            this.logger.error(`❌ [ChatMedia] Signed URL generation failed for ${data.publicId}: ${error.message}`, error.stack);
+            throw error;
+        }
     }
 
     // --- Landing Page Config ---
