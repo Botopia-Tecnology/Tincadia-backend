@@ -406,7 +406,7 @@ export class ChatService {
                 // Fetch sender profile once
                 const { data: senderProfile } = await supabase
                     .from('profiles')
-                    .select('first_name, last_name')
+                    .select('first_name, last_name, avatar_url')
                     .eq('id', data.senderId)
                     .single();
 
@@ -437,6 +437,7 @@ export class ChatService {
                     type: (isCall || isCallEnded) ? data.type : 'new_message',
                     senderId: data.senderId,
                     senderName: senderName,
+                    senderAvatar: senderProfile?.avatar_url || undefined,
                     roomName: (isCall || isCallEnded) ? data.metadata?.roomName : undefined,
                     callSessionId: (isCall || isCallEnded) ? callSessionId : undefined,
                     isGroup: isGroup ? 'true' : 'false',
