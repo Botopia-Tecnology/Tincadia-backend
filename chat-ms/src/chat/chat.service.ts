@@ -613,6 +613,7 @@ export class ChatService {
                                         conversationId: data.conversationId,
                                         senderId: data.senderId,
                                         senderName: senderName,
+                                        senderAvatar: senderProfile?.avatar_url || undefined,
                                         roomName: data.metadata?.roomName,
                                         callSessionId: data.metadata?.callSessionId || data.metadata?.call_session_id,
                                         isGroup,

@@ -280,6 +280,7 @@ export class NotificationsService {
                 type: String(payload.type || ''),
                 senderId: String(payload.senderId || ''),
                 senderName: String(payload.senderName || ''),
+                senderAvatar: String(payload.senderAvatar || ''),
                 roomName: String(payload.roomName || ''),
                 callSessionId: String(payload.callSessionId || payload.call_session_id || ''),
                 callUUID: String(
