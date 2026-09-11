@@ -470,6 +470,47 @@ if __name__ == "__main__":
         }
     }
 
+    async audioUrlToText(url: string): Promise<any> {
+        if (!url || typeof url !== 'string' || !url.startsWith('http')) {
+            throw new BadRequestException('Por favor proporciona una URL válida de audio');
+        }
+
+        try {
+            await this.ensureServiceIsRunning();
+
+            const audioRes = await fetch(url);
+            if (!audioRes.ok) {
+                throw new Error(`No se pudo descargar el audio desde la URL (${audioRes.status})`);
+            }
+
+            const arrayBuffer = await audioRes.arrayBuffer();
+            const formData = new FormData();
+            const blob = new Blob([arrayBuffer], { type: 'audio/m4a' });
+            formData.append('file', blob, 'audio.m4a');
+
+            if (this.logsEnabled) {
+                console.log(`[Gateway] Enviando audio descargado de ${url} a ${this.pythonServiceUrl}/transcribe/audio...`);
+            }
+
+            const response = await fetch(`${this.pythonServiceUrl}/transcribe/audio`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Microservice/transcribe/audio responded with ${response.status}: ${errorText}`);
+            }
+
+            return await response.json();
+        } catch (error) {
+            if (this.logsEnabled) {
+                console.error('[Gateway] AudioUrl-to-text Error:', error);
+            }
+            throw new BadRequestException(`Error transcribiendo audio desde URL: ${error.message || error}`);
+        }
+    }
+
     async startTranscription(roomName: string) {
         try {
             await this.ensureServiceIsRunning();

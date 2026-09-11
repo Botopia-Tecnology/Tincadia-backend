@@ -75,8 +75,12 @@ export class ModelController {
     @ApiResponse({ status: 200, description: 'Transcripción exitosa' })
     @UseInterceptors(FileInterceptor('file'))
     async audioToText(
-        @UploadedFile() file: Express.Multer.File
+        @UploadedFile() file?: Express.Multer.File,
+        @Body('url') url?: string,
     ) {
+        if (!file && url) {
+            return this.modelService.audioUrlToText(url);
+        }
         return this.modelService.audioToText(file);
     }
 }

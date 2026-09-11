@@ -294,6 +294,36 @@ export class ChatService {
             const replyToSender = this.getReplyField(data.metadata, 'replyToSender', 'reply_to_sender');
             const sanitizedMetadata = this.sanitizeMessageMetadata(data.metadata);
 
+            // Auto-transcribir notas de voz para que el receptor tenga la transcripción de inmediato
+            if (data.type === 'audio' && data.metadata?.url && !sanitizedMetadata.transcription) {
+                try {
+                    const audioUrl = String(data.metadata.url);
+                    const pythonUrl = process.env.MODEL_MS_URL || 'http://127.0.0.1:8000';
+
+                    const audioRes = await fetch(audioUrl);
+                    if (audioRes.ok) {
+                        const arrayBuffer = await audioRes.arrayBuffer();
+                        const formData = new FormData();
+                        const blob = new Blob([arrayBuffer], { type: 'audio/m4a' });
+                        formData.append('file', blob, 'audio.m4a');
+
+                        const txRes = await fetch(`${pythonUrl}/transcribe/audio`, {
+                            method: 'POST',
+                            body: formData,
+                        });
+                        if (txRes.ok) {
+                            const txData = await txRes.json();
+                            if (txData && txData.success && typeof txData.text === 'string' && txData.text.trim()) {
+                                sanitizedMetadata.transcription = txData.text.trim();
+                                this.logger.log(`🎙️ [AutoTranscribe] Mensaje de voz transcrito exitosamente: "${sanitizedMetadata.transcription}"`);
+                            }
+                        }
+                    }
+                } catch (txErr: any) {
+                    this.logger.warn(`⚠️ [AutoTranscribe] No se pudo auto-transcribir el audio: ${txErr.message}`);
+                }
+            }
+
             // Encrypt content (text/media placeholders)
             const encryptedContent = this.encryptionService.encrypt(data.content);
 
