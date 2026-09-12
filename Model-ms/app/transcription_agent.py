@@ -5,6 +5,7 @@ import logging
 import sys
 from livekit import api, rtc
 from vosk import Model, KaldiRecognizer
+import numpy as np
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -51,6 +52,46 @@ LONELY_TIMEOUT = int(os.getenv("TRANSCRIBE_LONELY_TIMEOUT", "60"))
 JOIN_GRACE = int(os.getenv("TRANSCRIBE_JOIN_GRACE", "300"))
 # Tope duro de vida del agente, como red de seguridad final.
 MAX_SESSION_SECONDS = int(os.getenv("TRANSCRIBE_MAX_SESSION_SECONDS", str(4 * 60 * 60)))
+
+
+def normalize_speech_chunk(pcm_bytes: bytes) -> bytes:
+    """
+    Normalizador dinámico inteligente de voz (Soft-Knee Limiter + Automatic Speech Boost):
+    - Amplifica suavemente la voz baja o que habla "pasito" (hasta +11dB / 3.5x).
+    - No amplifica la voz que ya viene fuerte (evita distorsión).
+    - Aplica limitador suave analógico (soft knee a partir de 0.75) para evitar saturación digital (clipping).
+    - Noise Gate: no amplifica el silencio ni el ruido de fondo de la habitación en pausas.
+    """
+    if not pcm_bytes:
+        return pcm_bytes
+
+    try:
+        samples = np.frombuffer(pcm_bytes, dtype=np.int16)
+        audio = samples.astype(np.float32) / 32768.0
+        rms = float(np.sqrt(np.mean(audio**2)))
+
+        NOISE_GATE = 0.005   # ~ -46 dBFS (piso de ruido ambiente)
+        TARGET_RMS = 0.12   # ~ -18 dBFS (nivel óptimo para extracción acústica MFCC en Kaldi)
+
+        if rms > NOISE_GATE:
+            # Ganancia adaptativa suave entre 1.0x (sin cambio) y 3.5x (+11dB)
+            gain = max(min(TARGET_RMS / (rms + 1e-6), 3.5), 1.0)
+            boosted = audio * gain
+
+            # Limitador analógico suave (soft-knee limiter a partir de 0.75)
+            abs_boosted = np.abs(boosted)
+            mask = abs_boosted > 0.75
+            if np.any(mask):
+                over = (abs_boosted[mask] - 0.75) / 0.25
+                compressed = 0.75 + 0.245 * np.tanh(over)
+                boosted[mask] = np.sign(boosted[mask]) * compressed
+
+            return (boosted * 32767.0).astype(np.int16).tobytes()
+
+        return pcm_bytes
+    except Exception as e:
+        logger.warning(f"Error normalizando audio chunk: {e}")
+        return pcm_bytes
 
 
 class VoskAgent:
@@ -224,6 +265,12 @@ class VoskAgent:
         if identity in self.audio_streams:
             del self.audio_streams[identity]
 
+    def dispatch_transcription(self, speaker_identity: str, text: str, is_final: bool):
+        """Envía transcripciones en segundo plano sin bloquear el consumo del stream de audio."""
+        if not self.is_running:
+            return
+        asyncio.create_task(self.publish_transcription(speaker_identity, text, is_final))
+
     async def publish_transcription(self, speaker_identity: str, text: str, is_final: bool):
         try:
             data = json.dumps({
@@ -243,19 +290,39 @@ class VoskAgent:
         # Vosk small espera PCM 16 kHz mono (KaldiRecognizer sample rate = salida del resampler).
         vosk_sample_rate = 16000
         rec = KaldiRecognizer(vosk_model, vosk_sample_rate)
-        # AudioResampler(input_rate, output_rate, *, num_channels=...) — el 2.º arg es la tasa de SALIDA en Hz, no canales.
+        rec.SetWords(True)
+        # AudioResampler(input_rate, output_rate, *, num_channels=...)
         resampler = None
 
         identity = participant.identity
-        print(f"🎙️ [Bot] Iniciando reconocimiento para {identity} → Vosk @ {vosk_sample_rate}Hz...")
+        print(f"🎙️ [Bot] Reconocimiento optimizado para {identity} (16kHz + Streaming Buffer estilo Google Meet)...")
+
+        # 1. Framing Acústico: 4,000 muestras @ 16kHz 16-bit mono = 8,000 bytes (~250ms de audio continuo)
+        # Idéntico al bloque usado en transcribe_audio_file (wf.readframes(4000))
+        CHUNK_SIZE = 8000
+        audio_buffer = bytearray()
+
+        # 2. Control de estado y rate-limiting de parciales
+        last_partial_text = ""
+        last_partial_time = 0.0
+        last_speech_time = 0.0
+        PARTIAL_THROTTLE_SECONDS = 0.20  # Máximo ~5 parciales por segundo
+
+        # 3. Watchdog de silencio para auto-commit (Endpointing estilo Google Meet)
+        # Si el usuario habló y hace una pausa de ~850ms, forzar commit para que la frase se consolide
+        SILENCE_COMMIT_TIMEOUT = 0.85
+        SILENCE_BURST = b'\x00' * 3200  # 100ms de confort-silencio para disparar el endpointer de Kaldi
+
+        loop = asyncio.get_event_loop()
 
         try:
-            print(f"🕵️ [Bot] Empezando a procesar audio para {identity}...")
+            print(f"🕵️ [Bot] Pipeline de audio en tiempo real activo para {identity}...")
             async for event in stream:
                 if identity not in self.audio_streams or not self.is_running:
                     break
 
                 frame = event.frame
+                now = loop.time()
 
                 if resampler is None:
                     input_rate = int(frame.sample_rate)
@@ -273,21 +340,67 @@ class VoskAgent:
                 resampled_frames = resampler.push(frame)
 
                 for out_frame in resampled_frames:
-                    data = out_frame.data.tobytes()
+                    audio_buffer.extend(out_frame.data.tobytes())
 
-                    if rec.AcceptWaveform(data):
-                        result = json.loads(rec.Result())
-                        text = result.get('text', '')
-                        if text:
-                            print(f"✨ [Bot] FINAL: {text}")
-                            await self.publish_transcription(identity, text, is_final=True)
+                    # Procesamos en bloques acústicos continuos (~250ms)
+                    while len(audio_buffer) >= CHUNK_SIZE:
+                        chunk = bytes(audio_buffer[:CHUNK_SIZE])
+                        del audio_buffer[:CHUNK_SIZE]
+
+                        # Normalización inteligente de voz suave con limitador analógico anti-clipping
+                        chunk = normalize_speech_chunk(chunk)
+
+                        if rec.AcceptWaveform(chunk):
+                            result = json.loads(rec.Result())
+                            text = (result.get('text') or '').strip()
+                            if text:
+                                print(f"✨ [Bot] FINAL: {text}")
+                                last_partial_text = ""
+                                last_speech_time = 0.0
+                                self.dispatch_transcription(identity, text, is_final=True)
+                        else:
+                            # Hipótesis parcial desacoplada con rate-limiting y deduplicación
+                            if now - last_partial_time >= PARTIAL_THROTTLE_SECONDS:
+                                partial = json.loads(rec.PartialResult())
+                                partial_text = (partial.get('partial') or '').strip()
+                                if partial_text:
+                                    last_speech_time = now
+                                    if partial_text != last_partial_text:
+                                        last_partial_text = partial_text
+                                        last_partial_time = now
+                                        if LOG_TRANSCRIBE_PARTIALS:
+                                            print(f"💭 [Bot] PARCIAL: {partial_text}")
+                                        self.dispatch_transcription(identity, partial_text, is_final=False)
+
+                # Endpointing de silencio (Google Meet auto-commit):
+                # Si había habla activa y el orador ha pausado por más de SILENCE_COMMIT_TIMEOUT
+                if last_partial_text and (now - last_speech_time > SILENCE_COMMIT_TIMEOUT):
+                    # Alimentar silencio para que el lattice de Kaldi cierre la hipótesis fonética
+                    if rec.AcceptWaveform(SILENCE_BURST):
+                        res = json.loads(rec.Result())
+                        final_text = (res.get('text') or '').strip()
                     else:
-                        partial = json.loads(rec.PartialResult())
-                        partial_text = partial.get('partial', '')
-                        if partial_text:
-                            if LOG_TRANSCRIBE_PARTIALS:
-                                print(f"💭 [Bot] PARCIAL: {partial_text}")
-                            await self.publish_transcription(identity, partial_text, is_final=False)
+                        res = json.loads(rec.Result())
+                        final_text = (res.get('text') or '').strip()
+
+                    if final_text:
+                        print(f"✨ [Bot] FINAL (silence commit): {final_text}")
+                        last_partial_text = ""
+                        last_speech_time = 0.0
+                        self.dispatch_transcription(identity, final_text, is_final=True)
+                    else:
+                        last_partial_text = ""
+                        last_speech_time = 0.0
+
+            # Al salir del stream (desconexión o fin de llamada), vaciar lo que quede en buffer
+            if len(audio_buffer) > 0:
+                rec.AcceptWaveform(normalize_speech_chunk(bytes(audio_buffer)))
+            final_res = json.loads(rec.FinalResult())
+            final_text = (final_res.get('text') or '').strip()
+            if final_text:
+                print(f"✨ [Bot] FINAL (flush): {final_text}")
+                await self.publish_transcription(identity, final_text, is_final=True)
+
         except Exception as e:
             print(f"❌ [Bot] Error en el loop de {identity}: {e}")
         finally:
@@ -332,6 +445,7 @@ def transcribe_audio_file(input_path: str) -> str:
                 data = wf.readframes(4000)
                 if len(data) == 0:
                     break
+                data = normalize_speech_chunk(data)
                 if rec.AcceptWaveform(data):
                     payload = json.loads(rec.Result())
                     text = (payload.get("text") or "").strip()
