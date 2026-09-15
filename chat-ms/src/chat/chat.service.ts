@@ -99,7 +99,7 @@ export class ChatService {
         return value === null || value === undefined ? null : String(value);
     }
 
-    private sanitizeMessageMetadata(metadata: Record<string, any> | null | undefined): Record<string, any> {
+    private sanitizeMessageMetadata(metadata: Record<string, any> | null | undefined, messageType?: string): Record<string, any> {
         if (!metadata) return {};
 
         const {
@@ -109,6 +109,12 @@ export class ChatService {
             reply_to_sender: _replyToSenderSnake,
             ...safeMetadata
         } = metadata;
+
+        // Para videos: forzamos url en null para que la app móvil no intente streaming
+        // remoto pesado y reproduzca siempre desde la caché local sin quedarse en negro.
+        if (messageType === 'video' || safeMetadata.isVideoNote) {
+            safeMetadata.url = null;
+        }
 
         return safeMetadata;
     }
@@ -292,7 +298,7 @@ export class ChatService {
             const supabase = this.supabaseService.getAdminClient();
             const replyToContent = this.getReplyField(data.metadata, 'replyToContent', 'reply_to_content');
             const replyToSender = this.getReplyField(data.metadata, 'replyToSender', 'reply_to_sender');
-            const sanitizedMetadata = this.sanitizeMessageMetadata(data.metadata);
+            const sanitizedMetadata = this.sanitizeMessageMetadata(data.metadata, data.type);
 
             // Auto-transcribir notas de voz para que el receptor tenga la transcripción de inmediato
             if (data.type === 'audio' && data.metadata?.url && !sanitizedMetadata.transcription) {
@@ -745,8 +751,10 @@ export class ChatService {
                         }
                     }
 
-                    // 2. Sign Media URLs (Image/Video/Audio/Document/File)
-                    if (['image', 'video', 'audio', 'document', 'file'].includes(msg.type) && msg.metadata?.publicId) {
+                    // 2. Sign Media URLs (Image/Audio/Document/File). NOT video!
+                    // Para video, content debe seguir siendo el publicId (no URL de streaming)
+                    // para que los clientes descarguen a caché local y no se queden en pantalla negra.
+                    if (['image', 'audio', 'document', 'file'].includes(msg.type) && msg.metadata?.publicId) {
                         try {
                             let resourceType: 'image' | 'video' | 'raw' = 'raw';
                             if (msg.type === 'image') resourceType = 'image';
@@ -777,7 +785,7 @@ export class ChatService {
                         content: content,
                         reply_to_content: replyFields.content,
                         reply_to_sender: replyFields.sender,
-                        metadata: this.sanitizeMessageMetadata(msg.metadata),
+                        metadata: this.sanitizeMessageMetadata(msg.metadata, msg.type),
                         // Read replyTo from dedicated columns (preferred) or fallback to metadata
                         replyToId: msg.reply_to_id || msg.metadata?.replyToId || null,
                         replyToContent: replyFields.content,
