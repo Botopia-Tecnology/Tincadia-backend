@@ -144,7 +144,9 @@ export class FormsController {
         ),
       ]) as any;
     } catch (error) {
-      throw error;
+      const status = error?.status || error?.statusCode || HttpStatus.BAD_REQUEST;
+      const message = error?.message || 'Debes registrarte o iniciar sesión primero para poder enviar este formulario.';
+      throw new HttpException({ status, message }, status);
     }
   }
 

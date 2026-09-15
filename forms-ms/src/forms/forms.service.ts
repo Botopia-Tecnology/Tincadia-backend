@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateFormDto } from './dto/create-form.dto';
@@ -129,6 +129,10 @@ export class FormsService {
           console.error('❌ Error finding profile:', profileError);
           // Continue without profile
         }
+      }
+
+      if (!submittedBy && !profile) {
+        throw new BadRequestException('Debes registrarte o iniciar sesión primero para poder enviar tu solicitud.');
       }
 
       console.log('📦 Creating submission object...');
