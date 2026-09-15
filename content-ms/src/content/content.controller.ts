@@ -185,9 +185,19 @@ export class ContentController {
       this.logger.log(
         `✅ [ChatMedia] Upload success: public_id=${result.public_id}, format=${result.format}`,
       );
+
+      // Generar URL firmada para recursos que sí la requieren (imágenes, audios, avatares de grupos)
+      const resourceType = data.type === 'video' ? 'video' : data.type === 'raw' ? 'raw' : 'image';
+      const signedUrl = this.cloudinaryService.generateSignedUrl(
+        result.public_id,
+        resourceType,
+      );
+
       return {
         public_id: result.public_id,
-        url: result.secure_url,
+        // Para videos: null para forzar carga local desde el almacenamiento y evitar congelamientos en streaming lento.
+        // Para imágenes, audios y fotos de grupos: URL firmada válida (evita HTTP 401 y permite visualización inmediata).
+        url: data.type === 'video' ? null : signedUrl,
         format: result.format,
         resource_type: result.resource_type,
       };

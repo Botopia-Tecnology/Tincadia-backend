@@ -127,20 +127,23 @@ export class CloudinaryService {
 
   /**
    * Generate a signed URL for a private asset
-   * Valid for 1 hour (3600 seconds) by default
+   * Valid for 7 days (604800 seconds) by default
    */
   generateSignedUrl(
     publicId: string,
     resourceType: string = 'image',
-    expirySeconds: number = 3600,
+    expirySeconds: number = 604800, // 7 days default
   ): string {
-    const url = cloudinary.url(publicId, {
+    const options: Record<string, any> = {
       resource_type: resourceType,
       type: 'authenticated',
       sign_url: true,
       secure: true,
-      expires_at: Math.floor(Date.now() / 1000) + expirySeconds,
-    });
+    };
+    if (expirySeconds > 0) {
+      options.expires_at = Math.floor(Date.now() / 1000) + expirySeconds;
+    }
+    const url = cloudinary.url(publicId, options);
     return url;
   }
 
