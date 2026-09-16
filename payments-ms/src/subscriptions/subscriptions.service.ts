@@ -4,6 +4,7 @@ import { Repository, LessThanOrEqual, In } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Subscription, BillingCycle } from './entities/subscription.entity';
 import { PricingPlan } from '../payments/entities/pricing-plan.entity';
+import { AppSetting } from './entities/app-setting.entity';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { WompiService } from '../wompi/wompi.service';
@@ -17,6 +18,8 @@ export class SubscriptionsService {
         private readonly subscriptionRepo: Repository<Subscription>,
         @InjectRepository(PricingPlan)
         private readonly pricingPlanRepo: Repository<PricingPlan>,
+        @InjectRepository(AppSetting)
+        private readonly appSettingRepo: Repository<AppSetting>,
         private readonly wompiService: WompiService,
     ) { }
 
@@ -261,6 +264,36 @@ export class SubscriptionsService {
         return sub !== null && sub.status === 'active';
     }
 
+    async isGlobalFreePremiumMode(): Promise<boolean> {
+        try {
+            const setting = await this.appSettingRepo.findOne({
+                where: { key: 'global_free_premium_mode' }
+            });
+            return setting?.value?.enabled === true;
+        } catch (error) {
+            this.logger.warn('Could not check global_free_premium_mode, defaulting to false', error);
+            return false;
+        }
+    }
+
+    async setGlobalFreePremiumMode(enabled: boolean): Promise<{ enabled: boolean }> {
+        let setting = await this.appSettingRepo.findOne({
+            where: { key: 'global_free_premium_mode' }
+        });
+        if (!setting) {
+            setting = this.appSettingRepo.create({
+                key: 'global_free_premium_mode',
+                value: { enabled },
+                description: 'Habilita todas las funciones premium para todos los usuarios sin cobro'
+            });
+        } else {
+            setting.value = { ...setting.value, enabled };
+        }
+        await this.appSettingRepo.save(setting);
+        this.logger.log(`🌟 Global Free Premium Mode set to: ${enabled}`);
+        return { enabled };
+    }
+
     /**
      * Get subscription status for user
      */
@@ -315,7 +348,49 @@ export class SubscriptionsService {
             };
         }
 
-        // No active subscription? Return Free Plan features
+        // Check if Global Free Premium Mode is active!
+        const isFreePremium = await this.isGlobalFreePremiumMode();
+        if (isFreePremium) {
+            const premiumPlan = await this.pricingPlanRepo.findOne({
+                where: [
+                    { planType: 'personal_premium' },
+                    { name: 'PLAN PREMIUM' }
+                ]
+            });
+
+            const defaultPermissions = [
+                'lsc', 'interpreter', 'subtitles', 'tts', 'transcription', 'correction', 'jobs', 'courses'
+            ];
+
+            const defaultFeatures = {
+                lsc_enabled: true,
+                interpreter_enabled: true,
+                tts_enabled: true,
+                subtitles_limit: -1,
+                transcription_limit: -1,
+                correction_limit: -1,
+                courses_enabled: true,
+                jobs: { can_apply: true, access_level: 'full' },
+                courses: { certificate: true, access_level: 'full' },
+                lsc_interpretation: { enabled: true, hours_limit: 9999, live_access: true },
+                transcription: { enabled: true, is_realtime: true, minutes_limit: -1 }
+            };
+
+            return {
+                hasSubscription: true,
+                status: 'active',
+                planId: premiumPlan?.id || 'e3680cc7-a8f4-4402-bfe2-f6f3047fdece',
+                planName: premiumPlan?.name || 'PLAN PREMIUM (Acceso Libre)',
+                planType: 'personal_premium',
+                currentPeriodEnd: new Date('2099-12-31T23:59:59.000Z'),
+                cancelAtPeriodEnd: false,
+                permissions: premiumPlan?.includes && premiumPlan.includes.length > 0 ? premiumPlan.includes : defaultPermissions,
+                features: premiumPlan?.features && Object.keys(premiumPlan.features).length > 0 ? premiumPlan.features : defaultFeatures,
+                managedExternally: false
+            };
+        }
+
+        // No active subscription and no global free mode? Return Free Plan features
         const freePlan = await this.pricingPlanRepo.findOne({
             where: [
                 { isFree: true },

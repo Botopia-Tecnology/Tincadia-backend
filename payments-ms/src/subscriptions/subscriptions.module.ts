@@ -2,13 +2,14 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Subscription } from './entities/subscription.entity';
 import { PricingPlan } from '../payments/entities/pricing-plan.entity';
+import { AppSetting } from './entities/app-setting.entity';
 import { SubscriptionsService } from './subscriptions.service';
 import { SubscriptionsController } from './subscriptions.controller';
 import { WompiModule } from '../wompi/wompi.module';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Subscription, PricingPlan]),
+        TypeOrmModule.forFeature([Subscription, PricingPlan, AppSetting]),
         WompiModule,
     ],
     controllers: [SubscriptionsController],

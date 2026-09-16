@@ -64,4 +64,15 @@ export class SubscriptionsController {
         const success = await this.subscriptionsService.processRenewal(subscription);
         return { success };
     }
+
+    @MessagePattern('subscriptions.getFreePremiumMode')
+    async getFreePremiumMode() {
+        const enabled = await this.subscriptionsService.isGlobalFreePremiumMode();
+        return { enabled };
+    }
+
+    @MessagePattern('subscriptions.setFreePremiumMode')
+    async setFreePremiumMode(@Payload() data: { enabled: boolean }) {
+        return this.subscriptionsService.setGlobalFreePremiumMode(data.enabled);
+    }
 }

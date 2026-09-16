@@ -1880,6 +1880,17 @@ export class ChatService {
         if (!userId) return false;
         try {
             const supabase = this.supabaseService.getAdminClient();
+
+            // Check if Global Free Premium Mode is active
+            const { data: globalSetting } = await supabase
+                .from('app_settings')
+                .select('value')
+                .eq('key', 'global_free_premium_mode')
+                .maybeSingle();
+
+            if (globalSetting?.value?.enabled === true) {
+                return true; // unlimited under global free premium mode
+            }
             
             // Fetch active subscription and its plan
             const { data: sub } = await supabase

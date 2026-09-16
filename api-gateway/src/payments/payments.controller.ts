@@ -134,6 +134,20 @@ export class PaymentsController {
         return this.client.send('subscriptions.getStatus', { userId });
     }
 
+    @Get('settings/free-premium')
+    @ApiOperation({ summary: 'Obtener estado del Modo Acceso Libre (Global Free Premium)' })
+    @ApiResponse({ status: 200, description: 'Estado actual del modo acceso libre' })
+    getFreePremiumMode() {
+        return this.client.send('subscriptions.getFreePremiumMode', {});
+    }
+
+    @Post('settings/free-premium')
+    @ApiOperation({ summary: 'Activar o desactivar el Modo Acceso Libre (Global Free Premium)' })
+    @ApiResponse({ status: 200, description: 'Modo acceso libre actualizado' })
+    setFreePremiumMode(@Body() body: { enabled: boolean }) {
+        return this.client.send('subscriptions.setFreePremiumMode', { enabled: !!body?.enabled });
+    }
+
     /**
      * Procesa un cargo directo a tarjeta
      */
