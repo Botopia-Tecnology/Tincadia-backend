@@ -433,7 +433,7 @@ export class SubscriptionsService {
                 planId: premiumPlan?.id || 'e3680cc7-a8f4-4402-bfe2-f6f3047fdece',
                 planName: premiumPlan?.name || 'PLAN PREMIUM (Acceso Libre)',
                 planType: 'personal_premium',
-                currentPeriodEnd: new Date('2099-12-31T23:59:59.000Z'),
+                currentPeriodEnd: new Date(Date.now() + 100 * 24 * 60 * 60 * 1000),
                 cancelAtPeriodEnd: false,
                 permissions: premiumPlan?.includes && premiumPlan.includes.length > 0 ? premiumPlan.includes : defaultPermissions,
                 features: premiumPlan?.features && Object.keys(premiumPlan.features).length > 0 ? premiumPlan.features : defaultFeatures,
