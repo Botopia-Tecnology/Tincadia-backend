@@ -24,6 +24,9 @@ import { FormsModule } from './forms/forms.module';
         ssl: (configService.get<string>('DB_HOST')?.includes('supabase.co') || configService.get<string>('DB_HOST')?.includes('supabase.com'))
           ? { rejectUnauthorized: false }
           : false,
+        extra: {
+          statement_cache_size: 0,
+        },
       }),
       inject: [ConfigService],
     }),

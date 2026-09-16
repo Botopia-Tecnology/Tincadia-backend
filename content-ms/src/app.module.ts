@@ -28,6 +28,9 @@ import { LandingConfigModule } from './landing-config/landing-config.module';
             configService.get<string>('DB_HOST')?.includes('supabase.co')
               ? { rejectUnauthorized: false }
               : false,
+          extra: {
+            statement_cache_size: 0,
+          },
         };
       },
     }),

@@ -30,6 +30,9 @@ import { RevenueCatModule } from './revenuecat/revenuecat.module';
         ssl: {
           rejectUnauthorized: false,
         },
+        extra: {
+          statement_cache_size: 0,
+        },
       }),
     }),
     PaymentsModule,

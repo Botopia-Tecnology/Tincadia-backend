@@ -27,6 +27,9 @@ import {
         ssl: configService.get<string>('DB_HOST')?.includes('supabase.co')
           ? { rejectUnauthorized: false }
           : false,
+        extra: {
+          statement_cache_size: 0,
+        },
       }),
     }),
     ContactsModule,
