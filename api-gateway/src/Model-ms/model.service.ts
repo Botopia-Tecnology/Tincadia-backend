@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, OnModuleInit } from '@nestjs/common';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -6,7 +6,7 @@ import { io, Socket as ClientSocket } from 'socket.io-client';
 import { Socket as ServerSocket } from 'socket.io'; // Import server socket type for type safety
 
 @Injectable()
-export class ModelService {
+export class ModelService implements OnModuleInit {
     private readonly pythonServiceUrl = process.env.MODEL_MS_URL || 'http://127.0.0.1:8000';
     private readonly logsEnabled = process.env.LOGS_ENABLED?.toLowerCase() !== 'false';
     // Asumiendo que api-gateway está en Tincadia-backend/api-gateway
@@ -15,6 +15,29 @@ export class ModelService {
 
     // Store Python sockets mapped by Frontend Client ID
     private pythonSessions: Map<string, ClientSocket> = new Map();
+    private warmupInterval: NodeJS.Timeout | null = null;
+
+    async onModuleInit() {
+        // Precalentar el microservicio de Python al arrancar api-gateway
+        this.warmupModelService();
+        // Ping cada 4 minutos para evitar suspensión por inactividad en entornos cloud
+        this.warmupInterval = setInterval(() => {
+            this.warmupModelService();
+        }, 4 * 60 * 1000);
+    }
+
+    private async warmupModelService() {
+        try {
+            await this.ensureServiceIsRunning();
+            if (this.logsEnabled) {
+                console.log(`[ModelService] Keep-alive ping a Model-ms (${this.pythonServiceUrl}) exitoso`);
+            }
+        } catch (err: any) {
+            if (this.logsEnabled) {
+                console.warn(`[ModelService] Warmup ping a Model-ms: ${err?.message || err}`);
+            }
+        }
+    }
 
     async videoToText(file?: Express.Multer.File): Promise<any> {
         if (!file) {
