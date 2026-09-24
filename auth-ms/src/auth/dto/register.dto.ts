@@ -1,4 +1,6 @@
 import { IsEmail, IsNotEmpty, IsString, MinLength, IsNumber, IsOptional } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { normalizeAndValidatePhone } from '../../common/utils/phone.util';
 
 export class RegisterDto {
   @IsEmail()
@@ -28,5 +30,6 @@ export class RegisterDto {
 
   @IsString()
   @IsNotEmpty()
+  @Transform(({ value }) => (typeof value === 'string' ? normalizeAndValidatePhone(value) : value))
   phone: string;
 }

@@ -1,5 +1,7 @@
 import { IsEmail, IsNotEmpty, IsString, MinLength, IsOptional, IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { normalizeAndValidatePhone } from '../../common/utils/phone.util';
 
 export class RegisterDto {
   @ApiProperty({ example: 'usuario@gmail.com' })
@@ -33,8 +35,9 @@ export class RegisterDto {
   @IsNotEmpty({ message: 'El número de documento es requerido' })
   documentNumber: string;
 
-  @ApiProperty({ example: '3001234567' })
+  @ApiProperty({ example: '+573001234567' })
   @IsString()
   @IsNotEmpty({ message: 'El teléfono es requerido' })
+  @Transform(({ value }) => typeof value === 'string' ? normalizeAndValidatePhone(value) : value)
   phone: string;
 }

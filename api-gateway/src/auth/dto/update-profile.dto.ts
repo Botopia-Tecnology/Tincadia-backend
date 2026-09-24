@@ -1,5 +1,7 @@
 import { IsString, IsOptional, IsUrl, IsNumber } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { normalizeAndValidatePhone } from '../../common/utils/phone.util';
 
 export class UpdateProfileDto {
   @ApiProperty({ example: 'Juan', required: false })
@@ -22,9 +24,10 @@ export class UpdateProfileDto {
   @IsOptional()
   documentNumber?: string;
 
-  @ApiProperty({ example: '+1234567890', required: false })
+  @ApiProperty({ example: '+573001234567', required: false })
   @IsString()
   @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() ? normalizeAndValidatePhone(value) : value))
   phone?: string;
 
   @ApiProperty({ example: 'https://example.com/avatar.jpg', required: false })

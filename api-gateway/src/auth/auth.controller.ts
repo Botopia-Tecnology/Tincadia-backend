@@ -16,6 +16,7 @@ import { LogoutDto } from './dto/logout.dto';
 import { VerifyTokenDto } from './dto/verify-token.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import { normalizeAndValidatePhone } from '../common/utils/phone.util';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -82,6 +83,9 @@ export class AuthController {
   @ApiResponse({ status: 409, description: 'El usuario ya existe' })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   register(@Body() registerDto: RegisterDto) {
+    if (registerDto.phone) {
+      registerDto.phone = normalizeAndValidatePhone(registerDto.phone);
+    }
     return this.client.send('register', registerDto);
   }
 
@@ -278,6 +282,9 @@ export class AuthController {
   @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
   @ApiResponse({ status: 400, description: 'Datos de entrada inválidos' })
   updateProfile(@Param('userId') userId: string, @Body() updateData: UpdateProfileDto) {
+    if (updateData.phone) {
+      updateData.phone = normalizeAndValidatePhone(updateData.phone);
+    }
     return this.client.send('update_profile', { userId, updateData });
   }
 

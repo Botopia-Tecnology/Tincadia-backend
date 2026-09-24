@@ -18,6 +18,7 @@ import { OAuthLoginDto } from './dto/oauth-login.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { normalizeAndValidatePhone } from '../common/utils/phone.util';
 
 @Injectable()
 export class AuthService {
@@ -72,13 +73,14 @@ export class AuthService {
 
   async register(data: RegisterDto): Promise<any> {
     const { email, password, firstName, lastName, documentTypeId, documentNumber, phone } = data;
+    const normalizedPhone = phone ? normalizeAndValidatePhone(phone) : '';
 
     try {
       const supabase = this.supabaseService.getAdminClient();
 
       // 0. Validar si el teléfono o documento ya existen antes de tocar Supabase Auth
-      if (phone) {
-        const existingPhone = await this.profileService.findByPhone(phone);
+      if (normalizedPhone) {
+        const existingPhone = await this.profileService.findByPhone(normalizedPhone);
         if (existingPhone) {
           throw new ConflictException('El número ya se encuentra registrado');
         }
@@ -122,7 +124,7 @@ export class AuthService {
           lastName,
           documentTypeId,
           documentNumber: documentNumber || '',
-          phone: phone || '',
+          phone: normalizedPhone,
         });
 
         // 3. Generate JWT token
@@ -320,10 +322,14 @@ export class AuthService {
         }
       }
 
+      let normalizedPhone: string | undefined;
       if (data.phone !== undefined) {
-        const existingPhone = await this.profileService.findByPhone(data.phone);
-        if (existingPhone && existingPhone.id !== userId) {
-          throw new ConflictException('Este número de teléfono ya está registrado.');
+        normalizedPhone = data.phone && data.phone.trim() ? normalizeAndValidatePhone(data.phone) : '';
+        if (normalizedPhone) {
+          const existingPhone = await this.profileService.findByPhone(normalizedPhone);
+          if (existingPhone && existingPhone.id !== userId) {
+            throw new ConflictException('Este número de teléfono ya está registrado.');
+          }
         }
       }
 
@@ -331,7 +337,7 @@ export class AuthService {
       const updateData: any = {};
       if (data.documentTypeId !== undefined) updateData.documentTypeId = data.documentTypeId;
       if (data.documentNumber !== undefined) updateData.documentNumber = data.documentNumber;
-      if (data.phone !== undefined) updateData.phone = data.phone;
+      if (normalizedPhone !== undefined) updateData.phone = normalizedPhone;
       if (data.pushToken !== undefined) updateData.pushToken = data.pushToken;
       if (data.firstName !== undefined) updateData.firstName = data.firstName;
       if (data.lastName !== undefined) updateData.lastName = data.lastName;

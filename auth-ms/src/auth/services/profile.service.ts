@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Profile } from '../../entities/profile.entity';
+import { normalizeAndValidatePhone } from '../../common/utils/phone.util';
 
 export interface CreateProfileData {
     id: string;
@@ -46,8 +47,18 @@ export class ProfileService {
     }
 
     async findByPhone(phone: string): Promise<Profile | null> {
+        if (!phone) return null;
+        let queryPhone = phone;
+        try {
+            queryPhone = normalizeAndValidatePhone(phone);
+        } catch {
+            // Keep original if normalizer throws
+        }
         return this.profileRepository.findOne({
-            where: { phone },
+            where: [
+                { phone: queryPhone },
+                { phone },
+            ],
         });
     }
 

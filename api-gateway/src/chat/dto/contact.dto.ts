@@ -1,5 +1,7 @@
 import { IsString, IsOptional, IsUUID, IsNotEmpty, IsDateString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
+import { normalizeAndValidatePhone } from '../../common/utils/phone.util';
 
 export class AddContactDto {
     @ApiProperty({ description: 'ID del usuario que agrega el contacto' })
@@ -10,6 +12,7 @@ export class AddContactDto {
     @ApiProperty({ description: 'Número de teléfono del contacto a agregar' })
     @IsString()
     @IsNotEmpty()
+    @Transform(({ value }) => (typeof value === 'string' ? normalizeAndValidatePhone(value) : value))
     phone: string;
 
     @ApiPropertyOptional({ description: 'Alias personalizado para el contacto' })
