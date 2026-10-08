@@ -30,6 +30,14 @@ RUN pip install --no-cache-dir torch==2.1.0+cpu --extra-index-url https://downlo
 # Instalar el resto de las dependencias
 RUN pip install --no-cache-dir -r requirements_lsc.txt
 
+# Descargar modelo Vosk de alta precisión (1.4 GB) durante la fase de BUILD (Railway / Docker)
+# Al ejecutarlo aquí (antes de 'COPY . .'):
+# 1. Se ejecuta AUTOMÁTICAMENTE una única vez al subir/desplegar en Railway (docker build).
+# 2. NO se descarga al iniciar o reiniciar el contenedor (0 segundos de espera en runtime).
+# 3. Docker cachea esta capa para que futuros commits de código no vuelvan a descargar 1.4 GB.
+COPY download_model.py .
+RUN python download_model.py
+
 # Copiar el resto del código
 COPY . .
 

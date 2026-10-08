@@ -97,6 +97,10 @@ Thumbs.db
 *.pth
 *.onnx
 *.tflite
+models/vosk-model-es-0.42/
+models/*.zip
+*.carpa
+*.fst
 
 # Logs
 *.log

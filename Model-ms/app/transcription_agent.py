@@ -3,6 +3,14 @@ import os
 import json
 import logging
 import sys
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from livekit import api, rtc
 from vosk import Model, KaldiRecognizer
 import numpy as np
@@ -20,10 +28,19 @@ AGENT_IDENTITY_PREFIX = "transcriber-"
 LOG_TRANSCRIBE_PARTIALS = os.getenv("TRANSCRIBE_LOG_PARTIALS", "").lower() in ("1", "true", "yes")
 
 # Vosk Model Path
-MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models", "vosk-model-small-es-0.42")
+PREFERRED_MODEL_NAME = os.getenv("VOSK_MODEL_NAME", "vosk-model-es-0.42")
+MODELS_BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
-if not os.path.exists(MODEL_PATH):
-    MODEL_PATH = "models/vosk-model-small-es-0.42"
+candidate_path = os.getenv("VOSK_MODEL_PATH") or os.path.join(MODELS_BASE_DIR, PREFERRED_MODEL_NAME)
+fallback_path = os.path.join(MODELS_BASE_DIR, "vosk-model-small-es-0.42")
+
+if os.path.exists(candidate_path):
+    MODEL_PATH = candidate_path
+elif os.path.exists(fallback_path):
+    logger.warning(f"⚠️ Modelo '{PREFERRED_MODEL_NAME}' no encontrado. Usando fallback ligero: {fallback_path}")
+    MODEL_PATH = fallback_path
+else:
+    MODEL_PATH = os.path.join("models", PREFERRED_MODEL_NAME)
 
 # Global model instance
 model = None
